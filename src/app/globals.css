@@ -263,3 +263,141 @@ select {
 :root.dark .fixed.inset-0 {
   background-color: var(--hub-overlay);
 }
+
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+
+  html.printing-reimbursement-report,
+  html.printing-reimbursement-report body {
+    background: #ffffff !important;
+    color: #111827 !important;
+  }
+
+  html.printing-reimbursement-report body * {
+    visibility: hidden;
+  }
+
+  html.printing-reimbursement-report .reimbursement-report-shell,
+  html.printing-reimbursement-report .reimbursement-report-shell * {
+    visibility: visible;
+  }
+
+  html.printing-reimbursement-report .reimbursement-report-shell {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    background: #ffffff !important;
+    color: #111827 !important;
+  }
+
+  html.printing-reimbursement-report .fixed.inset-0 {
+    position: static !important;
+    display: block !important;
+    background: #ffffff !important;
+    padding: 0 !important;
+  }
+
+  html.printing-reimbursement-report .fixed.inset-0 > div {
+    max-height: none !important;
+    width: 100% !important;
+    max-width: none !important;
+    overflow: visible !important;
+    border: 0 !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+
+  html.printing-reimbursement-report .fixed.inset-0 > div > div:first-child,
+  html.printing-reimbursement-report .report-actions {
+    display: none !important;
+  }
+
+  html.printing-reimbursement-report .reimbursement-report {
+    width: 100% !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    font-size: 10.5pt !important;
+  }
+
+  html.printing-reimbursement-report .report-header {
+    break-after: avoid;
+    padding-bottom: 10pt !important;
+  }
+
+  html.printing-reimbursement-report .report-summary {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 6pt !important;
+    break-inside: avoid;
+  }
+
+  html.printing-reimbursement-report .report-metric {
+    break-inside: avoid;
+    border: 1px solid #d1d5db !important;
+    background: #f9fafb !important;
+    color: #111827 !important;
+    padding: 6pt !important;
+  }
+
+  html.printing-reimbursement-report .report-person-group {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    border: 1px solid #d1d5db !important;
+    background: #ffffff !important;
+    margin-top: 12pt !important;
+  }
+
+  html.printing-reimbursement-report .report-person-header {
+    break-after: avoid;
+    background: #f3f4f6 !important;
+    padding: 8pt !important;
+  }
+
+  html.printing-reimbursement-report .report-table {
+    width: 100% !important;
+    table-layout: fixed !important;
+    border-collapse: collapse !important;
+    font-size: 9pt !important;
+  }
+
+  html.printing-reimbursement-report .report-table thead {
+    display: table-header-group;
+  }
+
+  html.printing-reimbursement-report .report-table tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  html.printing-reimbursement-report .report-table th,
+  html.printing-reimbursement-report .report-table td {
+    border-bottom: 1px solid #e5e7eb !important;
+    color: #111827 !important;
+    padding: 6pt !important;
+    vertical-align: top !important;
+    word-break: break-word !important;
+  }
+
+  html.printing-reimbursement-report .report-table th {
+    background: #f9fafb !important;
+    font-size: 7.5pt !important;
+  }
+
+  html.printing-reimbursement-report .report-row-late {
+    background: #fff7ed !important;
+  }
+
+  html.printing-reimbursement-report .report-footer {
+    break-before: avoid;
+    color: #4b5563 !important;
+    margin-top: 14pt !important;
+    padding-top: 8pt !important;
+  }
+}

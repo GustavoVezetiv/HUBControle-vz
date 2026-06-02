@@ -146,7 +146,6 @@ export function ReimbursementsCrud() {
       .sort((a, b) => b.open - a.open);
   }, [people, periodReimbursements]);
 
-  const reportSummary = useMemo(() => summarizeReimbursements(filteredReimbursements), [filteredReimbursements]);
   const selectedPerson = personFilter === "all" ? null : people.find((person) => person.id === personFilter) ?? null;
 
   async function loadData() {
@@ -655,12 +654,13 @@ export function ReimbursementsCrud() {
       {reportOpen ? (
         <ReimbursementReportModal
           accounts={accounts}
+          cards={cards}
           categories={categories}
           income={income}
+          invoices={invoices}
           period={period}
           person={selectedPerson}
           reimbursements={filteredReimbursements}
-          summary={reportSummary}
           transactions={transactions}
           people={people}
           onClose={() => setReportOpen(false)}
@@ -951,83 +951,189 @@ function LinkedEntryModal({
 
 function ReimbursementReportModal({
   accounts,
+  cards,
   categories,
   income,
+  invoices,
   period,
   person,
   people,
   reimbursements,
-  summary,
   transactions,
   onClose,
 }: {
   accounts: ReimbursementAccount[];
+  cards: ReimbursementCard[];
   categories: ReimbursementCategory[];
   income: ReimbursementIncome[];
+  invoices: ReimbursementInvoice[];
   period: PeriodValue;
   person: ReimbursementPerson | null;
   people: ReimbursementPerson[];
   reimbursements: ReimbursementRow[];
-  summary: ReturnType<typeof summarizeReimbursements>;
   transactions: ReimbursementTransaction[];
   onClose: () => void;
 }) {
+  const generatedAt = new Date();
+  const summary = summarizeReportReimbursements(reimbursements);
+  const groups = groupReimbursementsByPerson(reimbursements, people);
+
+  function handlePrint() {
+    document.documentElement.classList.add("printing-reimbursement-report");
+    window.print();
+    window.setTimeout(() => {
+      document.documentElement.classList.remove("printing-reimbursement-report");
+    }, 300);
+  }
+
   return (
     <Modal title="Relatório de reembolsos" onClose={onClose}>
-      <div className="space-y-5">
-        <div className="flex flex-wrap justify-between gap-3 print:hidden">
-          <p className="text-sm text-ink-600">Use a impressão do navegador para salvar em PDF.</p>
-          <ActionButton variant="secondary" onClick={() => window.print()}>Imprimir / PDF</ActionButton>
+      <div className="reimbursement-report-shell space-y-5">
+        <div className="report-actions flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-ink-600">Relatório otimizado para impressão/PDF. Usa os filtros atuais da tela.</p>
+          <div className="flex flex-wrap gap-2">
+            <ActionButton variant="secondary" onClick={handlePrint}>Exportar PDF</ActionButton>
+            <ActionButton variant="secondary" onClick={onClose}>Voltar</ActionButton>
+          </div>
         </div>
-        <div className="rounded-md border border-ink-950/10 bg-white p-5">
-          <h2 className="text-xl font-semibold text-ink-950">Relatório de reembolsos</h2>
-          <div className="mt-3 grid gap-2 text-sm text-ink-600 md:grid-cols-3">
-            <p><strong className="text-ink-950">Período:</strong> {formatPeriodLabel(period)}</p>
-            <p><strong className="text-ink-950">Pessoa:</strong> {person?.name ?? "Todas as pessoas"}</p>
-            <p><strong className="text-ink-950">Lançamentos:</strong> {reimbursements.length}</p>
-          </div>
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
-            <StatCard label="Total esperado" value={formatCurrency(summary.expected)} helper="Dinheiro vinculado." tone="warning" />
-            <StatCard label="Total recebido" value={formatCurrency(summary.received)} helper="Pix recebido." tone="success" />
-            <StatCard label="Total em aberto" value={formatCurrency(summary.open)} helper="Ainda depende de terceiros." tone="danger" />
-          </div>
-          <div className="mt-5 overflow-x-auto">
-            <table className="min-w-full divide-y divide-ink-950/10 text-left text-sm">
-              <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-ink-600">
-                <tr>
-                  <th className="px-3 py-2">Lançamento</th>
-                  <th className="px-3 py-2">Pessoa</th>
-                  <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2">Categoria</th>
-                  <th className="px-3 py-2">Prevista</th>
-                  <th className="px-3 py-2">Recebida</th>
-                  <th className="px-3 py-2">Esperado</th>
-                  <th className="px-3 py-2">Recebido</th>
-                  <th className="px-3 py-2">Vínculo</th>
-                  <th className="px-3 py-2">Observações</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-ink-950/10">
-                {reimbursements.map((reimbursement) => (
-                  <tr key={reimbursement.id}>
-                    <td className="px-3 py-2 text-ink-950">{reimbursement.description ?? "-"}</td>
-                    <td className="px-3 py-2 text-ink-600">{people.find((item) => item.id === reimbursement.person_id)?.name ?? "-"}</td>
-                    <td className="px-3 py-2 text-ink-600">{optionLabel(reimbursementStatusOptions, reimbursement.status)}</td>
-                    <td className="px-3 py-2"><CategoryBadge category={categories.find((category) => category.id === reimbursement.category_id)} /></td>
-                    <td className="px-3 py-2 text-ink-600">{formatDate(reimbursement.expected_date)}</td>
-                    <td className="px-3 py-2 text-ink-600">{formatDate(reimbursement.received_date)}</td>
-                    <td className="px-3 py-2 text-ink-950">{formatCurrency(Number(reimbursement.expected_amount))}</td>
-                    <td className="px-3 py-2 text-ink-600">{formatCurrency(Number(reimbursement.received_amount))}</td>
-                    <td className="px-3 py-2 text-ink-600">{getLinkedLabel(reimbursement, transactions, accounts, income)}</td>
-                    <td className="px-3 py-2 text-ink-600">{reimbursement.notes ?? "-"}</td>
-                  </tr>
+
+        <article className="reimbursement-report rounded-lg border border-ink-950/10 bg-white p-6 text-ink-950 shadow-sm">
+          <header className="report-header border-b border-ink-950/10 pb-5">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-mint-600">Hub VZ</p>
+                <h2 className="mt-2 text-2xl font-semibold tracking-tight text-ink-950">Relatório de Reembolsos</h2>
+                <p className="mt-2 text-sm leading-6 text-ink-600">
+                  {formatPeriodLabel(period)} · Gerado em {formatDateTime(generatedAt)} · {person?.name ?? "Todas as pessoas"}
+                </p>
+              </div>
+              <div className="rounded-md border border-mint-500/30 bg-mint-100 px-3 py-2 text-right text-xs font-semibold uppercase tracking-[0.12em] text-mint-600">
+                Documento de apoio
+              </div>
+            </div>
+          </header>
+
+          {reimbursements.length === 0 ? (
+            <div className="mt-8 rounded-md border border-dashed border-ink-950/18 bg-slate-50 px-6 py-10 text-center">
+              <p className="text-base font-semibold text-ink-950">Nenhum reembolso encontrado para os filtros selecionados.</p>
+              <p className="mt-2 text-sm text-ink-600">Volte e ajuste período, pessoa, status, categoria, vínculo ou busca.</p>
+            </div>
+          ) : (
+            <>
+              <section className="report-summary mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <ReportMetric label="Total esperado" value={formatCurrency(summary.expected)} />
+                <ReportMetric label="Total recebido" value={formatCurrency(summary.received)} />
+                <ReportMetric label="Total em aberto" value={formatCurrency(summary.open)} tone={summary.open > 0 ? "warning" : "success"} />
+                <ReportMetric label="Quantidade de reembolsos" value={String(summary.count)} />
+                <ReportMetric label="Quantidade de pessoas" value={String(summary.personCount)} />
+                <ReportMetric label="Maior valor em aberto" value={formatCurrency(summary.largestOpen)} tone={summary.largestOpen > 0 ? "warning" : "neutral"} />
+                <ReportMetric label="Próximo recebimento previsto" value={summary.nextExpectedDate ? formatDate(summary.nextExpectedDate) : "-"} />
+                <ReportMetric label="Percentual recebido" value={`${summary.receivedPercentage.toFixed(1)}%`} tone={summary.receivedPercentage >= 80 ? "success" : "neutral"} />
+              </section>
+
+              <section className="mt-7 space-y-5">
+                {groups.map((group) => (
+                  <div key={group.person.id} className="report-person-group rounded-lg border border-ink-950/10 bg-white">
+                    <div className="report-person-header border-b border-ink-950/10 bg-slate-50 px-4 py-3">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <h3 className="text-base font-semibold text-ink-950">{group.person.name}</h3>
+                          <p className="mt-1 text-xs font-medium uppercase tracking-[0.12em] text-ink-600">{group.statusLabel}</p>
+                        </div>
+                        <div className="grid gap-x-4 gap-y-1 text-right text-xs text-ink-600 sm:grid-cols-4">
+                          <p><strong className="block text-ink-950">{formatCurrency(group.summary.expected)}</strong> esperado</p>
+                          <p><strong className="block text-ink-950">{formatCurrency(group.summary.received)}</strong> recebido</p>
+                          <p><strong className="block text-ink-950">{formatCurrency(group.summary.open)}</strong> em aberto</p>
+                          <p><strong className="block text-ink-950">{group.summary.count}</strong> itens</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <table className="report-table w-full table-fixed border-collapse text-left text-sm">
+                      <thead>
+                        <tr className="border-b border-ink-950/10 text-xs uppercase tracking-[0.12em] text-ink-600">
+                          <th className="w-[14%] px-4 py-3 font-semibold">Data prevista</th>
+                          <th className="w-[34%] px-4 py-3 font-semibold">Descrição</th>
+                          <th className="w-[14%] px-4 py-3 font-semibold">Categoria</th>
+                          <th className="w-[12%] px-4 py-3 text-right font-semibold">Esperado</th>
+                          <th className="w-[12%] px-4 py-3 text-right font-semibold">Recebido</th>
+                          <th className="w-[12%] px-4 py-3 text-right font-semibold">Em aberto</th>
+                          <th className="w-[12%] px-4 py-3 font-semibold">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-ink-950/10">
+                        {group.rows.map((reimbursement) => {
+                          const openAmount = getOpenAmount(reimbursement);
+                          const category = categories.find((item) => item.id === reimbursement.category_id);
+                          const late = isLateReimbursement(reimbursement);
+
+                          return (
+                            <tr key={reimbursement.id} className={late ? "report-row-late bg-amberRisk-100/45" : ""}>
+                              <td className="px-4 py-3 align-top text-ink-600">
+                                <span className={late ? "font-semibold text-amberRisk-500" : ""}>{formatDate(reimbursement.expected_date)}</span>
+                                {reimbursement.received_date ? (
+                                  <span className="mt-1 block text-xs text-ink-600">Recebido: {formatDate(reimbursement.received_date)}</span>
+                                ) : null}
+                              </td>
+                              <td className="px-4 py-3 align-top">
+                                <p className="font-semibold text-ink-950">{reimbursement.description ?? "Reembolso sem descrição"}</p>
+                                <p className="mt-1 text-xs leading-5 text-ink-600">
+                                  Vínculo: {getLinkedLabel(reimbursement, transactions, accounts, income, invoices, cards)}
+                                </p>
+                                {reimbursement.notes ? (
+                                  <p className="mt-1 text-xs leading-5 text-ink-600">Obs.: {reimbursement.notes}</p>
+                                ) : null}
+                              </td>
+                              <td className="px-4 py-3 align-top text-ink-600">{category?.name ?? "-"}</td>
+                              <td className="px-4 py-3 text-right align-top font-semibold text-ink-950">{formatCurrency(Number(reimbursement.expected_amount))}</td>
+                              <td className="px-4 py-3 text-right align-top text-ink-600">{formatCurrency(Number(reimbursement.received_amount))}</td>
+                              <td className="px-4 py-3 text-right align-top font-semibold text-ink-950">{formatCurrency(openAmount)}</td>
+                              <td className="px-4 py-3 align-top">
+                                <span className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${late ? "bg-amberRisk-100 text-amberRisk-500" : "bg-ink-950/5 text-ink-600"}`}>
+                                  {late ? "Atrasado" : optionLabel(reimbursementStatusOptions, reimbursement.status)}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+              </section>
+            </>
+          )}
+
+          <footer className="report-footer mt-8 border-t border-ink-950/10 pt-4 text-xs leading-5 text-ink-600">
+            Hub VZ · Relatório gerado em {formatDateTime(generatedAt)} · Reembolsos são dinheiro vinculado, não renda livre.
+          </footer>
+        </article>
       </div>
     </Modal>
+  );
+}
+
+function ReportMetric({
+  label,
+  value,
+  tone = "neutral",
+}: {
+  label: string;
+  value: string;
+  tone?: "neutral" | "success" | "warning";
+}) {
+  const toneClass =
+    tone === "success"
+      ? "border-mint-500/30 bg-mint-100 text-mint-600"
+      : tone === "warning"
+        ? "border-amberRisk-500/30 bg-amberRisk-100 text-amberRisk-500"
+        : "border-ink-950/10 bg-slate-50 text-ink-950";
+
+  return (
+    <div className={`report-metric rounded-md border px-3 py-2 ${toneClass}`}>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] opacity-80">{label}</p>
+      <p className="mt-1 text-base font-semibold tracking-tight">{value}</p>
+    </div>
   );
 }
 
@@ -1036,10 +1142,21 @@ function getLinkedLabel(
   transactions: ReimbursementTransaction[],
   accounts: ReimbursementAccount[],
   income: ReimbursementIncome[],
+  invoices: ReimbursementInvoice[] = [],
+  cards: ReimbursementCard[] = [],
 ) {
+  if (reimbursement.credit_card_invoice_id) {
+    const invoice = invoices.find((item) => item.id === reimbursement.credit_card_invoice_id);
+    const card = cards.find((item) => item.id === invoice?.credit_card_id);
+
+    if (invoice) {
+      return `Fatura ${card?.name ?? "cartão"} ${invoice.reference_month.slice(0, 7)}`;
+    }
+  }
+
   if (reimbursement.credit_card_transaction_id) {
     const transaction = transactions.find((item) => item.id === reimbursement.credit_card_transaction_id);
-    return transaction ? `Cartão: ${transaction.description}` : "Lançamento de cartão";
+    return transaction ? `Lançamento: ${transaction.description}` : "Lançamento de cartão";
   }
 
   if (reimbursement.account_payable_id) {
@@ -1062,18 +1179,82 @@ function getLinkedTone(reimbursement: ReimbursementRow) {
   return "neutral";
 }
 
-function summarizeReimbursements(rows: ReimbursementRow[]) {
+function summarizeReportReimbursements(rows: ReimbursementRow[]) {
   const expected = rows.reduce((sum, item) => sum + Number(item.expected_amount), 0);
   const received = rows.reduce((sum, item) => sum + Number(item.received_amount), 0);
-  const open = rows
-    .filter((item) => ["expected", "partial", "late"].includes(item.status))
-    .reduce((sum, item) => sum + Number(item.expected_amount) - Number(item.received_amount), 0);
+  const open = rows.reduce((sum, item) => sum + getOpenAmount(item), 0);
+  const largestOpen = rows.reduce((max, item) => Math.max(max, getOpenAmount(item)), 0);
+  const personCount = new Set(rows.map((item) => item.person_id)).size;
+  const nextExpectedDate =
+    rows
+      .filter((item) => getOpenAmount(item) > 0 && item.expected_date)
+      .sort((a, b) => String(a.expected_date).localeCompare(String(b.expected_date)))[0]?.expected_date ?? null;
+  const receivedPercentage = expected > 0 ? (received / expected) * 100 : 0;
 
-  return { expected, received, open };
+  return { expected, received, open, count: rows.length, personCount, largestOpen, nextExpectedDate, receivedPercentage };
+}
+
+function groupReimbursementsByPerson(rows: ReimbursementRow[], people: ReimbursementPerson[]) {
+  const groups = new Map<string, ReimbursementRow[]>();
+
+  rows.forEach((row) => {
+    const current = groups.get(row.person_id) ?? [];
+    current.push(row);
+    groups.set(row.person_id, current);
+  });
+
+  return Array.from(groups.entries())
+    .map(([personId, groupRows]) => {
+      const person = people.find((item) => item.id === personId) ?? { id: personId, name: "Pessoa não encontrada" };
+      const sortedRows = [...groupRows].sort((a, b) => String(a.expected_date ?? "").localeCompare(String(b.expected_date ?? "")));
+      const summary = summarizePersonGroup(sortedRows);
+
+      return {
+        person,
+        rows: sortedRows,
+        summary,
+        statusLabel: getPersonGroupStatusLabel(sortedRows),
+      };
+    })
+    .sort((a, b) => b.summary.open - a.summary.open || a.person.name.localeCompare(b.person.name));
+}
+
+function summarizePersonGroup(rows: ReimbursementRow[]) {
+  const expected = rows.reduce((sum, item) => sum + Number(item.expected_amount), 0);
+  const received = rows.reduce((sum, item) => sum + Number(item.received_amount), 0);
+  const open = rows.reduce((sum, item) => sum + getOpenAmount(item), 0);
+
+  return { expected, received, open, count: rows.length };
+}
+
+function getPersonGroupStatusLabel(rows: ReimbursementRow[]) {
+  if (rows.some(isLateReimbursement)) return "Com itens atrasados";
+  if (rows.some((item) => getOpenAmount(item) > 0)) return "Com valores em aberto";
+  return "Tudo recebido ou encerrado";
+}
+
+function getOpenAmount(reimbursement: ReimbursementRow) {
+  if (["received", "cancelled", "forgiven"].includes(reimbursement.status)) return 0;
+  return Math.max(Number(reimbursement.expected_amount) - Number(reimbursement.received_amount), 0);
+}
+
+function isLateReimbursement(reimbursement: ReimbursementRow) {
+  if (["received", "cancelled", "forgiven"].includes(reimbursement.status)) return false;
+  if (reimbursement.status === "late") return true;
+  if (!reimbursement.expected_date) return false;
+
+  return reimbursement.expected_date < new Date().toISOString().slice(0, 10);
+}
+
+function formatDateTime(date: Date) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(date);
 }
 
 function formatPeriodLabel(period: PeriodValue) {
-  if (period.preset === "all") return "Todos";
+  if (period.preset === "all") return "Todos os períodos";
   if (period.startDate && period.endDate) return `${formatDate(period.startDate)} até ${formatDate(period.endDate)}`;
   return "Período selecionado";
 }
