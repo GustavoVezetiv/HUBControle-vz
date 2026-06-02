@@ -20,26 +20,41 @@ loadEnvFile(".env.local");
 loadEnvFile(".env");
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const userId = process.env.SUPABASE_IMPORT_USER_ID;
+const accessToken = process.env.SUPABASE_IMPORT_ACCESS_TOKEN;
+let userId = process.env.SUPABASE_IMPORT_USER_ID;
 
 if (!fs.existsSync(filePath)) {
   fail(`Arquivo não encontrado: ${filePath}`);
 }
 
-if (!offlinePreview && (!supabaseUrl || !serviceRoleKey || !userId)) {
+if (!offlinePreview && !hasDatabaseCredentials()) {
   fail([
     "Variáveis obrigatórias ausentes.",
-    "Defina NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY e SUPABASE_IMPORT_USER_ID.",
+    "Opção 1: defina NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY e SUPABASE_IMPORT_USER_ID.",
+    "Opção 2: defina NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY e SUPABASE_IMPORT_ACCESS_TOKEN.",
     "A service role key deve ser usada somente localmente neste script, nunca no frontend/Vercel.",
   ].join("\n"));
 }
 
 const supabase = offlinePreview
   ? null
-  : createClient(supabaseUrl, serviceRoleKey, {
+  : createClient(supabaseUrl, serviceRoleKey ?? supabaseAnonKey, {
       auth: { persistSession: false, autoRefreshToken: false },
+      global: accessToken
+        ? { headers: { Authorization: `Bearer ${accessToken}` } }
+        : undefined,
     });
+
+if (!offlinePreview && !serviceRoleKey) {
+  const authUserResult = await supabase.auth.getUser(accessToken);
+  if (authUserResult.error || !authUserResult.data.user) {
+    fail(`Falha ao validar SUPABASE_IMPORT_ACCESS_TOKEN: ${authUserResult.error?.message ?? "usuário não encontrado"}`);
+  }
+
+  userId = authUserResult.data.user.id;
+}
 
 const workbook = xlsx.readFile(filePath, { cellDates: true });
 const rawRows = readWorkbookRows(workbook);
@@ -99,6 +114,12 @@ function parseArgs(argv) {
     }
   }
   return parsed;
+}
+
+function hasDatabaseCredentials() {
+  if (!supabaseUrl) return false;
+  if (serviceRoleKey && userId) return true;
+  return Boolean(supabaseAnonKey && accessToken);
 }
 
 function resolveFilePath(input) {

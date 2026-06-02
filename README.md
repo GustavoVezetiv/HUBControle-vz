@@ -492,8 +492,20 @@ SUPABASE_SERVICE_ROLE_KEY=
 SUPABASE_IMPORT_USER_ID=
 ```
 
-`SUPABASE_SERVICE_ROLE_KEY` is only for this local admin script. Never add it to
-Vercel, `.env.example`, frontend code or any `NEXT_PUBLIC_` variable.
+Safer authenticated-user alternative:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_IMPORT_ACCESS_TOKEN=
+```
+
+With `SUPABASE_IMPORT_ACCESS_TOKEN`, the script validates the authenticated user
+and imports through normal RLS instead of service role privileges.
+
+`SUPABASE_SERVICE_ROLE_KEY` is only for this local admin script when the
+authenticated-user token is not used. Never add it to Vercel, `.env.example`,
+frontend code or any `NEXT_PUBLIC_` variable.
 The script loads `.env.local` automatically when the variables are not already
 available in the shell.
 
