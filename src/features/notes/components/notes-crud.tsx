@@ -8,9 +8,10 @@ import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
 import { createNote, deleteNote, listNotes, updateNote } from "@/features/notes/queries";
 import { emptyNoteForm, noteEntityTypeOptions, noteToFormValues, type NoteFormValues, type NoteRow } from "@/features/notes/types";
-import { ActionButton, BulkActionsBar, CrudFeedback, FieldShell, inputClassName, Modal, RowSelectionHint, shouldToggleRowSelection, TextBadge, TitleButton } from "@/features/shared/crud-ui";
+import { ActionButton, BulkActionsBar, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, RowSelectionHint, shouldToggleRowSelection, TextBadge, TitleButton } from "@/features/shared/crud-ui";
 import { formatDate } from "@/features/shared/format";
 import { optionLabel } from "@/features/shared/options";
+import { getQuickTableEditPreference } from "@/features/shared/quick-edit";
 import type { FeedbackState } from "@/features/shared/types";
 import { createClient } from "@/lib/supabase/client";
 
@@ -27,6 +28,7 @@ export function NotesCrud() {
   const [modal, setModal] = useState<ModalState>(null);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [allowQuickTableEdit, setAllowQuickTableEdit] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -38,9 +40,13 @@ export function NotesCrud() {
       return;
     }
     setUserId(auth.user.id);
-    const { data, error } = await listNotes(client);
+    const [{ data, error }, quickEdit] = await Promise.all([
+      listNotes(client),
+      getQuickTableEditPreference(client, auth.user.id),
+    ]);
     if (error) setFeedback({ type: "error", message: error.message });
     else setNotes(data ?? []);
+    setAllowQuickTableEdit(quickEdit);
     setLoading(false);
   }, []);
 
@@ -132,6 +138,19 @@ export function NotesCrud() {
     }
   }
 
+  async function handleQuickUpdate(note: NoteRow, patch: Partial<NoteFormValues>) {
+    const result = await updateNote(createClient(), note.id, { ...noteToFormValues(note), ...patch });
+
+    if (result.error) {
+      console.error("Erro técnico ao atualizar anotação:", result.error);
+      setFeedback({ type: "error", message: "Não foi possível atualizar a anotação." });
+      return;
+    }
+
+    setFeedback({ type: "success", message: "Anotação atualizada." });
+    await loadData();
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -206,14 +225,39 @@ export function NotesCrud() {
                   />
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <TitleButton onClick={() => setModal({ mode: "edit", item: note })}>{note.title || "Sem título"}</TitleButton>
+                      {allowQuickTableEdit ? (
+                        <QuickEditInput value={note.title ?? ""} onCommit={(value) => void handleQuickUpdate(note, { title: value })} />
+                      ) : (
+                        <TitleButton onClick={() => setModal({ mode: "edit", item: note })}>{note.title || "Sem título"}</TitleButton>
+                      )}
                       {note.pinned ? <TextBadge tone="warning">Fixada</TextBadge> : null}
-                      <TextBadge>{optionLabel(noteEntityTypeOptions, note.entity_type)}</TextBadge>
+                      {allowQuickTableEdit ? (
+                        <QuickEditSelect value={note.entity_type} options={noteEntityTypeOptions} onCommit={(value) => void handleQuickUpdate(note, { entity_type: value })} />
+                      ) : (
+                        <TextBadge>{optionLabel(noteEntityTypeOptions, note.entity_type)}</TextBadge>
+                      )}
                     </div>
-                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-ink-700">{note.body}</p>
+                    {allowQuickTableEdit ? (
+                      <textarea
+                        className="mt-2 min-h-24 w-full rounded-md border border-ink-950/10 bg-white px-3 py-2 text-sm leading-6 text-ink-700"
+                        defaultValue={note.body}
+                        onBlur={(event) => {
+                          if (event.currentTarget.value !== note.body) void handleQuickUpdate(note, { body: event.currentTarget.value });
+                        }}
+                      />
+                    ) : (
+                      <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-ink-700">{note.body}</p>
+                    )}
                     <p className="mt-3 text-xs text-ink-500">Atualizada em {formatDate(note.updated_at)}</p>
                   </div>
                   <div className="flex gap-2">
+                    {allowQuickTableEdit ? (
+                      <QuickEditSelect
+                        value={String(note.pinned)}
+                        options={[{ value: "true", label: "Fixada" }, { value: "false", label: "Normal" }]}
+                        onCommit={(value) => void handleQuickUpdate(note, { pinned: value === "true" })}
+                      />
+                    ) : null}
                     <ActionButton variant="secondary" onClick={() => setModal({ mode: "edit", item: note })}>Editar</ActionButton>
                     <ActionButton variant="danger" onClick={() => void handleDelete(note)}>Excluir</ActionButton>
                   </div>

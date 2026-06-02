@@ -6,7 +6,6 @@ import { SectionCard } from "@/components/ui/section-card";
 import { FieldShell, inputClassName } from "@/features/shared/crud-ui";
 import {
   type PeriodValue,
-  periodOptions,
   updatePeriodPreset,
   type PeriodPreset,
 } from "@/features/shared/period";
@@ -27,6 +26,13 @@ export function PeriodFilter({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const visiblePeriodOptions: Array<{ value: PeriodPreset; label: string }> = [
+    { value: "current_month", label: "Mês atual" },
+    { value: "next_month", label: "Próximo mês" },
+    { value: "last_30_days", label: "Últimos 30 dias" },
+    { value: "next_30_days", label: "Próximos 30 dias" },
+    { value: "all", label: "Todos" },
+  ];
 
   function emit(nextValue: PeriodValue) {
     onChange?.(nextValue);
@@ -36,11 +42,15 @@ export function PeriodFilter({
     const params = new URLSearchParams(searchParams.toString());
     params.set("period", nextValue.preset);
 
-    if (nextValue.preset === "custom") {
+    if (nextValue.startDate) {
       params.set("start", nextValue.startDate);
-      params.set("end", nextValue.endDate);
     } else {
       params.delete("start");
+    }
+
+    if (nextValue.endDate) {
+      params.set("end", nextValue.endDate);
+    } else {
       params.delete("end");
     }
 
@@ -56,34 +66,33 @@ export function PeriodFilter({
             value={value.preset}
             onChange={(event) => emit(updatePeriodPreset(value, event.target.value as PeriodPreset))}
           >
-            {periodOptions.map((option) => (
+            {visiblePeriodOptions.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
             ))}
+            {value.preset === "custom" ? <option value="custom">Personalizado</option> : null}
           </select>
         </FieldShell>
 
-        {value.preset === "custom" ? (
-          <>
-            <FieldShell label="Data inicial">
-              <input
-                className={inputClassName}
-                type="date"
-                value={value.startDate}
-                onChange={(event) => emit({ ...value, startDate: event.target.value })}
-              />
-            </FieldShell>
-            <FieldShell label="Data final">
-              <input
-                className={inputClassName}
-                type="date"
-                value={value.endDate}
-                onChange={(event) => emit({ ...value, endDate: event.target.value })}
-              />
-            </FieldShell>
-          </>
-        ) : null}
+        <FieldShell label="Data inicial">
+          <input
+            className={inputClassName}
+            type="date"
+            value={value.startDate}
+            disabled={value.preset === "all"}
+            onChange={(event) => emit({ ...value, preset: "custom", startDate: event.target.value })}
+          />
+        </FieldShell>
+        <FieldShell label="Data final">
+          <input
+            className={inputClassName}
+            type="date"
+            value={value.endDate}
+            disabled={value.preset === "all"}
+            onChange={(event) => emit({ ...value, preset: "custom", endDate: event.target.value })}
+          />
+        </FieldShell>
       </div>
     </SectionCard>
   );

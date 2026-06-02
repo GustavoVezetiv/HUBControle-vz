@@ -15,7 +15,7 @@ export async function listReimbursements(client: AppSupabaseClient) {
 }
 
 export async function listReimbursementSupportData(client: AppSupabaseClient) {
-  const [people, transactions, accounts, income] = await Promise.all([
+  const [people, transactions, accounts, income, categories] = await Promise.all([
     client.from("people").select("id,name").order("name", { ascending: true }),
     client
       .from("credit_card_transactions")
@@ -23,9 +23,10 @@ export async function listReimbursementSupportData(client: AppSupabaseClient) {
       .order("transaction_date", { ascending: false }),
     client.from("accounts_payable").select("id,title,amount").order("due_date", { ascending: false }),
     client.from("income_sources").select("id,name,amount").order("expected_date", { ascending: false }),
+    client.from("categories").select("id,name,type,color,icon").order("name", { ascending: true }),
   ]);
 
-  return { people, transactions, accounts, income };
+  return { people, transactions, accounts, income, categories };
 }
 
 export async function createReimbursement(
@@ -61,7 +62,7 @@ export async function generateRecurringReimbursements(
   }
 
   const parentId = reimbursement.recurrence_parent_id ?? reimbursement.id;
-  const baseDate = reimbursement.recurrence_generated_until ?? reimbursement.recurrence_start_date ?? reimbursement.expected_date;
+  const baseDate = reimbursement.recurrence_start_date ?? reimbursement.expected_date;
 
   if (!baseDate) {
     return { created: 0, skipped: 0, error: { message: "Informe a data inicial da recorrência." } };
@@ -165,6 +166,7 @@ function toPayload(
   return {
     ...(userId ? { user_id: userId } : {}),
     person_id: values.person_id,
+    category_id: values.category_id || null,
     credit_card_transaction_id: linkedTransactionId,
     account_payable_id: linkedAccountId,
     income_source_id: values.income_source_id || null,

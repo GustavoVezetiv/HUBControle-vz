@@ -12,9 +12,12 @@ import {
   FieldShell,
   inputClassName,
   Modal,
+  QuickEditInput,
+  QuickEditSelect,
   TitleButton,
 } from "@/features/shared/crud-ui";
 import { peopleTypeOptions, optionLabel } from "@/features/shared/options";
+import { getQuickTableEditPreference } from "@/features/shared/quick-edit";
 import type { FeedbackState } from "@/features/shared/types";
 import {
   createPerson,
@@ -43,6 +46,7 @@ export function PeopleCrud() {
   const [saving, setSaving] = useState(false);
   const [modal, setModal] = useState<ModalState>(null);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
+  const [allowQuickTableEdit, setAllowQuickTableEdit] = useState(false);
 
   const filteredPeople = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -72,7 +76,10 @@ export function PeopleCrud() {
 
       setUserId(user.id);
 
-      const { data, error } = await listPeople(client);
+      const [{ data, error }, quickEdit] = await Promise.all([
+        listPeople(client),
+        getQuickTableEditPreference(client, user.id),
+      ]);
 
       if (error) {
         setFeedback({ type: "error", message: error.message });
@@ -80,6 +87,7 @@ export function PeopleCrud() {
       }
 
       setPeople(data ?? []);
+      setAllowQuickTableEdit(quickEdit);
     } catch (error) {
       setFeedback({
         type: "error",
@@ -150,6 +158,19 @@ export function PeopleCrud() {
     await loadPeople();
   }
 
+  async function handleQuickUpdate(person: PersonRow, patch: Partial<PersonFormValues>) {
+    const result = await updatePerson(createClient(), person.id, { ...personToFormValues(person), ...patch });
+
+    if (result.error) {
+      console.error("Erro técnico ao atualizar pessoa:", result.error);
+      setFeedback({ type: "error", message: "Não foi possível atualizar a pessoa." });
+      return;
+    }
+
+    setFeedback({ type: "success", message: "Pessoa atualizada." });
+    await loadPeople();
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -196,17 +217,37 @@ export function PeopleCrud() {
                 {filteredPeople.map((person) => (
                   <tr key={person.id}>
                     <td className="px-4 py-3">
-                      <TitleButton onClick={() => setModal({ mode: "edit", person })}>
-                        {person.name}
-                      </TitleButton>
+                      {allowQuickTableEdit ? (
+                        <QuickEditInput value={person.name} onCommit={(value) => void handleQuickUpdate(person, { name: value })} />
+                      ) : (
+                        <TitleButton onClick={() => setModal({ mode: "edit", person })}>
+                          {person.name}
+                        </TitleButton>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-ink-600">
-                      {optionLabel(peopleTypeOptions, person.relationship_type)}
+                      {allowQuickTableEdit ? (
+                        <QuickEditSelect value={person.relationship_type} options={peopleTypeOptions} onCommit={(value) => void handleQuickUpdate(person, { relationship_type: value as PersonFormValues["relationship_type"] })} />
+                      ) : optionLabel(peopleTypeOptions, person.relationship_type)}
                     </td>
-                    <td className="px-4 py-3 text-ink-600">{person.email ?? "-"}</td>
-                    <td className="px-4 py-3 text-ink-600">{person.phone ?? "-"}</td>
+                    <td className="px-4 py-3 text-ink-600">
+                      {allowQuickTableEdit ? (
+                        <QuickEditInput value={person.email ?? ""} onCommit={(value) => void handleQuickUpdate(person, { email: value })} />
+                      ) : person.email ?? "-"}
+                    </td>
+                    <td className="px-4 py-3 text-ink-600">
+                      {allowQuickTableEdit ? (
+                        <QuickEditInput value={person.phone ?? ""} onCommit={(value) => void handleQuickUpdate(person, { phone: value })} />
+                      ) : person.phone ?? "-"}
+                    </td>
                     <td className="px-4 py-3">
-                      <BooleanBadge value={person.is_active} />
+                      {allowQuickTableEdit ? (
+                        <QuickEditSelect
+                          value={String(person.is_active)}
+                          options={[{ value: "true", label: "Ativo" }, { value: "false", label: "Inativo" }]}
+                          onCommit={(value) => void handleQuickUpdate(person, { is_active: value === "true" })}
+                        />
+                      ) : <BooleanBadge value={person.is_active} />}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-2">

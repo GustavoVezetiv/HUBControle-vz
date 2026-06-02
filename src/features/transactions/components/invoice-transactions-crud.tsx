@@ -16,6 +16,7 @@ import {
   createExpectedReimbursementForTransaction,
   createTransaction,
   deleteTransaction,
+  generateRecurringTransactions,
   listTransactionSupportData,
   updateTransaction,
 } from "@/features/transactions/queries";
@@ -50,6 +51,7 @@ export function InvoiceTransactionsCrud({ invoiceId }: { invoiceId: string }) {
   const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [modal, setModal] = useState<ModalState>(null);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
 
@@ -143,6 +145,25 @@ export function InvoiceTransactionsCrud({ invoiceId }: { invoiceId: string }) {
         return;
       }
     }
+    if (values.is_recurring) {
+      const recurrenceStart = values.recurrence_start_date || values.transaction_date;
+
+      if (!recurrenceStart) {
+        setFeedback({ type: "error", message: "Informe a data inicial da recorrência." });
+        return;
+      }
+
+      if (values.recurrence_end_date && values.recurrence_end_date < recurrenceStart) {
+        setFeedback({ type: "error", message: "A data final da recorrência deve ser depois da data inicial." });
+        return;
+      }
+
+      const occurrences = Number(values.recurrence_occurrences || 0);
+      if (Number.isNaN(occurrences) || occurrences < 0 || occurrences > 24) {
+        setFeedback({ type: "error", message: "A quantidade de ocorrências deve ficar entre 0 e 24." });
+        return;
+      }
+    }
     if (values.is_reimbursable && !values.person_id) {
       setFeedback({ type: "error", message: "Informe a pessoa responsável pelo reembolso." });
       return;
@@ -177,9 +198,25 @@ export function InvoiceTransactionsCrud({ invoiceId }: { invoiceId: string }) {
           return;
         }
       }
+      let generationMessage = "";
+      const occurrences = Number(values.recurrence_occurrences || 0);
+
+      if (result.data && values.is_recurring && occurrences > 0) {
+        const generation = await generateRecurringTransactions(client, userId, result.data, occurrences);
+
+        if (generation.error) {
+          setFeedback({ type: "error", message: generation.error.message });
+          return;
+        }
+
+        generationMessage = ` ${generation.created} lançamento(s) recorrente(s) criado(s), ${generation.skipped} já existia(m).`;
+        if (generation.reimbursementCreated || generation.reimbursementSkipped) {
+          generationMessage += ` ${generation.reimbursementCreated} reembolso(s) vinculado(s) criado(s), ${generation.reimbursementSkipped} já existia(m).`;
+        }
+      }
       setFeedback({
         type: "success",
-        message: modal?.mode === "edit" ? "Lançamento atualizado." : "Lançamento criado.",
+        message: `${modal?.mode === "edit" ? "Lançamento atualizado." : "Lançamento criado."}${generationMessage}`,
       });
       setModal(null);
       await loadData();
@@ -198,6 +235,47 @@ export function InvoiceTransactionsCrud({ invoiceId }: { invoiceId: string }) {
     else {
       setFeedback({ type: "success", message: "Lançamento excluído." });
       await loadData();
+    }
+  }
+
+  async function handleGenerateRecurring(transaction: TransactionRow) {
+    if (!userId) {
+      setFeedback({ type: "error", message: "Sessão não encontrada." });
+      return;
+    }
+
+    const raw = window.prompt("Quantas próximas ocorrências deseja gerar? Máximo 24.", "12");
+    if (!raw) return;
+
+    const occurrences = Number(raw);
+    if (Number.isNaN(occurrences) || occurrences < 1 || occurrences > 24) {
+      setFeedback({ type: "error", message: "Informe uma quantidade entre 1 e 24." });
+      return;
+    }
+
+    setGeneratingId(transaction.id);
+    setFeedback(null);
+
+    try {
+      const result = await generateRecurringTransactions(createClient(), userId, transaction, occurrences);
+
+      if (result.error) {
+        setFeedback({ type: "error", message: result.error.message });
+        return;
+      }
+
+      let message = `${result.created} lançamento(s) criado(s). ${result.skipped} já existia(m).`;
+      if (result.reimbursementCreated || result.reimbursementSkipped) {
+        message += ` ${result.reimbursementCreated} reembolso(s) vinculado(s) criado(s). ${result.reimbursementSkipped} já existia(m).`;
+      }
+
+      setFeedback({ type: "success", message });
+      await loadData();
+    } catch (error) {
+      console.error("Erro técnico ao gerar lançamentos recorrentes:", error);
+      setFeedback({ type: "error", message: "Não foi possível gerar os próximos lançamentos recorrentes." });
+    } finally {
+      setGeneratingId(null);
     }
   }
 
@@ -277,6 +355,7 @@ export function InvoiceTransactionsCrud({ invoiceId }: { invoiceId: string }) {
                   <th className="px-4 py-3">Categoria</th>
                   <th className="px-4 py-3">Pessoa</th>
                   <th className="px-4 py-3">Reembolsável</th>
+                  <th className="px-4 py-3">Recorrência</th>
                   <th className="px-4 py-3 text-right">Ações</th>
                 </tr>
               </thead>
@@ -296,8 +375,20 @@ export function InvoiceTransactionsCrud({ invoiceId }: { invoiceId: string }) {
                       {people.find((person) => person.id === transaction.person_id)?.name ?? "-"}
                     </td>
                     <td className="px-4 py-3"><BooleanBadge value={transaction.is_reimbursable} /></td>
+                    <td className="px-4 py-3 text-ink-600">
+                      {transaction.is_recurring ? (transaction.recurrence_parent_id ? "Ocorrência" : "Recorrente") : "-"}
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-2">
+                        {transaction.is_recurring && !transaction.recurrence_parent_id ? (
+                          <ActionButton
+                            variant="secondary"
+                            disabled={generatingId === transaction.id}
+                            onClick={() => void handleGenerateRecurring(transaction)}
+                          >
+                            {generatingId === transaction.id ? "Gerando..." : "Gerar próximas"}
+                          </ActionButton>
+                        ) : null}
                         <ActionButton variant="secondary" onClick={() => setModal({ mode: "edit", transaction })}>
                           Editar
                         </ActionButton>
@@ -546,6 +637,58 @@ function TransactionModal({
             onChange={(event) => setValues({ ...values, installment_total: event.target.value })}
           />
         </FieldShell>
+        <FieldShell label="Lançamento recorrente?">
+          <select
+            className={inputClassName}
+            value={String(values.is_recurring)}
+            onChange={(event) => setValues({ ...values, is_recurring: event.target.value === "true" })}
+          >
+            <option value="false">Não</option>
+            <option value="true">Sim, mensal</option>
+          </select>
+        </FieldShell>
+        {values.is_recurring ? (
+          <>
+            <FieldShell label="Frequência">
+              <select
+                className={inputClassName}
+                value={values.recurrence_frequency}
+                onChange={(event) => setValues({ ...values, recurrence_frequency: event.target.value as "monthly" })}
+              >
+                <option value="monthly">Mensal</option>
+              </select>
+            </FieldShell>
+            <FieldShell label="Data inicial">
+              <input
+                type="date"
+                className={inputClassName}
+                value={values.recurrence_start_date}
+                onChange={(event) => setValues({ ...values, recurrence_start_date: event.target.value })}
+              />
+            </FieldShell>
+            <FieldShell label="Data final opcional">
+              <input
+                type="date"
+                className={inputClassName}
+                value={values.recurrence_end_date}
+                onChange={(event) => setValues({ ...values, recurrence_end_date: event.target.value })}
+              />
+            </FieldShell>
+            <FieldShell label="Gerar próximas ocorrências">
+              <input
+                min="0"
+                max="24"
+                type="number"
+                className={inputClassName}
+                value={values.recurrence_occurrences}
+                onChange={(event) => setValues({ ...values, recurrence_occurrences: event.target.value })}
+              />
+            </FieldShell>
+            <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 md:col-span-2">
+              As próximas ocorrências serão criadas nas faturas correspondentes do mesmo cartão. Se a fatura do mês não existir, crie a fatura antes de gerar.
+            </p>
+          </>
+        ) : null}
         {modal?.mode === "create" ? (
           <>
             <FieldShell label="Criar reembolso esperado">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, type MouseEvent } from "react";
+import { useEffect, useState, type CSSProperties, type MouseEvent } from "react";
 
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import { CategoryIcon } from "@/features/shared/category-icons";
@@ -149,10 +149,13 @@ export function CategoryBadge({ category }: { category?: CategoryBadgeCategory |
   return (
     <span
       className={[
-        "inline-flex max-w-[13rem] items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold",
+        "hub-category-badge inline-flex max-w-[13rem] items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold",
         safeColor ? "border-transparent" : "border-ink-950/10 bg-slate-100 text-ink-700",
       ].join(" ")}
-      style={safeColor ? { backgroundColor: safeColor, color: textColor } : undefined}
+      style={safeColor ? {
+        "--category-color": safeColor,
+        "--category-text": textColor,
+      } as CSSProperties : undefined}
     >
       {icon ? <CategoryIcon value={icon} /> : null}
       <span className="truncate">{label}</span>
@@ -230,6 +233,64 @@ export function shouldToggleRowSelection(event: MouseEvent<HTMLElement>) {
   }
 
   return true;
+}
+
+export function QuickEditInput({
+  value,
+  type = "text",
+  onCommit,
+}: {
+  value: string;
+  type?: "text" | "number" | "date";
+  onCommit: (value: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  function commit() {
+    if (draft !== value) onCommit(draft);
+  }
+
+  return (
+    <input
+      className="w-full min-w-28 rounded-md border border-ink-950/10 bg-white px-2 py-1 text-sm text-ink-950"
+      type={type}
+      value={draft}
+      onBlur={commit}
+      onChange={(event) => setDraft(event.target.value)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.currentTarget.blur();
+        if (event.key === "Escape") setDraft(value);
+      }}
+    />
+  );
+}
+
+export function QuickEditSelect({
+  value,
+  options,
+  onCommit,
+}: {
+  value: string;
+  options: { value: string; label: string }[];
+  onCommit: (value: string) => void;
+}) {
+  return (
+    <select
+      className="w-full min-w-32 rounded-md border border-ink-950/10 bg-white px-2 py-1 text-sm text-ink-950"
+      value={value}
+      onChange={(event) => onCommit(event.target.value)}
+    >
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  );
 }
 
 function isValidHexColor(value: string) {

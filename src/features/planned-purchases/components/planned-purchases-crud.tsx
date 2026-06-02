@@ -1,5 +1,6 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/ui/empty-state";
@@ -8,30 +9,33 @@ import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
 import { createPlannedPurchase, deletePlannedPurchase, listPlannedPurchases, listPlannedPurchaseSupportData, updatePlannedPurchase } from "@/features/planned-purchases/queries";
 import { decisionStatusOptions, emptyPlannedPurchaseForm, plannedPurchaseToFormValues, type PlannedPurchaseFormValues, type PlannedPurchaseRow, type PlannedPurchaseSupportData } from "@/features/planned-purchases/types";
-import { ActionButton, BulkActionsBar, CategoryBadge, CrudFeedback, FieldShell, inputClassName, Modal, RowSelectionHint, shouldToggleRowSelection, TextBadge, TitleButton } from "@/features/shared/crud-ui";
+import { ActionButton, BulkActionsBar, CategoryBadge, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, RowSelectionHint, shouldToggleRowSelection, TextBadge, TitleButton } from "@/features/shared/crud-ui";
 import { formatCurrency, formatDate } from "@/features/shared/format";
 import { optionLabel, paymentMethodOptions, priorityOptions } from "@/features/shared/options";
 import { PeriodFilter } from "@/features/shared/period-filter";
-import { createDefaultPeriodValue, isDateInPeriod } from "@/features/shared/period";
+import { isDateInPeriod, parsePeriodSearchParams } from "@/features/shared/period";
+import { getQuickTableEditPreference } from "@/features/shared/quick-edit";
 import type { FeedbackState } from "@/features/shared/types";
 import { createClient } from "@/lib/supabase/client";
 
 type ModalState = { mode: "create"; item: null } | { mode: "edit"; item: PlannedPurchaseRow } | null;
 
 export function PlannedPurchasesCrud() {
+  const searchParams = useSearchParams();
   const [items, setItems] = useState<PlannedPurchaseRow[]>([]);
   const [support, setSupport] = useState<PlannedPurchaseSupportData>({ categories: [] });
   const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState(searchParams.get("status") ?? "all");
   const [riskFilter, setRiskFilter] = useState("all");
-  const [period, setPeriod] = useState(createDefaultPeriodValue());
+  const [period, setPeriod] = useState(() => parsePeriodSearchParams(Object.fromEntries(searchParams.entries())));
   const [modal, setModal] = useState<ModalState>(null);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [deletingSelected, setDeletingSelected] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [allowQuickTableEdit, setAllowQuickTableEdit] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -44,9 +48,10 @@ export function PlannedPurchasesCrud() {
     }
     setUserId(auth.user.id);
 
-    const [purchaseResult, supportResult] = await Promise.all([
+    const [purchaseResult, supportResult, quickEdit] = await Promise.all([
       listPlannedPurchases(client),
       listPlannedPurchaseSupportData(client),
+      getQuickTableEditPreference(client, auth.user.id),
     ]);
 
     if (purchaseResult.error) setFeedback({ type: "error", message: purchaseResult.error.message });
@@ -54,6 +59,7 @@ export function PlannedPurchasesCrud() {
 
     if (supportResult.categories.error) setFeedback({ type: "error", message: supportResult.categories.error.message });
     else setSupport({ categories: supportResult.categories.data ?? [] });
+    setAllowQuickTableEdit(quickEdit);
 
     setLoading(false);
   }, []);
@@ -142,6 +148,28 @@ export function PlannedPurchasesCrud() {
     }
   }
 
+  async function handleQuickUpdate(item: PlannedPurchaseRow, patch: Partial<PlannedPurchaseFormValues>) {
+    setFeedback(null);
+
+    try {
+      const result = await updatePlannedPurchase(createClient(), item.id, {
+        ...plannedPurchaseToFormValues(item),
+        ...patch,
+      });
+
+      if (result.error) {
+        console.error("Erro técnico ao editar compra planejada rapidamente:", result.error);
+        setFeedback({ type: "error", message: "Não foi possível salvar a edição rápida." });
+        return;
+      }
+
+      await loadData();
+    } catch (error) {
+      console.error("Erro técnico ao editar compra planejada rapidamente:", error);
+      setFeedback({ type: "error", message: "Não foi possível salvar a edição rápida." });
+    }
+  }
+
   async function handleBulkDelete() {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
@@ -184,7 +212,7 @@ export function PlannedPurchasesCrud() {
         action={<ActionButton onClick={() => setModal({ mode: "create", item: null })}>Nova compra</ActionButton>}
       />
       <CrudFeedback feedback={feedback} />
-      <PeriodFilter value={period} onChange={setPeriod} description="Escolha o período de data alvo das compras planejadas." />
+      <PeriodFilter value={period} onChange={setPeriod} description="Escolha o período de data alvo das compras planejadas." syncUrl />
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Em análise" value={formatCurrency(summary.totalActive)} helper={`${summary.count} itens ativos.`} tone="info" />
@@ -274,14 +302,42 @@ export function PlannedPurchasesCrud() {
                       />
                     </td>
                     <td className="px-4 py-3">
-                      <TitleButton onClick={() => setModal({ mode: "edit", item })}>{item.title}</TitleButton>
+                      {allowQuickTableEdit ? (
+                        <QuickEditInput value={item.title} onCommit={(value) => void handleQuickUpdate(item, { title: value })} />
+                      ) : (
+                        <TitleButton onClick={() => setModal({ mode: "edit", item })}>{item.title}</TitleButton>
+                      )}
                       <p className="text-xs text-ink-600">{item.description ?? "Sem descrição"}</p>
                     </td>
-                    <td className="px-4 py-3 text-ink-950">{formatCurrency(Number(item.estimated_amount))}</td>
-                    <td className="px-4 py-3"><CategoryBadge category={support.categories.find((category) => category.id === item.category_id)} /></td>
-                    <td className="px-4 py-3 text-ink-600">{formatDate(item.target_date)}</td>
-                    <td className="px-4 py-3"><TextBadge tone={item.decision_status === "approved" ? "danger" : item.decision_status === "purchased" ? "success" : "neutral"}>{optionLabel(decisionStatusOptions, item.decision_status)}</TextBadge></td>
-                    <td className="px-4 py-3 text-ink-600">{optionLabel(priorityOptions, item.risk_level)}</td>
+                    <td className="px-4 py-3 text-ink-950">
+                      {allowQuickTableEdit ? (
+                        <QuickEditInput type="number" value={String(item.estimated_amount)} onCommit={(value) => void handleQuickUpdate(item, { estimated_amount: value })} />
+                      ) : formatCurrency(Number(item.estimated_amount))}
+                    </td>
+                    <td className="px-4 py-3">
+                      {allowQuickTableEdit ? (
+                        <QuickEditSelect value={item.category_id ?? ""} options={[{ value: "", label: "Sem categoria" }, ...support.categories.map((category) => ({ value: category.id, label: category.name }))]} onCommit={(value) => void handleQuickUpdate(item, { category_id: value })} />
+                      ) : (
+                        <CategoryBadge category={support.categories.find((category) => category.id === item.category_id)} />
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-ink-600">
+                      {allowQuickTableEdit ? (
+                        <QuickEditInput type="date" value={item.target_date ?? ""} onCommit={(value) => void handleQuickUpdate(item, { target_date: value })} />
+                      ) : formatDate(item.target_date)}
+                    </td>
+                    <td className="px-4 py-3">
+                      {allowQuickTableEdit ? (
+                        <QuickEditSelect value={item.decision_status} options={decisionStatusOptions} onCommit={(value) => void handleQuickUpdate(item, { decision_status: value })} />
+                      ) : (
+                        <TextBadge tone={item.decision_status === "approved" ? "danger" : item.decision_status === "purchased" ? "success" : "neutral"}>{optionLabel(decisionStatusOptions, item.decision_status)}</TextBadge>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-ink-600">
+                      {allowQuickTableEdit ? (
+                        <QuickEditSelect value={item.risk_level} options={priorityOptions} onCommit={(value) => void handleQuickUpdate(item, { risk_level: value as PlannedPurchaseFormValues["risk_level"] })} />
+                      ) : optionLabel(priorityOptions, item.risk_level)}
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-2">
                         <ActionButton variant="secondary" onClick={() => setModal({ mode: "edit", item })}>Editar</ActionButton>

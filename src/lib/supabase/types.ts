@@ -30,6 +30,9 @@ export type Profile = {
   timezone: string;
   month_start_day: number;
   allow_quick_table_edit: boolean;
+  visual_style: string;
+  interface_density: string;
+  category_badge_style: string;
   created_at: string;
   updated_at: string;
 };
@@ -155,6 +158,12 @@ export type CreditCardTransaction = UserOwnedRow & {
   installment_group_id: string | null;
   installment_number: number | null;
   installment_total: number | null;
+  is_recurring: boolean;
+  recurrence_frequency: string | null;
+  recurrence_start_date: string | null;
+  recurrence_end_date: string | null;
+  recurrence_parent_id: string | null;
+  recurrence_generated_until: string | null;
   notes: string | null;
 };
 

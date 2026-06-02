@@ -15,6 +15,9 @@ export async function upsertProfile(client: AppSupabaseClient, userId: string, v
     timezone: values.timezone,
     month_start_day: Number(values.month_start_day || 1),
     allow_quick_table_edit: values.allow_quick_table_edit,
+    visual_style: values.visual_style,
+    interface_density: values.interface_density,
+    category_badge_style: values.category_badge_style,
   };
 
   return client.from("profiles").upsert(payload).select("*").single();

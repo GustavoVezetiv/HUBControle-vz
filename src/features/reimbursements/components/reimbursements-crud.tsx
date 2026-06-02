@@ -1,5 +1,6 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/ui/empty-state";
@@ -18,34 +19,39 @@ import {
   emptyReimbursementForm,
   reimbursementToFormValues,
   type ReimbursementAccount,
+  type ReimbursementCategory,
   type ReimbursementFormValues,
   type ReimbursementIncome,
   type ReimbursementPerson,
   type ReimbursementRow,
   type ReimbursementTransaction,
 } from "@/features/reimbursements/types";
-import { ActionButton, BulkActionsBar, CrudFeedback, FieldShell, inputClassName, Modal, RowSelectionHint, shouldToggleRowSelection, TextBadge, TitleButton } from "@/features/shared/crud-ui";
+import { ActionButton, BulkActionsBar, CategoryBadge, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, RowSelectionHint, shouldToggleRowSelection, TextBadge, TitleButton } from "@/features/shared/crud-ui";
 import { formatCurrency, formatDate } from "@/features/shared/format";
 import { optionLabel, reimbursementStatusOptions } from "@/features/shared/options";
 import { PeriodFilter } from "@/features/shared/period-filter";
-import { createDefaultPeriodValue, isAnyDateInPeriod } from "@/features/shared/period";
+import { isAnyDateInPeriod, parsePeriodSearchParams } from "@/features/shared/period";
+import { getQuickTableEditPreference } from "@/features/shared/quick-edit";
 import type { FeedbackState } from "@/features/shared/types";
 import { createClient } from "@/lib/supabase/client";
 
 type ModalState = { mode: "create"; reimbursement: null } | { mode: "edit"; reimbursement: ReimbursementRow } | null;
 
 export function ReimbursementsCrud() {
+  const searchParams = useSearchParams();
   const [reimbursements, setReimbursements] = useState<ReimbursementRow[]>([]);
   const [people, setPeople] = useState<ReimbursementPerson[]>([]);
   const [transactions, setTransactions] = useState<ReimbursementTransaction[]>([]);
   const [accounts, setAccounts] = useState<ReimbursementAccount[]>([]);
   const [income, setIncome] = useState<ReimbursementIncome[]>([]);
+  const [categories, setCategories] = useState<ReimbursementCategory[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [personFilter, setPersonFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState(searchParams.get("status") ?? "all");
   const [linkedFilter, setLinkedFilter] = useState("all");
-  const [period, setPeriod] = useState(createDefaultPeriodValue());
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [period, setPeriod] = useState(() => parsePeriodSearchParams(Object.fromEntries(searchParams.entries())));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deletingSelected, setDeletingSelected] = useState(false);
@@ -53,6 +59,7 @@ export function ReimbursementsCrud() {
   const [modal, setModal] = useState<ModalState>(null);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [allowQuickTableEdit, setAllowQuickTableEdit] = useState(false);
 
   const periodReimbursements = useMemo(() => {
     return reimbursements.filter((reimbursement) =>
@@ -76,13 +83,14 @@ export function ReimbursementsCrud() {
           (reimbursement.description ?? "").toLowerCase().includes(needle) ||
           personName.toLowerCase().includes(needle)) &&
         (personFilter === "all" || reimbursement.person_id === personFilter) &&
+        (categoryFilter === "all" || reimbursement.category_id === categoryFilter) &&
         (statusFilter === "all" || reimbursement.status === statusFilter) &&
         (linkedFilter === "all" ||
           (linkedFilter === "linked" && hasLink) ||
           (linkedFilter === "manual" && !hasLink))
       );
     });
-  }, [linkedFilter, people, periodReimbursements, personFilter, search, statusFilter]);
+  }, [categoryFilter, linkedFilter, people, periodReimbursements, personFilter, search, statusFilter]);
 
   const summary = useMemo(() => {
     const isOpen = (item: ReimbursementRow) => ["expected", "partial", "late"].includes(item.status);
@@ -139,9 +147,10 @@ export function ReimbursementsCrud() {
     }
 
     setUserId(auth.user.id);
-    const [reimbursementsResult, support] = await Promise.all([
+    const [reimbursementsResult, support, quickEdit] = await Promise.all([
       listReimbursements(client),
       listReimbursementSupportData(client),
+      getQuickTableEditPreference(client, auth.user.id),
     ]);
     if (reimbursementsResult.error) setFeedback({ type: "error", message: reimbursementsResult.error.message });
     else setReimbursements(reimbursementsResult.data ?? []);
@@ -149,6 +158,8 @@ export function ReimbursementsCrud() {
     if (!support.transactions.error) setTransactions(support.transactions.data ?? []);
     if (!support.accounts.error) setAccounts(support.accounts.data ?? []);
     if (!support.income.error) setIncome(support.income.data ?? []);
+    if (!support.categories.error) setCategories(support.categories.data ?? []);
+    setAllowQuickTableEdit(quickEdit);
     setLoading(false);
   }
 
@@ -172,14 +183,21 @@ export function ReimbursementsCrud() {
     if (!userId) return;
 
     setSaving(true);
-    const client = createClient();
-    const result =
-      modal?.mode === "edit"
-        ? await updateReimbursement(client, modal.reimbursement.id, values)
-        : await createReimbursement(client, userId, values);
+    setFeedback(null);
 
-    if (result.error) setFeedback({ type: "error", message: result.error.message });
-    else {
+    try {
+      const client = createClient();
+      const result =
+        modal?.mode === "edit"
+          ? await updateReimbursement(client, modal.reimbursement.id, values)
+          : await createReimbursement(client, userId, values);
+
+      if (result.error) {
+        console.error("Erro técnico ao salvar reembolso:", result.error);
+        setFeedback({ type: "error", message: result.error.message });
+        return;
+      }
+
       let generatedMessage = "";
       const occurrences = Number(values.recurrence_occurrences || 0);
 
@@ -187,7 +205,6 @@ export function ReimbursementsCrud() {
         const generated = await generateRecurringReimbursements(client, userId, result.data, occurrences);
 
         if (generated.error) {
-          setSaving(false);
           setFeedback({ type: "error", message: generated.error.message });
           return;
         }
@@ -201,8 +218,12 @@ export function ReimbursementsCrud() {
       });
       setModal(null);
       await loadData();
+    } catch (error) {
+      console.error("Erro técnico ao salvar reembolso:", error);
+      setFeedback({ type: "error", message: "Não foi possível salvar o reembolso." });
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   }
 
   async function handleGenerateRecurring(reimbursement: ReimbursementRow) {
@@ -251,6 +272,28 @@ export function ReimbursementsCrud() {
     }
   }
 
+  async function handleQuickUpdate(reimbursement: ReimbursementRow, patch: Partial<ReimbursementFormValues>) {
+    setFeedback(null);
+
+    try {
+      const result = await updateReimbursement(createClient(), reimbursement.id, {
+        ...reimbursementToFormValues(reimbursement),
+        ...patch,
+      });
+
+      if (result.error) {
+        console.error("Erro técnico ao editar reembolso rapidamente:", result.error);
+        setFeedback({ type: "error", message: "Não foi possível salvar a edição rápida." });
+        return;
+      }
+
+      await loadData();
+    } catch (error) {
+      console.error("Erro técnico ao editar reembolso rapidamente:", error);
+      setFeedback({ type: "error", message: "Não foi possível salvar a edição rápida." });
+    }
+  }
+
   async function handleBulkDelete() {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
@@ -294,7 +337,7 @@ export function ReimbursementsCrud() {
       />
       <CrudFeedback feedback={feedback} />
 
-      <PeriodFilter value={period} onChange={setPeriod} />
+      <PeriodFilter value={period} onChange={setPeriod} syncUrl />
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         <StatCard label="A receber" value={formatCurrency(summary.totalExpected)} helper="Não é renda livre." tone="warning" />
@@ -344,7 +387,7 @@ export function ReimbursementsCrud() {
       </SectionCard>
 
       <SectionCard title="Filtros">
-        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-5">
           <input className={inputClassName} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por descrição ou pessoa" />
           <select className={inputClassName} value={personFilter} onChange={(event) => setPersonFilter(event.target.value)}>
             <option value="all">Todas pessoas</option>
@@ -353,6 +396,10 @@ export function ReimbursementsCrud() {
           <select className={inputClassName} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
             <option value="all">Todos status</option>
             {reimbursementStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+          <select className={inputClassName} value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
+            <option value="all">Todas categorias</option>
+            {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
           </select>
           <select className={inputClassName} value={linkedFilter} onChange={(event) => setLinkedFilter(event.target.value)}>
             <option value="all">Todos vínculos</option>
@@ -404,6 +451,7 @@ export function ReimbursementsCrud() {
                   <th className="px-4 py-3">Recebido</th>
                   <th className="px-4 py-3">Data prevista</th>
                   <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Categoria</th>
                   <th className="px-4 py-3">Vínculo</th>
                   <th className="px-4 py-3">Recorrência</th>
                   <th className="px-4 py-3 text-right">Ações</th>
@@ -440,12 +488,41 @@ export function ReimbursementsCrud() {
                         {people.find((person) => person.id === reimbursement.person_id)?.name ?? "-"}
                       </TitleButton>
                     </td>
-                    <td className="px-4 py-3 text-ink-600">{reimbursement.description ?? "-"}</td>
-                    <td className="px-4 py-3 text-ink-950">{formatCurrency(Number(reimbursement.expected_amount))}</td>
-                    <td className="px-4 py-3 text-ink-600">{formatCurrency(Number(reimbursement.received_amount))}</td>
-                    <td className="px-4 py-3 text-ink-600">{formatDate(reimbursement.expected_date)}</td>
                     <td className="px-4 py-3 text-ink-600">
-                      {optionLabel(reimbursementStatusOptions, reimbursement.status)}
+                      {allowQuickTableEdit ? (
+                        <QuickEditInput value={reimbursement.description ?? ""} onCommit={(value) => void handleQuickUpdate(reimbursement, { description: value })} />
+                      ) : reimbursement.description ?? "-"}
+                    </td>
+                    <td className="px-4 py-3 text-ink-950">
+                      {allowQuickTableEdit ? (
+                        <QuickEditInput type="number" value={String(reimbursement.expected_amount)} onCommit={(value) => void handleQuickUpdate(reimbursement, { expected_amount: value })} />
+                      ) : formatCurrency(Number(reimbursement.expected_amount))}
+                    </td>
+                    <td className="px-4 py-3 text-ink-600">
+                      {allowQuickTableEdit ? (
+                        <QuickEditInput type="number" value={String(reimbursement.received_amount)} onCommit={(value) => void handleQuickUpdate(reimbursement, { received_amount: value })} />
+                      ) : formatCurrency(Number(reimbursement.received_amount))}
+                    </td>
+                    <td className="px-4 py-3 text-ink-600">
+                      {allowQuickTableEdit ? (
+                        <QuickEditInput type="date" value={reimbursement.expected_date ?? ""} onCommit={(value) => void handleQuickUpdate(reimbursement, { expected_date: value })} />
+                      ) : formatDate(reimbursement.expected_date)}
+                    </td>
+                    <td className="px-4 py-3 text-ink-600">
+                      {allowQuickTableEdit ? (
+                        <QuickEditSelect value={reimbursement.status} options={reimbursementStatusOptions} onCommit={(value) => void handleQuickUpdate(reimbursement, { status: value })} />
+                      ) : optionLabel(reimbursementStatusOptions, reimbursement.status)}
+                    </td>
+                    <td className="px-4 py-3">
+                      {allowQuickTableEdit ? (
+                        <QuickEditSelect
+                          value={reimbursement.category_id ?? ""}
+                          options={[{ value: "", label: "Sem categoria" }, ...categories.map((category) => ({ value: category.id, label: category.name }))]}
+                          onCommit={(value) => void handleQuickUpdate(reimbursement, { category_id: value })}
+                        />
+                      ) : (
+                        <CategoryBadge category={categories.find((category) => category.id === reimbursement.category_id)} />
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <TextBadge tone={getLinkedTone(reimbursement)}>
@@ -486,6 +563,7 @@ export function ReimbursementsCrud() {
       {modal ? (
         <ReimbursementModal
           accounts={accounts}
+          categories={categories}
           income={income}
           modal={modal}
           people={people}
@@ -501,6 +579,7 @@ export function ReimbursementsCrud() {
 
 function ReimbursementModal({
   accounts,
+  categories,
   income,
   modal,
   people,
@@ -510,6 +589,7 @@ function ReimbursementModal({
   onSubmit,
 }: {
   accounts: ReimbursementAccount[];
+  categories: ReimbursementCategory[];
   income: ReimbursementIncome[];
   modal: ModalState;
   people: ReimbursementPerson[];
@@ -540,6 +620,12 @@ function ReimbursementModal({
         <FieldShell label="Status">
           <select className={inputClassName} value={values.status} onChange={(event) => setValues({ ...values, status: event.target.value })}>
             {reimbursementStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </FieldShell>
+        <FieldShell label="Categoria">
+          <select className={inputClassName} value={values.category_id} onChange={(event) => setValues({ ...values, category_id: event.target.value })}>
+            <option value="">Sem categoria</option>
+            {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
           </select>
         </FieldShell>
         <div className="md:col-span-2">
