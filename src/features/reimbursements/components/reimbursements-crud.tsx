@@ -1,5 +1,6 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/ui/empty-state";
@@ -29,7 +30,7 @@ import { ActionButton, BulkActionsBar, CategoryBadge, CrudFeedback, FieldShell, 
 import { formatCurrency, formatDate } from "@/features/shared/format";
 import { optionLabel, reimbursementStatusOptions } from "@/features/shared/options";
 import { PeriodFilter } from "@/features/shared/period-filter";
-import { createDefaultPeriodValue, isAnyDateInPeriod } from "@/features/shared/period";
+import { isAnyDateInPeriod, parsePeriodSearchParams } from "@/features/shared/period";
 import { getQuickTableEditPreference } from "@/features/shared/quick-edit";
 import type { FeedbackState } from "@/features/shared/types";
 import { createClient } from "@/lib/supabase/client";
@@ -37,6 +38,7 @@ import { createClient } from "@/lib/supabase/client";
 type ModalState = { mode: "create"; reimbursement: null } | { mode: "edit"; reimbursement: ReimbursementRow } | null;
 
 export function ReimbursementsCrud() {
+  const searchParams = useSearchParams();
   const [reimbursements, setReimbursements] = useState<ReimbursementRow[]>([]);
   const [people, setPeople] = useState<ReimbursementPerson[]>([]);
   const [transactions, setTransactions] = useState<ReimbursementTransaction[]>([]);
@@ -46,10 +48,10 @@ export function ReimbursementsCrud() {
   const [userId, setUserId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [personFilter, setPersonFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState(searchParams.get("status") ?? "all");
   const [linkedFilter, setLinkedFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
-  const [period, setPeriod] = useState(createDefaultPeriodValue());
+  const [period, setPeriod] = useState(() => parsePeriodSearchParams(Object.fromEntries(searchParams.entries())));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deletingSelected, setDeletingSelected] = useState(false);
@@ -335,7 +337,7 @@ export function ReimbursementsCrud() {
       />
       <CrudFeedback feedback={feedback} />
 
-      <PeriodFilter value={period} onChange={setPeriod} />
+      <PeriodFilter value={period} onChange={setPeriod} syncUrl />
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         <StatCard label="A receber" value={formatCurrency(summary.totalExpected)} helper="Não é renda livre." tone="warning" />

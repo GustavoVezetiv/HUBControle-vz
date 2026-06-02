@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/ui/empty-state";
@@ -11,7 +12,7 @@ import { ActionButton, CrudFeedback, FieldShell, inputClassName, Modal, TitleBut
 import { formatCurrency, formatDate } from "@/features/shared/format";
 import { invoiceStatusOptions, optionLabel } from "@/features/shared/options";
 import { PeriodFilter } from "@/features/shared/period-filter";
-import { createDefaultPeriodValue, isAnyDateInPeriod } from "@/features/shared/period";
+import { isAnyDateInPeriod, parsePeriodSearchParams } from "@/features/shared/period";
 import type { FeedbackState } from "@/features/shared/types";
 import { createInvoice, deleteInvoice, listInvoiceCards, listInvoices, updateInvoice } from "@/features/invoices/queries";
 import { emptyInvoiceForm, invoiceToFormValues, type InvoiceCard, type InvoiceFormValues, type InvoiceRow } from "@/features/invoices/types";
@@ -25,13 +26,14 @@ type ModalState =
   | null;
 
 export function InvoicesCrud() {
+  const searchParams = useSearchParams();
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [cards, setCards] = useState<InvoiceCard[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [cardFilter, setCardFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [period, setPeriod] = useState(createDefaultPeriodValue());
+  const [statusFilter, setStatusFilter] = useState(searchParams.get("status") ?? "all");
+  const [period, setPeriod] = useState(() => parsePeriodSearchParams(Object.fromEntries(searchParams.entries())));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [modal, setModal] = useState<ModalState>(null);
@@ -166,7 +168,7 @@ export function InvoicesCrud() {
     <div className="space-y-6">
       <PageHeader eyebrow="Pressão mensal" title="Faturas" description="Controle faturas por cartão e mês." action={<ActionButton onClick={() => setModal({ mode: "create", invoice: null })}>Nova fatura</ActionButton>} />
       <CrudFeedback feedback={feedback} />
-      <PeriodFilter value={period} onChange={setPeriod} />
+      <PeriodFilter value={period} onChange={setPeriod} syncUrl />
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Faturas abertas" value={formatCurrency(summary.openTotal)} helper="Abertas ou fechadas." tone="warning" />
         <StatCard label="Faturas atrasadas" value={formatCurrency(summary.overdueTotal)} helper="Maior risco." tone="danger" />

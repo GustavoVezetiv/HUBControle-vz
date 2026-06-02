@@ -144,12 +144,14 @@ export default async function DashboardPage() {
           value={formatCurrency(summary.pendingAccounts)}
           helper="Contas abertas que ainda pressionam o caixa."
           tone="warning"
+          href="/dashboard/accounts?status=pending&period=current_month"
         />
         <StatCard
           label="Entradas previstas"
           value={formatCurrency(summary.expectedRealIncome)}
           helper="Somente renda real prevista."
           tone="success"
+          href="/dashboard/income?status=expected&period=current_month"
         />
         <StatCard
           label="Saldo projetado"
@@ -162,24 +164,28 @@ export default async function DashboardPage() {
           value={formatCurrency(summary.highPriorityAccounts)}
           helper="Contas altas ou críticas."
           tone="danger"
+          href="/dashboard/accounts?priority=high&period=current_month"
         />
         <StatCard
           label="Fatura crítica"
           value={formatCurrency(summary.criticalInvoiceAmount)}
           helper="Fatura aberta, parcial ou atrasada mais pesada."
           tone={summary.criticalInvoiceAmount > 0 ? "danger" : "neutral"}
+          href="/dashboard/invoices?status=open&period=current_month"
         />
         <StatCard
           label="Reembolsos pendentes"
           value={formatCurrency(summary.openReimbursements)}
           helper="Pix esperado para cobrir despesas anteriores."
           tone="warning"
+          href="/dashboard/reimbursements?status=expected&period=current_month"
         />
         <StatCard
           label="Dinheiro de terceiros em aberto"
           value={formatCurrency(summary.thirdPartyOpenAmount)}
           helper="Lançamentos de terceiros ou família ainda vinculados."
           tone="warning"
+          href="/dashboard/reimbursements?status=expected&period=current_month"
         />
         <StatCard
           label="Custo pessoal líquido estimado"
@@ -192,6 +198,7 @@ export default async function DashboardPage() {
           value={formatCurrency(summary.plannedPurchasePressure)}
           helper="Desejos ativos que podem virar gasto."
           tone={summary.plannedPurchasePressure > 0 ? "warning" : "neutral"}
+          href="/dashboard/purchases?status=planned&period=current_month"
         />
         <StatCard
           label="Anotações fixadas"
@@ -267,7 +274,7 @@ export default async function DashboardPage() {
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <StatCard label="Pagar agora" value={formatCurrency(summary.activePlanPayNow)} helper="Saída imediata." tone="danger" />
-                <StatCard label="Próxima fatura" value={formatCurrency(summary.activePlanNextInvoicePressure)} helper="Cartão + parcelas." tone="warning" />
+                <StatCard label="Próxima fatura" value={formatCurrency(summary.activePlanNextInvoicePressure)} helper="Cartão + parcelas." tone="warning" href="/dashboard/installments?status=active&period=current_month" />
               </div>
               <Link className="text-sm font-semibold text-mint-600 hover:text-mint-700" href={`/dashboard/payment-plans/${activePlan.id}`}>
                 Abrir plano ativo

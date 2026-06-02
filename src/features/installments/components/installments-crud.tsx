@@ -1,5 +1,6 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/ui/empty-state";
@@ -29,17 +30,19 @@ import {
   type InstallmentPerson,
   type InstallmentRow,
 } from "@/features/installments/types";
-import { ActionButton, CrudFeedback, FieldShell, inputClassName, Modal, TextBadge, TitleButton } from "@/features/shared/crud-ui";
+import { ActionButton, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, TextBadge, TitleButton } from "@/features/shared/crud-ui";
 import { formatCurrency, formatDate } from "@/features/shared/format";
 import { installmentStatusOptions, optionLabel } from "@/features/shared/options";
 import { PeriodFilter } from "@/features/shared/period-filter";
-import { createDefaultPeriodValue, isDateRangeInPeriod } from "@/features/shared/period";
+import { isDateRangeInPeriod, parsePeriodSearchParams } from "@/features/shared/period";
+import { getQuickTableEditPreference } from "@/features/shared/quick-edit";
 import type { FeedbackState } from "@/features/shared/types";
 import { createClient } from "@/lib/supabase/client";
 
 type ModalState = { mode: "create"; installment: null } | { mode: "edit"; installment: InstallmentRow } | null;
 
 export function InstallmentsCrud() {
+  const searchParams = useSearchParams();
   const [installments, setInstallments] = useState<InstallmentRow[]>([]);
   const [cards, setCards] = useState<InstallmentCard[]>([]);
   const [invoices, setInvoices] = useState<InstallmentInvoice[]>([]);
@@ -47,14 +50,15 @@ export function InstallmentsCrud() {
   const [people, setPeople] = useState<InstallmentPerson[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState(searchParams.get("status") ?? "all");
   const [cardFilter, setCardFilter] = useState("all");
-  const [period, setPeriod] = useState(createDefaultPeriodValue());
+  const [period, setPeriod] = useState(() => parsePeriodSearchParams(Object.fromEntries(searchParams.entries())));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [generatingAccountsId, setGeneratingAccountsId] = useState<string | null>(null);
   const [modal, setModal] = useState<ModalState>(null);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
+  const [allowQuickTableEdit, setAllowQuickTableEdit] = useState(false);
 
   const periodInstallments = useMemo(() => {
     return installments.filter((item) =>
@@ -101,9 +105,10 @@ export function InstallmentsCrud() {
       return;
     }
     setUserId(auth.user.id);
-    const [installmentsResult, support] = await Promise.all([
+    const [installmentsResult, support, quickEdit] = await Promise.all([
       listInstallments(client),
       listInstallmentSupportData(client),
+      getQuickTableEditPreference(client, auth.user.id),
     ]);
     if (installmentsResult.error) setFeedback({ type: "error", message: installmentsResult.error.message });
     else setInstallments(installmentsResult.data ?? []);
@@ -111,6 +116,7 @@ export function InstallmentsCrud() {
     if (!support.invoices.error) setInvoices(support.invoices.data ?? []);
     if (!support.categories.error) setCategories(support.categories.data ?? []);
     if (!support.people.error) setPeople(support.people.data ?? []);
+    setAllowQuickTableEdit(quickEdit);
     setLoading(false);
   }
 
@@ -272,6 +278,20 @@ export function InstallmentsCrud() {
     }
   }
 
+  async function handleQuickUpdate(item: InstallmentRow, patch: Partial<InstallmentFormValues>) {
+    const values = { ...installmentToFormValues(item), ...patch };
+    const result = await updateInstallment(createClient(), item.id, values);
+
+    if (result.error) {
+      console.error("Erro técnico ao atualizar parcelamento:", result.error);
+      setFeedback({ type: "error", message: "Não foi possível atualizar o parcelamento." });
+      return;
+    }
+
+    setFeedback({ type: "success", message: "Parcelamento atualizado." });
+    await loadData();
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -286,7 +306,7 @@ export function InstallmentsCrud() {
           Cadastre o compromisso inteiro aqui e gere as parcelas mensais em Contas. Não cadastre a mesma parcela manualmente em Contas para evitar duplicidade.
         </p>
       </SectionCard>
-      <PeriodFilter value={period} onChange={setPeriod} description="Escolha o período de impacto dos parcelamentos." />
+      <PeriodFilter value={period} onChange={setPeriod} description="Escolha o período de impacto dos parcelamentos." syncUrl />
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Parcelamentos ativos" value={formatCurrency(summary.activeTotal)} helper="Valor total original dos ativos." tone="info" />
         <StatCard label="Impacto mensal" value={formatCurrency(summary.monthlyAmount)} helper="Parcelas ativas fora de faturas." tone="warning" />
@@ -333,16 +353,24 @@ export function InstallmentsCrud() {
                 {filtered.map((item) => (
                   <tr key={item.id}>
                     <td className="px-4 py-3">
-                      <TitleButton onClick={() => setModal({ mode: "edit", installment: item })}>
-                        {item.description}
-                      </TitleButton>
+                      {allowQuickTableEdit ? (
+                        <QuickEditInput value={item.description} onCommit={(value) => void handleQuickUpdate(item, { description: value })} />
+                      ) : (
+                        <TitleButton onClick={() => setModal({ mode: "edit", installment: item })}>
+                          {item.description}
+                        </TitleButton>
+                      )}
                       {item.invoice_id ? (
                         <p className="mt-1 max-w-72 text-xs leading-5 text-amberRisk-500">
                           Este parcelamento está vinculado a uma fatura. Verifique se o valor já está sendo contado na fatura.
                         </p>
                       ) : null}
                     </td>
-                    <td className="px-4 py-3 text-ink-950">{formatCurrency(Number(item.installment_amount))}</td>
+                    <td className="px-4 py-3 text-ink-950">
+                      {allowQuickTableEdit ? (
+                        <QuickEditInput type="number" value={String(item.installment_amount)} onCommit={(value) => void handleQuickUpdate(item, { installment_amount: value })} />
+                      ) : formatCurrency(Number(item.installment_amount))}
+                    </td>
                     <td className="px-4 py-3 text-ink-600">{item.current_installment ?? item.installment_number}/{item.installment_total ?? item.installment_count}</td>
                     <td className="px-4 py-3">
                       <TextBadge tone={item.invoice_id || item.credit_card_id ? "info" : "neutral"}>
@@ -350,9 +378,21 @@ export function InstallmentsCrud() {
                       </TextBadge>
                     </td>
                     <td className="px-4 py-3 text-ink-600">{getInstallmentLinkLabel(item, cards, invoices)}</td>
-                    <td className="px-4 py-3 text-ink-600">{formatDate(item.start_date ?? item.due_month)}</td>
-                    <td className="px-4 py-3 text-ink-600">{formatDate(item.end_date ?? item.due_month)}</td>
-                    <td className="px-4 py-3 text-ink-600">{optionLabel(installmentStatusOptions, item.status)}</td>
+                    <td className="px-4 py-3 text-ink-600">
+                      {allowQuickTableEdit ? (
+                        <QuickEditInput type="date" value={item.start_date ?? item.due_month ?? ""} onCommit={(value) => void handleQuickUpdate(item, { start_date: value })} />
+                      ) : formatDate(item.start_date ?? item.due_month)}
+                    </td>
+                    <td className="px-4 py-3 text-ink-600">
+                      {allowQuickTableEdit ? (
+                        <QuickEditInput type="date" value={item.end_date ?? item.due_month ?? ""} onCommit={(value) => void handleQuickUpdate(item, { end_date: value })} />
+                      ) : formatDate(item.end_date ?? item.due_month)}
+                    </td>
+                    <td className="px-4 py-3 text-ink-600">
+                      {allowQuickTableEdit ? (
+                        <QuickEditSelect value={item.status} options={installmentStatusOptions} onCommit={(value) => void handleQuickUpdate(item, { status: value })} />
+                      ) : optionLabel(installmentStatusOptions, item.status)}
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-2">
                         <ActionButton variant="secondary" onClick={() => setModal({ mode: "edit", installment: item })}>Editar</ActionButton>

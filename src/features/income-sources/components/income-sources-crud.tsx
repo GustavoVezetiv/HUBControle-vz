@@ -1,5 +1,6 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/ui/empty-state";
@@ -29,7 +30,7 @@ import {
   optionLabel,
 } from "@/features/shared/options";
 import { PeriodFilter } from "@/features/shared/period-filter";
-import { createDefaultPeriodValue, isAnyDateInPeriod } from "@/features/shared/period";
+import { isAnyDateInPeriod, parsePeriodSearchParams } from "@/features/shared/period";
 import { getQuickTableEditPreference } from "@/features/shared/quick-edit";
 import type { FeedbackState } from "@/features/shared/types";
 import {
@@ -55,16 +56,17 @@ type ModalState =
   | null;
 
 export function IncomeSourcesCrud() {
+  const searchParams = useSearchParams();
   const [incomeSources, setIncomeSources] = useState<IncomeSourceRow[]>([]);
   const [categories, setCategories] = useState<IncomeCategory[]>([]);
   const [people, setPeople] = useState<IncomePerson[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState(searchParams.get("status") ?? "all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [confidenceFilter, setConfidenceFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
-  const [period, setPeriod] = useState(createDefaultPeriodValue());
+  const [period, setPeriod] = useState(() => parsePeriodSearchParams(Object.fromEntries(searchParams.entries())));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deletingSelected, setDeletingSelected] = useState(false);
@@ -328,7 +330,7 @@ export function IncomeSourcesCrud() {
 
       <CrudFeedback feedback={feedback} />
 
-      <PeriodFilter value={period} onChange={setPeriod} />
+      <PeriodFilter value={period} onChange={setPeriod} syncUrl />
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <StatCard label="Previsto" value={formatCurrency(summary.expected)} helper="Entradas esperadas." tone="info" />

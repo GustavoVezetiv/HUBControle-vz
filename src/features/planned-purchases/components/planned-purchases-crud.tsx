@@ -1,5 +1,6 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/ui/empty-state";
@@ -12,7 +13,7 @@ import { ActionButton, BulkActionsBar, CategoryBadge, CrudFeedback, FieldShell, 
 import { formatCurrency, formatDate } from "@/features/shared/format";
 import { optionLabel, paymentMethodOptions, priorityOptions } from "@/features/shared/options";
 import { PeriodFilter } from "@/features/shared/period-filter";
-import { createDefaultPeriodValue, isDateInPeriod } from "@/features/shared/period";
+import { isDateInPeriod, parsePeriodSearchParams } from "@/features/shared/period";
 import { getQuickTableEditPreference } from "@/features/shared/quick-edit";
 import type { FeedbackState } from "@/features/shared/types";
 import { createClient } from "@/lib/supabase/client";
@@ -20,15 +21,16 @@ import { createClient } from "@/lib/supabase/client";
 type ModalState = { mode: "create"; item: null } | { mode: "edit"; item: PlannedPurchaseRow } | null;
 
 export function PlannedPurchasesCrud() {
+  const searchParams = useSearchParams();
   const [items, setItems] = useState<PlannedPurchaseRow[]>([]);
   const [support, setSupport] = useState<PlannedPurchaseSupportData>({ categories: [] });
   const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState(searchParams.get("status") ?? "all");
   const [riskFilter, setRiskFilter] = useState("all");
-  const [period, setPeriod] = useState(createDefaultPeriodValue());
+  const [period, setPeriod] = useState(() => parsePeriodSearchParams(Object.fromEntries(searchParams.entries())));
   const [modal, setModal] = useState<ModalState>(null);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [deletingSelected, setDeletingSelected] = useState(false);
@@ -210,7 +212,7 @@ export function PlannedPurchasesCrud() {
         action={<ActionButton onClick={() => setModal({ mode: "create", item: null })}>Nova compra</ActionButton>}
       />
       <CrudFeedback feedback={feedback} />
-      <PeriodFilter value={period} onChange={setPeriod} description="Escolha o período de data alvo das compras planejadas." />
+      <PeriodFilter value={period} onChange={setPeriod} description="Escolha o período de data alvo das compras planejadas." syncUrl />
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Em análise" value={formatCurrency(summary.totalActive)} helper={`${summary.count} itens ativos.`} tone="info" />

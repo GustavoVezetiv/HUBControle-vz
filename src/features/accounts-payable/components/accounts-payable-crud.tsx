@@ -1,5 +1,6 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/ui/empty-state";
@@ -27,7 +28,7 @@ import {
   priorityOptions,
 } from "@/features/shared/options";
 import { PeriodFilter } from "@/features/shared/period-filter";
-import { createDefaultPeriodValue, isDateInPeriod } from "@/features/shared/period";
+import { isDateInPeriod, parsePeriodSearchParams } from "@/features/shared/period";
 import type { FeedbackState } from "@/features/shared/types";
 import {
   createAccountPayable,
@@ -59,6 +60,7 @@ type ModalState =
 type CardPaymentModalState = { account: AccountPayableRow } | null;
 
 export function AccountsPayableCrud() {
+  const searchParams = useSearchParams();
   const [accounts, setAccounts] = useState<AccountPayableRow[]>([]);
   const [categories, setCategories] = useState<AccountCategory[]>([]);
   const [people, setPeople] = useState<AccountPerson[]>([]);
@@ -67,11 +69,11 @@ export function AccountsPayableCrud() {
   const [invoices, setInvoices] = useState<AccountInvoice[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [priorityFilter, setPriorityFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState(searchParams.get("status") ?? "all");
+  const [priorityFilter, setPriorityFilter] = useState(searchParams.get("priority") ?? "all");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [personFilter, setPersonFilter] = useState("all");
-  const [period, setPeriod] = useState(createDefaultPeriodValue());
+  const [period, setPeriod] = useState(() => parsePeriodSearchParams(Object.fromEntries(searchParams.entries())));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deletingSelected, setDeletingSelected] = useState(false);
@@ -468,7 +470,7 @@ export function AccountsPayableCrud() {
         </p>
       </SectionCard>
 
-      <PeriodFilter value={period} onChange={setPeriod} />
+      <PeriodFilter value={period} onChange={setPeriod} syncUrl />
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Pendente" value={formatCurrency(summary.pending)} helper="Contas ainda abertas." tone="warning" />

@@ -122,16 +122,23 @@ export function parsePeriodSearchParams(params: Record<string, string | string[]
   const preset = periodOptions.some((option) => option.value === rawPreset)
     ? (rawPreset as PeriodPreset)
     : "current_month";
+  const startDate = readParam(params.start);
+  const endDate = readParam(params.end);
 
   if (preset === "custom") {
     return {
       preset,
-      startDate: readParam(params.start) || getPeriodValue("current_month").startDate,
-      endDate: readParam(params.end) || getPeriodValue("current_month").endDate,
+      startDate: startDate || getPeriodValue("current_month").startDate,
+      endDate: endDate || getPeriodValue("current_month").endDate,
     };
   }
 
-  return getPeriodValue(preset);
+  const period = getPeriodValue(preset);
+  return {
+    ...period,
+    startDate: startDate || period.startDate,
+    endDate: endDate || period.endDate,
+  };
 }
 
 export function normalizeDate(date: string | null | undefined) {
