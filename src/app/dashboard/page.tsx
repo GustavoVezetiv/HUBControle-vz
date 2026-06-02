@@ -7,6 +7,14 @@ import { StatCard } from "@/components/ui/stat-card";
 import { buildFinancialSummary, type DecisionItem } from "@/features/decision/financial-summary";
 import { calculatePaymentPlanScenario } from "@/features/payment-plans/simulator";
 import { formatCurrency, formatDate, todayISO } from "@/features/shared/format";
+import { PeriodFilter } from "@/features/shared/period-filter";
+import {
+  isAnyDateInPeriod,
+  isDateInPeriod,
+  isDateRangeInPeriod,
+  parsePeriodSearchParams,
+  type PeriodValue,
+} from "@/features/shared/period";
 import { createClient } from "@/lib/supabase/server";
 import type {
   AccountPayable,
@@ -26,7 +34,14 @@ export const metadata = {
   title: "Dashboard",
 };
 
-export default async function DashboardPage() {
+type DashboardPageProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function DashboardPage({ searchParams }: DashboardPageProps) {
+  const params = await searchParams;
+  const period = parsePeriodSearchParams(params ?? {});
+  const periodQuery = buildPeriodQuery(period);
   const supabase = await createClient();
 
   if (!supabase) {
@@ -106,26 +121,45 @@ export default async function DashboardPage() {
   const notes = notesResult.data ?? [];
   const lastImport = importsResult.data?.[0] ?? null;
   const activePlanItems = activePlanItemsResult.data ?? [];
+
+  const periodAccounts = accounts.filter((account) => isDateInPeriod(account.due_date, period));
+  const periodIncomeSources = incomeSources.filter((income) =>
+    isAnyDateInPeriod([income.expected_date, income.received_date], period),
+  );
+  const periodInvoices = invoices.filter((invoice) =>
+    isAnyDateInPeriod([invoice.due_date, invoice.reference_month], period),
+  );
+  const periodTransactions = transactions.filter((transaction) => isDateInPeriod(transaction.transaction_date, period));
+  const periodReimbursements = reimbursements.filter((reimbursement) =>
+    isAnyDateInPeriod([reimbursement.expected_date, reimbursement.received_date], period),
+  );
+  const periodInstallments = installments.filter((installment) =>
+    isDateRangeInPeriod(installment.start_date, installment.end_date, period),
+  );
+  const periodPlannedPurchases = plannedPurchases.filter((purchase) =>
+    isDateInPeriod(purchase.target_date, period),
+  );
+
   const summary = buildDashboardSummary(
-    accounts,
-    incomeSources,
-    invoices,
-    transactions,
-    reimbursements,
-    installments,
-    plannedPurchases,
+    periodAccounts,
+    periodIncomeSources,
+    periodInvoices,
+    periodTransactions,
+    periodReimbursements,
+    periodInstallments,
+    periodPlannedPurchases,
     notes,
     activePlan,
     activePlanItems,
     lastImport,
   );
   const decisionSummary = buildFinancialSummary({
-    accounts,
-    incomeSources,
-    invoices,
-    transactions,
-    reimbursements,
-    installments,
+    accounts: periodAccounts,
+    incomeSources: periodIncomeSources,
+    invoices: periodInvoices,
+    transactions: periodTransactions,
+    reimbursements: periodReimbursements,
+    installments: periodInstallments,
     activePlan,
     activePlanItems,
   });
@@ -138,20 +172,26 @@ export default async function DashboardPage() {
         description="Um ponto de partida visual para entender contas, entradas, reembolsos, faturas e riscos do mês."
       />
 
+      <PeriodFilter
+        value={period}
+        syncUrl
+        description="Escolha o período usado nos cards, listas e resumo financeiro do dashboard."
+      />
+
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <StatCard
           label="Contas pendentes"
           value={formatCurrency(summary.pendingAccounts)}
           helper="Contas abertas que ainda pressionam o caixa."
           tone="warning"
-          href="/dashboard/accounts?status=pending&period=current_month"
+          href={`/dashboard/accounts?status=pending&${periodQuery}`}
         />
         <StatCard
           label="Entradas previstas"
           value={formatCurrency(summary.expectedRealIncome)}
           helper="Somente renda real prevista."
           tone="success"
-          href="/dashboard/income?status=expected&period=current_month"
+          href={`/dashboard/income?status=expected&${periodQuery}`}
         />
         <StatCard
           label="Saldo projetado"
@@ -164,28 +204,28 @@ export default async function DashboardPage() {
           value={formatCurrency(summary.highPriorityAccounts)}
           helper="Contas altas ou críticas."
           tone="danger"
-          href="/dashboard/accounts?priority=high&period=current_month"
+          href={`/dashboard/accounts?priority=high&${periodQuery}`}
         />
         <StatCard
           label="Fatura crítica"
           value={formatCurrency(summary.criticalInvoiceAmount)}
           helper="Fatura aberta, parcial ou atrasada mais pesada."
           tone={summary.criticalInvoiceAmount > 0 ? "danger" : "neutral"}
-          href="/dashboard/invoices?status=open&period=current_month"
+          href={`/dashboard/invoices?status=open&${periodQuery}`}
         />
         <StatCard
           label="Reembolsos pendentes"
           value={formatCurrency(summary.openReimbursements)}
           helper="Pix esperado para cobrir despesas anteriores."
           tone="warning"
-          href="/dashboard/reimbursements?status=expected&period=current_month"
+          href={`/dashboard/reimbursements?status=expected&${periodQuery}`}
         />
         <StatCard
           label="Dinheiro de terceiros em aberto"
           value={formatCurrency(summary.thirdPartyOpenAmount)}
           helper="Lançamentos de terceiros ou família ainda vinculados."
           tone="warning"
-          href="/dashboard/reimbursements?status=expected&period=current_month"
+          href={`/dashboard/reimbursements?status=expected&${periodQuery}`}
         />
         <StatCard
           label="Custo pessoal líquido estimado"
@@ -198,7 +238,7 @@ export default async function DashboardPage() {
           value={formatCurrency(summary.plannedPurchasePressure)}
           helper="Desejos ativos que podem virar gasto."
           tone={summary.plannedPurchasePressure > 0 ? "warning" : "neutral"}
-          href="/dashboard/purchases?status=planned&period=current_month"
+          href={`/dashboard/purchases?status=planned&${periodQuery}`}
         />
         <StatCard
           label="Anotações fixadas"
@@ -274,7 +314,7 @@ export default async function DashboardPage() {
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <StatCard label="Pagar agora" value={formatCurrency(summary.activePlanPayNow)} helper="Saída imediata." tone="danger" />
-                <StatCard label="Próxima fatura" value={formatCurrency(summary.activePlanNextInvoicePressure)} helper="Cartão + parcelas." tone="warning" href="/dashboard/installments?status=active&period=current_month" />
+                <StatCard label="Próxima fatura" value={formatCurrency(summary.activePlanNextInvoicePressure)} helper="Cartão + parcelas." tone="warning" href={`/dashboard/installments?status=active&${periodQuery}`} />
               </div>
               <Link className="text-sm font-semibold text-mint-600 hover:text-mint-700" href={`/dashboard/payment-plans/${activePlan.id}`}>
                 Abrir plano ativo
@@ -424,6 +464,21 @@ function DecisionList({
       )}
     </SectionCard>
   );
+}
+
+function buildPeriodQuery(period: PeriodValue) {
+  const params = new URLSearchParams();
+  params.set("period", period.preset);
+
+  if (period.startDate) {
+    params.set("start", period.startDate);
+  }
+
+  if (period.endDate) {
+    params.set("end", period.endDate);
+  }
+
+  return params.toString();
 }
 
 function DashboardError({ message }: { message: string }) {

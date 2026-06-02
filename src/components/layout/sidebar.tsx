@@ -35,7 +35,7 @@ export function Sidebar({ items }: SidebarProps) {
               className={[
                 "flex items-center justify-between rounded-md px-3 py-2.5 text-sm font-medium transition",
                 active
-                  ? "bg-ink-950 text-white shadow-soft"
+                  ? "bg-slate-950 text-white shadow-soft"
                   : "text-ink-600 hover:bg-mint-100 hover:text-ink-950",
               ].join(" ")}
             >

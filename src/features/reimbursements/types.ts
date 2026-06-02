@@ -7,7 +7,7 @@ export type ReimbursementAccount = Pick<AccountPayable, "id" | "title" | "amount
 export type ReimbursementIncome = Pick<IncomeSource, "id" | "name" | "amount">;
 export type ReimbursementCategory = Pick<Category, "id" | "name" | "type" | "color" | "icon">;
 export type ReimbursementCard = Pick<CreditCard, "id" | "name" | "issuer">;
-export type ReimbursementInvoice = Pick<CreditCardInvoice, "id" | "credit_card_id" | "reference_month" | "due_date" | "status">;
+export type ReimbursementInvoice = Pick<CreditCardInvoice, "id" | "credit_card_id" | "reference_month" | "due_date" | "status" | "total_amount">;
 
 export type ReimbursementGeneratedLinkValues =
   | {

@@ -8,9 +8,10 @@ import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
 import { calculateInvoiceSummary, type InvoiceCard, type InvoiceReimbursementRow, type InvoiceRow } from "@/features/invoices/types";
-import { ActionButton, BooleanBadge, CategoryBadge, CrudFeedback, FieldShell, inputClassName, Modal } from "@/features/shared/crud-ui";
+import { ActionButton, BooleanBadge, CategoryBadge, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect } from "@/features/shared/crud-ui";
 import { formatCurrency, formatDate } from "@/features/shared/format";
 import { optionLabel, ownershipTypeOptions } from "@/features/shared/options";
+import { getQuickTableEditPreference } from "@/features/shared/quick-edit";
 import type { FeedbackState } from "@/features/shared/types";
 import {
   createExpectedReimbursementForTransaction,
@@ -54,6 +55,7 @@ export function InvoiceTransactionsCrud({ invoiceId }: { invoiceId: string }) {
   const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [modal, setModal] = useState<ModalState>(null);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
+  const [allowQuickTableEdit, setAllowQuickTableEdit] = useState(false);
 
   const cardName = cards.find((card) => card.id === invoice?.credit_card_id)?.name ?? "Cartão";
   const filteredTransactions = useMemo(() => {
@@ -88,7 +90,7 @@ export function InvoiceTransactionsCrud({ invoiceId }: { invoiceId: string }) {
     }
 
     setUserId(auth.user.id);
-    const [invoiceResult, cardsResult, transactionsResult, reimbursementsResult, support] =
+    const [invoiceResult, cardsResult, transactionsResult, reimbursementsResult, support, quickEdit] =
       await Promise.all([
         client.from("credit_card_invoices").select("*").eq("id", invoiceId).single(),
         client.from("credit_cards").select("id,name,issuer,closing_day,due_day").order("name", { ascending: true }),
@@ -99,6 +101,7 @@ export function InvoiceTransactionsCrud({ invoiceId }: { invoiceId: string }) {
           .order("transaction_date", { ascending: false }),
         client.from("reimbursements").select("*").eq("credit_card_invoice_id", invoiceId),
         listTransactionSupportData(client),
+        getQuickTableEditPreference(client, auth.user.id),
       ]);
 
     if (invoiceResult.error) setFeedback({ type: "error", message: invoiceResult.error.message });
@@ -112,6 +115,7 @@ export function InvoiceTransactionsCrud({ invoiceId }: { invoiceId: string }) {
     if (!support.categories.error) setCategories(support.categories.data ?? []);
     if (!support.people.error) setPeople(support.people.data ?? []);
     if (!support.invoices.error) setInvoices(support.invoices.data ?? []);
+    setAllowQuickTableEdit(quickEdit);
     setLoading(false);
   }, [invoiceId]);
 
@@ -238,6 +242,22 @@ export function InvoiceTransactionsCrud({ invoiceId }: { invoiceId: string }) {
     }
   }
 
+  async function handleQuickUpdate(transaction: TransactionRow, patch: Partial<TransactionFormValues>) {
+    const result = await updateTransaction(createClient(), transaction.id, {
+      ...transactionToFormValues(transaction),
+      ...patch,
+    });
+
+    if (result.error) {
+      console.error("Erro técnico ao editar lançamento rapidamente:", result.error);
+      setFeedback({ type: "error", message: "Não foi possível salvar a edição rápida." });
+      return;
+    }
+
+    setFeedback({ type: "success", message: "Lançamento atualizado." });
+    await loadData();
+  }
+
   async function handleGenerateRecurring(transaction: TransactionRow) {
     if (!userId) {
       setFeedback({ type: "error", message: "Sessão não encontrada." });
@@ -362,19 +382,43 @@ export function InvoiceTransactionsCrud({ invoiceId }: { invoiceId: string }) {
               <tbody className="divide-y divide-ink-950/10">
                 {filteredTransactions.map((transaction) => (
                   <tr key={transaction.id}>
-                    <td className="px-4 py-3 text-ink-600">{formatDate(transaction.transaction_date)}</td>
-                    <td className="px-4 py-3 font-medium text-ink-950">{transaction.description}</td>
-                    <td className="px-4 py-3 text-ink-950">{formatCurrency(Number(transaction.amount))}</td>
                     <td className="px-4 py-3 text-ink-600">
-                      {optionLabel(ownershipTypeOptions, transaction.ownership_type)}
+                      {allowQuickTableEdit ? (
+                        <QuickEditInput type="date" value={transaction.transaction_date} onCommit={(value) => void handleQuickUpdate(transaction, { transaction_date: value })} />
+                      ) : formatDate(transaction.transaction_date)}
+                    </td>
+                    <td className="px-4 py-3 font-medium text-ink-950">
+                      {allowQuickTableEdit ? (
+                        <QuickEditInput value={transaction.description} onCommit={(value) => void handleQuickUpdate(transaction, { description: value })} />
+                      ) : transaction.description}
+                    </td>
+                    <td className="px-4 py-3 text-ink-950">
+                      {allowQuickTableEdit ? (
+                        <QuickEditInput type="number" value={String(transaction.amount)} onCommit={(value) => void handleQuickUpdate(transaction, { amount: value })} />
+                      ) : formatCurrency(Number(transaction.amount))}
+                    </td>
+                    <td className="px-4 py-3 text-ink-600">
+                      {allowQuickTableEdit ? (
+                        <QuickEditSelect value={transaction.ownership_type} options={ownershipTypeOptions} onCommit={(value) => void handleQuickUpdate(transaction, { ownership_type: value as OwnershipType })} />
+                      ) : optionLabel(ownershipTypeOptions, transaction.ownership_type)}
                     </td>
                     <td className="px-4 py-3">
-                      <CategoryBadge category={categories.find((category) => category.id === transaction.category_id)} />
+                      {allowQuickTableEdit ? (
+                        <QuickEditSelect value={transaction.category_id ?? ""} options={[{ value: "", label: "Sem categoria" }, ...categories.map((category) => ({ value: category.id, label: category.name }))]} onCommit={(value) => void handleQuickUpdate(transaction, { category_id: value })} />
+                      ) : (
+                        <CategoryBadge category={categories.find((category) => category.id === transaction.category_id)} />
+                      )}
                     </td>
                     <td className="px-4 py-3 text-ink-600">
                       {people.find((person) => person.id === transaction.person_id)?.name ?? "-"}
                     </td>
-                    <td className="px-4 py-3"><BooleanBadge value={transaction.is_reimbursable} /></td>
+                    <td className="px-4 py-3">
+                      {allowQuickTableEdit && !transaction.reimbursement_id ? (
+                        <QuickEditSelect value={String(transaction.is_reimbursable)} options={[{ value: "false", label: "Não" }, { value: "true", label: "Sim" }]} onCommit={(value) => void handleQuickUpdate(transaction, { is_reimbursable: value === "true" })} />
+                      ) : (
+                        <BooleanBadge value={transaction.is_reimbursable} />
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-ink-600">
                       {transaction.is_recurring ? (transaction.recurrence_parent_id ? "Ocorrência" : "Recorrente") : "-"}
                     </td>

@@ -100,9 +100,9 @@ select {
   --hub-card-bg: rgba(17, 24, 39, 0.94);
   --hub-card-border: rgba(148, 163, 184, 0.18);
   --hub-card-shadow: 0 18px 40px rgba(0, 0, 0, 0.22);
-  --hub-badge-bg: color-mix(in srgb, var(--category-color, #2dd4bf) 28%, #111827);
-  --hub-badge-color: #f8fafc;
-  --hub-badge-border: rgba(148, 163, 184, 0.18);
+  --hub-badge-bg: var(--category-color, #2dd4bf);
+  --hub-badge-color: var(--category-text, #0f172a);
+  --hub-badge-border: transparent;
 }
 
 .hub-shell[data-visual-style="minimal"] {
@@ -258,6 +258,69 @@ select {
 :root.dark textarea,
 :root.dark select {
   color-scheme: dark;
+}
+
+:root.dark .hub-input,
+:root.dark input,
+:root.dark textarea,
+:root.dark select {
+  background-color: #0f172a !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  color: #f8fafc !important;
+}
+
+:root.dark .hub-input::placeholder,
+:root.dark input::placeholder,
+:root.dark textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+:root.dark .hub-modal,
+:root.dark .hub-modal-header {
+  background-color: #111827 !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+.hub-modal form > .flex.justify-end:last-child {
+  position: sticky;
+  bottom: -1.25rem;
+  z-index: 9;
+  margin-left: -1.5rem;
+  margin-right: -1.5rem;
+  border-top: 1px solid rgba(15, 23, 42, 0.1);
+  background: var(--hub-surface);
+  padding: 0.75rem 1.5rem 0.25rem;
+}
+
+:root.dark .hub-modal form > .flex.justify-end:last-child {
+  border-color: rgba(148, 163, 184, 0.2);
+  background: #111827;
+}
+
+:root.dark .hub-action-primary {
+  background-color: #2dd4bf !important;
+  color: #042f2e !important;
+}
+
+:root.dark .hub-action-primary:hover {
+  background-color: #5eead4 !important;
+}
+
+:root.dark .hub-action-secondary {
+  background-color: #0f172a !important;
+  border-color: rgba(148, 163, 184, 0.28) !important;
+  color: #f8fafc !important;
+}
+
+:root.dark .hub-action-secondary:hover {
+  border-color: #2dd4bf !important;
+  color: #5eead4 !important;
+}
+
+:root.dark .hub-action-danger {
+  background-color: rgba(127, 29, 29, 0.42) !important;
+  border-color: rgba(248, 113, 113, 0.32) !important;
+  color: #fca5a5 !important;
 }
 
 :root.dark .fixed.inset-0 {

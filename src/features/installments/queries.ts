@@ -13,14 +13,15 @@ export async function listInstallments(client: AppSupabaseClient) {
 }
 
 export async function listInstallmentSupportData(client: AppSupabaseClient) {
-  const [cards, invoices, categories, people] = await Promise.all([
+  const [cards, invoices, transactions, categories, people] = await Promise.all([
     client.from("credit_cards").select("id,name").order("name", { ascending: true }),
     client.from("credit_card_invoices").select("id,credit_card_id,reference_month,due_date,status").order("due_date", { ascending: false }),
-    client.from("categories").select("id,name").order("name", { ascending: true }),
+    client.from("credit_card_transactions").select("id,credit_card_id,invoice_id,description,amount,transaction_date").order("transaction_date", { ascending: false }),
+    client.from("categories").select("id,name,type,color,icon").order("name", { ascending: true }),
     client.from("people").select("id,name").order("name", { ascending: true }),
   ]);
 
-  return { cards, invoices, categories, people };
+  return { cards, invoices, transactions, categories, people };
 }
 
 export async function createInstallment(client: AppSupabaseClient, userId: string, values: InstallmentFormValues) {
@@ -185,6 +186,7 @@ function toPayload(userId: string | undefined, values: InstallmentFormValues): P
     end_date: values.end_date || null,
     credit_card_id: values.credit_card_id || null,
     invoice_id: values.invoice_id || null,
+    credit_card_transaction_id: values.credit_card_transaction_id || null,
     category_id: values.category_id || null,
     person_id: values.person_id || null,
     installment_origin: values.installment_origin,
