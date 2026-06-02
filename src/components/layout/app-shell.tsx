@@ -5,11 +5,25 @@ import { navigationItems } from "@/lib/navigation";
 type AppShellProps = {
   children: React.ReactNode;
   userEmail?: string | null;
+  visualStyle?: string;
+  density?: string;
+  categoryBadgeStyle?: string;
 };
 
-export function AppShell({ children, userEmail }: AppShellProps) {
+export function AppShell({
+  children,
+  userEmail,
+  visualStyle = "classic",
+  density = "comfortable",
+  categoryBadgeStyle = "solid",
+}: AppShellProps) {
   return (
-    <div className="min-h-screen lg:flex">
+    <div
+      className="hub-shell min-h-screen lg:flex"
+      data-visual-style={visualStyle}
+      data-density={density}
+      data-category-badge-style={categoryBadgeStyle}
+    >
       <Sidebar items={navigationItems} />
       <div className="min-w-0 flex-1">
         <Topbar items={navigationItems} userEmail={userEmail} />

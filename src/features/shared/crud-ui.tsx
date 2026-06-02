@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type MouseEvent } from "react";
+import { useEffect, useState, type CSSProperties, type MouseEvent } from "react";
 
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import { CategoryIcon } from "@/features/shared/category-icons";
@@ -149,10 +149,13 @@ export function CategoryBadge({ category }: { category?: CategoryBadgeCategory |
   return (
     <span
       className={[
-        "inline-flex max-w-[13rem] items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold",
+        "hub-category-badge inline-flex max-w-[13rem] items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold",
         safeColor ? "border-transparent" : "border-ink-950/10 bg-slate-100 text-ink-700",
       ].join(" ")}
-      style={safeColor ? { backgroundColor: safeColor, color: textColor } : undefined}
+      style={safeColor ? {
+        "--category-color": safeColor,
+        "--category-text": textColor,
+      } as CSSProperties : undefined}
     >
       {icon ? <CategoryIcon value={icon} /> : null}
       <span className="truncate">{label}</span>

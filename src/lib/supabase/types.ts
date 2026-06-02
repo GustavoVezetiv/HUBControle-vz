@@ -30,6 +30,9 @@ export type Profile = {
   timezone: string;
   month_start_day: number;
   allow_quick_table_edit: boolean;
+  visual_style: string;
+  interface_density: string;
+  category_badge_style: string;
   created_at: string;
   updated_at: string;
 };

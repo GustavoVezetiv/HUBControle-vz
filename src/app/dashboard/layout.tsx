@@ -1,6 +1,11 @@
 import { redirect } from "next/navigation";
 
 import { AppShell } from "@/components/layout/app-shell";
+import {
+  normalizeCategoryBadgeStyle,
+  normalizeInterfaceDensity,
+  normalizeVisualStyle,
+} from "@/features/settings/types";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -28,5 +33,20 @@ async function ProtectedDashboardLayout({ children }: { children: React.ReactNod
     redirect("/login");
   }
 
-  return <AppShell userEmail={user.email ?? null}>{children}</AppShell>;
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("visual_style,interface_density,category_badge_style")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  return (
+    <AppShell
+      userEmail={user.email ?? null}
+      visualStyle={normalizeVisualStyle(profile?.visual_style)}
+      density={normalizeInterfaceDensity(profile?.interface_density)}
+      categoryBadgeStyle={normalizeCategoryBadgeStyle(profile?.category_badge_style)}
+    >
+      {children}
+    </AppShell>
+  );
 }

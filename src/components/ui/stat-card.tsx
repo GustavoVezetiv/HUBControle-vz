@@ -14,7 +14,7 @@ export function StatCard({ label, value, helper, tone = "neutral", href }: StatC
   const content = (
     <article
       className={[
-        "h-full rounded-lg border border-ink-950/10 bg-white p-5 shadow-sm",
+        "hub-card h-full rounded-lg border border-ink-950/10 bg-white p-5 shadow-sm",
         href ? "transition hover:border-mint-500 hover:shadow-md" : "",
       ].join(" ")}
     >
