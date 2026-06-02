@@ -6,6 +6,46 @@
   color-scheme: light;
   background: #f5f7f9;
   color: #121417;
+  --hub-ink-950: 18 20 23;
+  --hub-ink-800: 37 41 50;
+  --hub-ink-600: 81 88 102;
+  --hub-mint-600: 15 159 122;
+  --hub-mint-500: 24 185 143;
+  --hub-mint-100: 223 248 239;
+  --hub-amber-500: 201 132 8;
+  --hub-amber-100: 255 243 214;
+  --hub-danger-600: 194 65 49;
+  --hub-danger-100: 255 226 221;
+  --hub-page-bg:
+    radial-gradient(circle at top left, rgba(24, 185, 143, 0.14), transparent 34rem),
+    linear-gradient(180deg, #f8fafb 0%, #eef3f5 100%);
+  --hub-surface: #ffffff;
+  --hub-surface-muted: #f8fafc;
+  --hub-surface-soft: rgba(255, 255, 255, 0.82);
+  --hub-overlay: rgba(18, 20, 23, 0.45);
+}
+
+:root.dark {
+  color-scheme: dark;
+  background: #090f16;
+  color: #f8fafc;
+  --hub-ink-950: 248 250 252;
+  --hub-ink-800: 226 232 240;
+  --hub-ink-600: 186 197 212;
+  --hub-mint-600: 95 232 185;
+  --hub-mint-500: 45 212 191;
+  --hub-mint-100: 12 53 47;
+  --hub-amber-500: 251 191 36;
+  --hub-amber-100: 69 46 12;
+  --hub-danger-600: 248 113 113;
+  --hub-danger-100: 69 22 25;
+  --hub-page-bg:
+    radial-gradient(circle at top left, rgba(45, 212, 191, 0.14), transparent 32rem),
+    linear-gradient(180deg, #0b111a 0%, #090f16 100%);
+  --hub-surface: #111827;
+  --hub-surface-muted: #0f172a;
+  --hub-surface-soft: rgba(17, 24, 39, 0.86);
+  --hub-overlay: rgba(3, 7, 18, 0.7);
 }
 
 * {
@@ -20,10 +60,8 @@ html {
 body {
   min-height: 100%;
   margin: 0;
-  background:
-    radial-gradient(circle at top left, rgba(24, 185, 143, 0.14), transparent 34rem),
-    linear-gradient(180deg, #f8fafb 0%, #eef3f5 100%);
-  color: #121417;
+  background: var(--hub-page-bg);
+  color: rgb(var(--hub-ink-950));
   font-family:
     var(--font-geist-sans), Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
     "Segoe UI", sans-serif;
@@ -46,7 +84,7 @@ select {
 }
 
 .hub-shell {
-  --hub-card-bg: #ffffff;
+  --hub-card-bg: var(--hub-surface);
   --hub-card-border: rgba(15, 23, 42, 0.1);
   --hub-card-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
   --hub-card-radius: 0.5rem;
@@ -58,12 +96,27 @@ select {
   --hub-badge-border: transparent;
 }
 
+:root.dark .hub-shell {
+  --hub-card-bg: rgba(17, 24, 39, 0.94);
+  --hub-card-border: rgba(148, 163, 184, 0.18);
+  --hub-card-shadow: 0 18px 40px rgba(0, 0, 0, 0.22);
+  --hub-badge-bg: color-mix(in srgb, var(--category-color, #2dd4bf) 28%, #111827);
+  --hub-badge-color: #f8fafc;
+  --hub-badge-border: rgba(148, 163, 184, 0.18);
+}
+
 .hub-shell[data-visual-style="minimal"] {
   --hub-card-bg: rgba(255, 255, 255, 0.92);
   --hub-card-border: rgba(15, 23, 42, 0.08);
   --hub-card-shadow: none;
   --hub-card-radius: 0.375rem;
   background: #f8fafc;
+}
+
+:root.dark .hub-shell[data-visual-style="minimal"] {
+  --hub-card-bg: rgba(15, 23, 42, 0.92);
+  --hub-card-border: rgba(148, 163, 184, 0.14);
+  background: #090f16;
 }
 
 .hub-shell[data-visual-style="colorful"] {
@@ -75,6 +128,14 @@ select {
     #f7fbff;
 }
 
+:root.dark .hub-shell[data-visual-style="colorful"] {
+  --hub-card-bg: linear-gradient(180deg, rgba(17, 24, 39, 0.96) 0%, rgba(11, 38, 34, 0.92) 100%);
+  --hub-card-border: rgba(45, 212, 191, 0.26);
+  background:
+    radial-gradient(circle at top right, rgba(45, 212, 191, 0.12), transparent 28rem),
+    #090f16;
+}
+
 .hub-shell[data-visual-style="glass"] {
   --hub-card-bg: rgba(255, 255, 255, 0.72);
   --hub-card-border: rgba(255, 255, 255, 0.68);
@@ -83,6 +144,15 @@ select {
     radial-gradient(circle at 20% 0%, rgba(24, 185, 143, 0.18), transparent 25rem),
     radial-gradient(circle at 80% 12%, rgba(73, 113, 255, 0.12), transparent 22rem),
     #f5f7f9;
+}
+
+:root.dark .hub-shell[data-visual-style="glass"] {
+  --hub-card-bg: rgba(15, 23, 42, 0.62);
+  --hub-card-border: rgba(148, 163, 184, 0.2);
+  background:
+    radial-gradient(circle at 20% 0%, rgba(45, 212, 191, 0.16), transparent 25rem),
+    radial-gradient(circle at 80% 12%, rgba(96, 165, 250, 0.12), transparent 22rem),
+    #090f16;
 }
 
 .hub-shell[data-visual-style="compact"] {
@@ -100,6 +170,15 @@ select {
     radial-gradient(circle at top left, rgba(73, 113, 255, 0.12), transparent 24rem),
     radial-gradient(circle at top right, rgba(24, 185, 143, 0.14), transparent 24rem),
     #f7f9ff;
+}
+
+:root.dark .hub-shell[data-visual-style="creative"] {
+  --hub-card-bg: linear-gradient(135deg, rgba(17, 24, 39, 0.98) 0%, rgba(15, 23, 42, 0.96) 52%, rgba(7, 38, 35, 0.92) 100%);
+  --hub-card-border: rgba(96, 165, 250, 0.18);
+  background:
+    radial-gradient(circle at top left, rgba(96, 165, 250, 0.1), transparent 24rem),
+    radial-gradient(circle at top right, rgba(45, 212, 191, 0.13), transparent 24rem),
+    #090f16;
 }
 
 .hub-shell[data-density="compact"] {
@@ -154,4 +233,33 @@ select {
   --hub-badge-bg: linear-gradient(135deg, color-mix(in srgb, var(--category-color, #18b98f) 88%, white), #ffffff);
   --hub-badge-color: #0f172a;
   --hub-badge-border: color-mix(in srgb, var(--category-color, #18b98f) 48%, white);
+}
+
+:root.dark .bg-white,
+:root.dark .bg-white\/70,
+:root.dark .bg-white\/82,
+:root.dark .bg-white\/86 {
+  background-color: var(--hub-surface-soft) !important;
+}
+
+:root.dark .bg-slate-50,
+:root.dark .bg-slate-100,
+:root.dark .disabled\:bg-slate-50:disabled {
+  background-color: var(--hub-surface-muted) !important;
+}
+
+:root.dark .border-white,
+:root.dark .border-ink-950\/10,
+:root.dark .border-ink-950\/18 {
+  border-color: rgba(148, 163, 184, 0.18) !important;
+}
+
+:root.dark input,
+:root.dark textarea,
+:root.dark select {
+  color-scheme: dark;
+}
+
+:root.dark .fixed.inset-0 {
+  background-color: var(--hub-overlay);
 }

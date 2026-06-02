@@ -1,4 +1,5 @@
 import type {
+  ReimbursementGeneratedLinkValues,
   ReimbursementFormValues,
   ReimbursementRow,
 } from "@/features/reimbursements/types";
@@ -15,7 +16,7 @@ export async function listReimbursements(client: AppSupabaseClient) {
 }
 
 export async function listReimbursementSupportData(client: AppSupabaseClient) {
-  const [people, transactions, accounts, income, categories] = await Promise.all([
+  const [people, transactions, accounts, income, categories, cards, invoices] = await Promise.all([
     client.from("people").select("id,name").order("name", { ascending: true }),
     client
       .from("credit_card_transactions")
@@ -24,9 +25,15 @@ export async function listReimbursementSupportData(client: AppSupabaseClient) {
     client.from("accounts_payable").select("id,title,amount").order("due_date", { ascending: false }),
     client.from("income_sources").select("id,name,amount").order("expected_date", { ascending: false }),
     client.from("categories").select("id,name,type,color,icon").order("name", { ascending: true }),
+    client.from("credit_cards").select("id,name,issuer").eq("is_active", true).order("name", { ascending: true }),
+    client
+      .from("credit_card_invoices")
+      .select("id,credit_card_id,reference_month,due_date,status")
+      .neq("status", "cancelled")
+      .order("due_date", { ascending: false }),
   ]);
 
-  return { people, transactions, accounts, income, categories };
+  return { people, transactions, accounts, income, categories, cards, invoices };
 }
 
 export async function createReimbursement(
@@ -47,6 +54,143 @@ export async function updateReimbursement(
 
 export async function deleteReimbursement(client: AppSupabaseClient, id: string) {
   return client.from("reimbursements").delete().eq("id", id);
+}
+
+export async function generateLinkedEntryFromReimbursement(
+  client: AppSupabaseClient,
+  userId: string,
+  reimbursement: ReimbursementRow,
+  values: ReimbursementGeneratedLinkValues,
+) {
+  if (
+    reimbursement.account_payable_id ||
+    reimbursement.credit_card_transaction_id ||
+    reimbursement.credit_card_invoice_id
+  ) {
+    return { error: { message: "Este reembolso já possui vínculo. Edite o vínculo atual antes de gerar outro lançamento." } };
+  }
+
+  if (values.target === "account") {
+    const amount = Number(values.amount || 0);
+
+    if (!values.title.trim() || amount < 0 || !values.due_date) {
+      return { error: { message: "Informe título, valor e vencimento válidos." } };
+    }
+
+    const insertResult = await client
+      .from("accounts_payable")
+      .insert({
+        user_id: userId,
+        category_id: reimbursement.category_id,
+        person_id: reimbursement.person_id,
+        title: values.title.trim(),
+        description: values.description.trim() || null,
+        amount,
+        due_date: values.due_date,
+        status: "pending",
+        priority: "medium",
+        risk_level: "medium",
+        payment_method_planned: "unknown",
+        can_delay: true,
+        delay_risk: "medium",
+        source_type: "reimbursement",
+        source_id: reimbursement.id,
+        reimbursement_id: reimbursement.id,
+        notes: "Conta gerada a partir de reembolso.",
+      })
+      .select("id")
+      .single();
+
+    if (insertResult.error) {
+      console.error("Erro técnico ao gerar conta vinculada ao reembolso:", insertResult.error);
+      return { error: { message: "Não foi possível gerar a conta vinculada." } };
+    }
+
+    const updateResult = await client
+      .from("reimbursements")
+      .update({
+        account_payable_id: insertResult.data.id,
+        source_type: "account_payable",
+        source_id: insertResult.data.id,
+      })
+      .eq("id", reimbursement.id);
+
+    if (updateResult.error) {
+      console.error("Erro técnico ao vincular conta ao reembolso:", updateResult.error);
+      return { error: { message: "A conta foi criada, mas não foi possível vincular ao reembolso." } };
+    }
+
+    return { error: null };
+  }
+
+  const amount = Number(values.amount || 0);
+
+  if (!values.credit_card_id || !values.invoice_id || !values.description.trim() || amount < 0 || !values.transaction_date) {
+    return { error: { message: "Informe cartão, fatura, descrição, valor e data válidos." } };
+  }
+
+  const insertResult = await client
+    .from("credit_card_transactions")
+    .insert({
+      user_id: userId,
+      credit_card_id: values.credit_card_id,
+      invoice_id: values.invoice_id,
+      category_id: reimbursement.category_id,
+      person_id: reimbursement.person_id,
+      description: values.description.trim(),
+      amount,
+      transaction_date: values.transaction_date,
+      ownership_type: "third_party",
+      is_reimbursable: true,
+      reimbursement_status: toTransactionReimbursementStatus(reimbursement.status),
+      reimbursement_id: reimbursement.id,
+      notes: "Lançamento gerado a partir de reembolso.",
+    })
+    .select("id")
+    .single();
+
+  if (insertResult.error) {
+    console.error("Erro técnico ao gerar lançamento de fatura vinculado ao reembolso:", insertResult.error);
+    return { error: { message: "Não foi possível gerar o lançamento na fatura." } };
+  }
+
+  const invoiceResult = await client
+    .from("credit_card_invoices")
+    .select("total_amount")
+    .eq("id", values.invoice_id)
+    .single();
+
+  if (invoiceResult.error) {
+    console.error("Erro técnico ao consultar fatura do reembolso:", invoiceResult.error);
+    return { error: { message: "O lançamento foi criado, mas o total da fatura não foi atualizado." } };
+  }
+
+  const invoiceUpdateResult = await client
+    .from("credit_card_invoices")
+    .update({ total_amount: Number(invoiceResult.data.total_amount || 0) + amount })
+    .eq("id", values.invoice_id);
+
+  if (invoiceUpdateResult.error) {
+    console.error("Erro técnico ao atualizar total da fatura do reembolso:", invoiceUpdateResult.error);
+    return { error: { message: "O lançamento foi criado, mas o total da fatura não foi atualizado." } };
+  }
+
+  const updateResult = await client
+    .from("reimbursements")
+    .update({
+      credit_card_transaction_id: insertResult.data.id,
+      credit_card_invoice_id: values.invoice_id,
+      source_type: "credit_card_transaction",
+      source_id: insertResult.data.id,
+    })
+    .eq("id", reimbursement.id);
+
+  if (updateResult.error) {
+    console.error("Erro técnico ao vincular lançamento de fatura ao reembolso:", updateResult.error);
+    return { error: { message: "O lançamento foi criado, mas não foi possível vincular ao reembolso." } };
+  }
+
+  return { error: null };
 }
 
 export async function generateRecurringReimbursements(
@@ -189,6 +333,12 @@ function toPayload(
     recurrence_end_date: values.is_recurring && values.recurrence_end_date ? values.recurrence_end_date : null,
     notes: values.notes.trim() || null,
   };
+}
+
+function toTransactionReimbursementStatus(status: string) {
+  if (status === "received") return "received";
+  if (status === "partial") return "partial";
+  return "pending";
 }
 
 function addMonths(date: string, months: number) {

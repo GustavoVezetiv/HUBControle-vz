@@ -6,22 +6,22 @@ const config: Config = {
     extend: {
       colors: {
         ink: {
-          950: "#121417",
-          800: "#252932",
-          600: "#515866",
+          950: "rgb(var(--hub-ink-950) / <alpha-value>)",
+          800: "rgb(var(--hub-ink-800) / <alpha-value>)",
+          600: "rgb(var(--hub-ink-600) / <alpha-value>)",
         },
         mint: {
-          600: "#0f9f7a",
-          500: "#18b98f",
-          100: "#dff8ef",
+          600: "rgb(var(--hub-mint-600) / <alpha-value>)",
+          500: "rgb(var(--hub-mint-500) / <alpha-value>)",
+          100: "rgb(var(--hub-mint-100) / <alpha-value>)",
         },
         amberRisk: {
-          500: "#c98408",
-          100: "#fff3d6",
+          500: "rgb(var(--hub-amber-500) / <alpha-value>)",
+          100: "rgb(var(--hub-amber-100) / <alpha-value>)",
         },
         danger: {
-          600: "#c24131",
-          100: "#ffe2dd",
+          600: "rgb(var(--hub-danger-600) / <alpha-value>)",
+          100: "rgb(var(--hub-danger-100) / <alpha-value>)",
         },
       },
       boxShadow: {
@@ -33,4 +33,3 @@ const config: Config = {
 };
 
 export default config;
-

@@ -1,4 +1,4 @@
-import type { AccountPayable, Category, CreditCardTransaction, IncomeSource, Person, Reimbursement } from "@/lib/supabase/types";
+import type { AccountPayable, Category, CreditCard, CreditCardInvoice, CreditCardTransaction, IncomeSource, Person, Reimbursement } from "@/lib/supabase/types";
 
 export type ReimbursementRow = Reimbursement;
 export type ReimbursementPerson = Pick<Person, "id" | "name">;
@@ -6,6 +6,25 @@ export type ReimbursementTransaction = Pick<CreditCardTransaction, "id" | "descr
 export type ReimbursementAccount = Pick<AccountPayable, "id" | "title" | "amount">;
 export type ReimbursementIncome = Pick<IncomeSource, "id" | "name" | "amount">;
 export type ReimbursementCategory = Pick<Category, "id" | "name" | "type" | "color" | "icon">;
+export type ReimbursementCard = Pick<CreditCard, "id" | "name" | "issuer">;
+export type ReimbursementInvoice = Pick<CreditCardInvoice, "id" | "credit_card_id" | "reference_month" | "due_date" | "status">;
+
+export type ReimbursementGeneratedLinkValues =
+  | {
+      target: "account";
+      title: string;
+      description: string;
+      amount: string;
+      due_date: string;
+    }
+  | {
+      target: "invoice";
+      credit_card_id: string;
+      invoice_id: string;
+      description: string;
+      amount: string;
+      transaction_date: string;
+    };
 
 export type ReimbursementFormValues = {
   person_id: string;
