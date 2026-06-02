@@ -14,6 +14,8 @@ import {
   FieldShell,
   inputClassName,
   Modal,
+  QuickEditInput,
+  QuickEditSelect,
   RowSelectionHint,
   shouldToggleRowSelection,
   TextBadge,
@@ -28,6 +30,7 @@ import {
 } from "@/features/shared/options";
 import { PeriodFilter } from "@/features/shared/period-filter";
 import { createDefaultPeriodValue, isAnyDateInPeriod } from "@/features/shared/period";
+import { getQuickTableEditPreference } from "@/features/shared/quick-edit";
 import type { FeedbackState } from "@/features/shared/types";
 import {
   createIncomeSource,
@@ -68,6 +71,7 @@ export function IncomeSourcesCrud() {
   const [modal, setModal] = useState<ModalState>(null);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [allowQuickTableEdit, setAllowQuickTableEdit] = useState(false);
 
   const periodIncome = useMemo(() => {
     return incomeSources.filter((income) =>
@@ -154,9 +158,10 @@ export function IncomeSourcesCrud() {
 
       setUserId(user.id);
 
-      const [incomeResult, support] = await Promise.all([
+      const [incomeResult, support, quickEdit] = await Promise.all([
         listIncomeSources(client),
         listIncomeSupportData(client),
+        getQuickTableEditPreference(client, user.id),
       ]);
 
       if (incomeResult.error) {
@@ -177,6 +182,7 @@ export function IncomeSourcesCrud() {
       setIncomeSources(incomeResult.data ?? []);
       setCategories(support.categories.data ?? []);
       setPeople(support.people.data ?? []);
+      setAllowQuickTableEdit(quickEdit);
     } catch (error) {
       setFeedback({
         type: "error",
@@ -254,6 +260,28 @@ export function IncomeSourcesCrud() {
 
     setFeedback({ type: "success", message: "Receita excluída." });
     await loadIncomeSources();
+  }
+
+  async function handleQuickUpdate(income: IncomeSourceRow, patch: Partial<IncomeSourceFormValues>) {
+    setFeedback(null);
+
+    try {
+      const result = await updateIncomeSource(createClient(), income.id, {
+        ...incomeToFormValues(income),
+        ...patch,
+      });
+
+      if (result.error) {
+        console.error("Erro técnico ao editar receita rapidamente:", result.error);
+        setFeedback({ type: "error", message: "Não foi possível salvar a edição rápida." });
+        return;
+      }
+
+      await loadIncomeSources();
+    } catch (error) {
+      console.error("Erro técnico ao editar receita rapidamente:", error);
+      setFeedback({ type: "error", message: "Não foi possível salvar a edição rápida." });
+    }
   }
 
   async function handleBulkDelete() {
@@ -364,6 +392,8 @@ export function IncomeSourcesCrud() {
             people={people}
             onEdit={(income) => setModal({ mode: "edit", income })}
             onDelete={(income) => void handleDelete(income)}
+            onQuickUpdate={(income, patch) => void handleQuickUpdate(income, patch)}
+            allowQuickTableEdit={allowQuickTableEdit}
             selectedIds={selectedIds}
             onSelectionChange={setSelectedIds}
           />
@@ -391,6 +421,8 @@ function IncomeTable({
   people,
   onEdit,
   onDelete,
+  onQuickUpdate,
+  allowQuickTableEdit,
   selectedIds,
   onSelectionChange,
 }: {
@@ -399,6 +431,8 @@ function IncomeTable({
   people: IncomePerson[];
   onEdit: (income: IncomeSourceRow) => void;
   onDelete: (income: IncomeSourceRow) => void;
+  onQuickUpdate: (income: IncomeSourceRow, patch: Partial<IncomeSourceFormValues>) => void;
+  allowQuickTableEdit: boolean;
   selectedIds: Set<string>;
   onSelectionChange: (ids: Set<string>) => void;
 }) {
@@ -462,21 +496,47 @@ function IncomeTable({
                   aria-label={`Selecionar ${income.name}`}
                 />
               </td>
-              <td className="px-4 py-3 text-ink-600">{formatDate(income.expected_date)}</td>
+              <td className="px-4 py-3 text-ink-600">
+                {allowQuickTableEdit ? (
+                  <QuickEditInput type="date" value={income.expected_date ?? ""} onCommit={(value) => onQuickUpdate(income, { expected_date: value })} />
+                ) : formatDate(income.expected_date)}
+              </td>
               <td className="px-4 py-3">
-                <TitleButton onClick={() => onEdit(income)}>{income.name}</TitleButton>
+                {allowQuickTableEdit ? (
+                  <QuickEditInput value={income.name} onCommit={(value) => onQuickUpdate(income, { source: value })} />
+                ) : (
+                  <TitleButton onClick={() => onEdit(income)}>{income.name}</TitleButton>
+                )}
                 <p className="text-xs text-ink-600">{income.description ?? "-"}</p>
               </td>
-              <td className="px-4 py-3 font-medium text-ink-950">{formatCurrency(Number(income.amount))}</td>
+              <td className="px-4 py-3 font-medium text-ink-950">
+                {allowQuickTableEdit ? (
+                  <QuickEditInput type="number" value={String(income.amount)} onCommit={(value) => onQuickUpdate(income, { amount: value })} />
+                ) : formatCurrency(Number(income.amount))}
+              </td>
               <td className="px-4 py-3">
                 <TextBadge tone={income.inflow_kind === "real_income" ? "success" : "warning"}>
                   {optionLabel(incomeTypeOptions, income.source_type)}
                 </TextBadge>
               </td>
-              <td className="px-4 py-3"><CategoryBadge category={categories.find((category) => category.id === income.category_id)} /></td>
+              <td className="px-4 py-3">
+                {allowQuickTableEdit ? (
+                  <QuickEditSelect value={income.category_id ?? ""} options={[{ value: "", label: "Sem categoria" }, ...categories.map((category) => ({ value: category.id, label: category.name }))]} onCommit={(value) => onQuickUpdate(income, { category_id: value })} />
+                ) : (
+                  <CategoryBadge category={categories.find((category) => category.id === income.category_id)} />
+                )}
+              </td>
               <td className="px-4 py-3 text-ink-600">{people.find((person) => person.id === income.person_id)?.name ?? "-"}</td>
-              <td className="px-4 py-3 text-ink-600">{optionLabel(confidenceOptions, income.confidence)}</td>
-              <td className="px-4 py-3 text-ink-600">{optionLabel(incomeStatusOptions, income.status)}</td>
+              <td className="px-4 py-3 text-ink-600">
+                {allowQuickTableEdit ? (
+                  <QuickEditSelect value={income.confidence} options={confidenceOptions} onCommit={(value) => onQuickUpdate(income, { confidence: value })} />
+                ) : optionLabel(confidenceOptions, income.confidence)}
+              </td>
+              <td className="px-4 py-3 text-ink-600">
+                {allowQuickTableEdit ? (
+                  <QuickEditSelect value={income.status} options={incomeStatusOptions} onCommit={(value) => onQuickUpdate(income, { status: value })} />
+                ) : optionLabel(incomeStatusOptions, income.status)}
+              </td>
               <td className="px-4 py-3">
                 <div className="flex justify-end gap-2">
                   <ActionButton variant="secondary" onClick={() => onEdit(income)}>Editar</ActionButton>

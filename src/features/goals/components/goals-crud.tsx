@@ -6,8 +6,9 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
-import { ActionButton, BulkActionsBar, CrudFeedback, FieldShell, inputClassName, Modal, RowSelectionHint, shouldToggleRowSelection, TextBadge, TitleButton } from "@/features/shared/crud-ui";
+import { ActionButton, BulkActionsBar, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, RowSelectionHint, shouldToggleRowSelection, TextBadge, TitleButton } from "@/features/shared/crud-ui";
 import { formatCurrency, formatDate } from "@/features/shared/format";
+import { getQuickTableEditPreference } from "@/features/shared/quick-edit";
 import type { FeedbackState } from "@/features/shared/types";
 import { createGoal, deleteGoal, emptyGoalForm, goalToFormValues, listGoals, updateGoal, type GoalFormValues } from "@/features/goals/queries";
 import { createClient } from "@/lib/supabase/client";
@@ -39,6 +40,7 @@ export function GoalsCrud() {
   const [modal, setModal] = useState<ModalState>(null);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [allowQuickTableEdit, setAllowQuickTableEdit] = useState(false);
 
   const summary = useMemo(() => {
     const active = goals.filter((goal) => goal.status === "active");
@@ -60,12 +62,16 @@ export function GoalsCrud() {
       return;
     }
     setUserId(auth.user.id);
-    const result = await listGoals(client);
+    const [result, quickEdit] = await Promise.all([
+      listGoals(client),
+      getQuickTableEditPreference(client, auth.user.id),
+    ]);
     if (result.error) {
       console.error("Erro técnico ao carregar metas:", result.error);
       setFeedback({ type: "error", message: "Não foi possível carregar as metas." });
     } else {
       setGoals(result.data ?? []);
+      setAllowQuickTableEdit(quickEdit);
     }
     setLoading(false);
   }
@@ -118,6 +124,28 @@ export function GoalsCrud() {
     await loadData();
   }
 
+  async function handleQuickUpdate(goal: Goal, patch: Partial<GoalFormValues>) {
+    setFeedback(null);
+
+    try {
+      const result = await updateGoal(createClient(), goal.id, {
+        ...goalToFormValues(goal),
+        ...patch,
+      });
+
+      if (result.error) {
+        console.error("Erro técnico ao editar meta rapidamente:", result.error);
+        setFeedback({ type: "error", message: "Não foi possível salvar a edição rápida." });
+        return;
+      }
+
+      await loadData();
+    } catch (error) {
+      console.error("Erro técnico ao editar meta rapidamente:", error);
+      setFeedback({ type: "error", message: "Não foi possível salvar a edição rápida." });
+    }
+  }
+
   async function handleBulkDelete() {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
@@ -164,7 +192,7 @@ export function GoalsCrud() {
       <SectionCard title="Metas cadastradas">
         {loading ? <p className="text-sm text-ink-600">Carregando metas...</p> : goals.length === 0 ? <EmptyState title="Nenhuma meta cadastrada" description="Crie metas pessoais para considerar nos planos do mês." /> : (
           <><BulkActionsBar selectedCount={selectedIds.size} deleting={deletingSelected} onClear={() => setSelectedIds(new Set())} onDelete={() => void handleBulkDelete()} /><RowSelectionHint /><div className="overflow-x-auto"><table className="min-w-full divide-y divide-ink-950/10 text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-ink-600"><tr><th className="px-4 py-3"><input type="checkbox" checked={goals.length > 0 && goals.every((goal) => selectedIds.has(goal.id))} onChange={(event) => setSelectedIds(event.target.checked ? new Set(goals.map((goal) => goal.id)) : new Set())} aria-label="Selecionar todas as metas" /></th><th className="px-4 py-3">Meta</th><th className="px-4 py-3">Tipo</th><th className="px-4 py-3">Atual</th><th className="px-4 py-3">Objetivo</th><th className="px-4 py-3">Data</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Ações</th></tr></thead><tbody className="divide-y divide-ink-950/10">
-            {goals.map((goal) => <tr key={goal.id} onClick={(event) => { if (!shouldToggleRowSelection(event)) return; const next = new Set(selectedIds); if (next.has(goal.id)) next.delete(goal.id); else next.add(goal.id); setSelectedIds(next); }} className="cursor-default"><td className="px-4 py-3"><input type="checkbox" checked={selectedIds.has(goal.id)} onChange={(event) => { const next = new Set(selectedIds); if (event.target.checked) next.add(goal.id); else next.delete(goal.id); setSelectedIds(next); }} aria-label={`Selecionar ${goal.name}`} /></td><td className="px-4 py-3"><TitleButton onClick={() => setModal({ mode: "edit", goal })}>{goal.name}</TitleButton><p className="text-xs text-ink-600">{goal.notes ?? "Sem observações"}</p></td><td className="px-4 py-3 text-ink-600">{labelFor(goalTypeOptions, goal.goal_type)}</td><td className="px-4 py-3 text-ink-950">{formatCurrency(Number(goal.current_amount))}</td><td className="px-4 py-3 text-ink-950">{formatCurrency(Number(goal.target_amount))}</td><td className="px-4 py-3 text-ink-600">{formatDate(goal.target_date)}</td><td className="px-4 py-3"><TextBadge tone={goal.status === "completed" ? "success" : goal.status === "active" ? "info" : "neutral"}>{labelFor(goalStatusOptions, goal.status)}</TextBadge></td><td className="px-4 py-3"><div className="flex justify-end gap-2"><ActionButton variant="secondary" onClick={() => setModal({ mode: "edit", goal })}>Editar</ActionButton><ActionButton variant="danger" onClick={() => void handleDelete(goal)}>Excluir</ActionButton></div></td></tr>)}
+            {goals.map((goal) => <tr key={goal.id} onClick={(event) => { if (!shouldToggleRowSelection(event)) return; const next = new Set(selectedIds); if (next.has(goal.id)) next.delete(goal.id); else next.add(goal.id); setSelectedIds(next); }} className="cursor-default"><td className="px-4 py-3"><input type="checkbox" checked={selectedIds.has(goal.id)} onChange={(event) => { const next = new Set(selectedIds); if (event.target.checked) next.add(goal.id); else next.delete(goal.id); setSelectedIds(next); }} aria-label={`Selecionar ${goal.name}`} /></td><td className="px-4 py-3">{allowQuickTableEdit ? <QuickEditInput value={goal.name} onCommit={(value) => void handleQuickUpdate(goal, { name: value })} /> : <TitleButton onClick={() => setModal({ mode: "edit", goal })}>{goal.name}</TitleButton>}<p className="text-xs text-ink-600">{goal.notes ?? "Sem observações"}</p></td><td className="px-4 py-3 text-ink-600">{allowQuickTableEdit ? <QuickEditSelect value={goal.goal_type} options={goalTypeOptions} onCommit={(value) => void handleQuickUpdate(goal, { goal_type: value })} /> : labelFor(goalTypeOptions, goal.goal_type)}</td><td className="px-4 py-3 text-ink-950">{allowQuickTableEdit ? <QuickEditInput type="number" value={String(goal.current_amount)} onCommit={(value) => void handleQuickUpdate(goal, { current_amount: value })} /> : formatCurrency(Number(goal.current_amount))}</td><td className="px-4 py-3 text-ink-950">{allowQuickTableEdit ? <QuickEditInput type="number" value={String(goal.target_amount)} onCommit={(value) => void handleQuickUpdate(goal, { target_amount: value })} /> : formatCurrency(Number(goal.target_amount))}</td><td className="px-4 py-3 text-ink-600">{allowQuickTableEdit ? <QuickEditInput type="date" value={goal.target_date ?? ""} onCommit={(value) => void handleQuickUpdate(goal, { target_date: value })} /> : formatDate(goal.target_date)}</td><td className="px-4 py-3">{allowQuickTableEdit ? <QuickEditSelect value={goal.status} options={goalStatusOptions} onCommit={(value) => void handleQuickUpdate(goal, { status: value })} /> : <TextBadge tone={goal.status === "completed" ? "success" : goal.status === "active" ? "info" : "neutral"}>{labelFor(goalStatusOptions, goal.status)}</TextBadge>}</td><td className="px-4 py-3"><div className="flex justify-end gap-2"><ActionButton variant="secondary" onClick={() => setModal({ mode: "edit", goal })}>Editar</ActionButton><ActionButton variant="danger" onClick={() => void handleDelete(goal)}>Excluir</ActionButton></div></td></tr>)}
           </tbody></table></div>
           </>
         )}

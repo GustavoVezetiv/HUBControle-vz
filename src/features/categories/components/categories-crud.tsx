@@ -13,10 +13,13 @@ import {
   FieldShell,
   inputClassName,
   Modal,
+  QuickEditInput,
+  QuickEditSelect,
   TitleButton,
 } from "@/features/shared/crud-ui";
 import { categoryTypeOptions, optionLabel } from "@/features/shared/options";
 import { CategoryIcon, categoryIconOptions } from "@/features/shared/category-icons";
+import { getQuickTableEditPreference } from "@/features/shared/quick-edit";
 import type { FeedbackState } from "@/features/shared/types";
 import {
   createCategory,
@@ -46,6 +49,7 @@ export function CategoriesCrud() {
   const [saving, setSaving] = useState(false);
   const [modal, setModal] = useState<ModalState>(null);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
+  const [allowQuickTableEdit, setAllowQuickTableEdit] = useState(false);
 
   const filteredCategories = useMemo(() => {
     if (typeFilter === "all") {
@@ -73,14 +77,18 @@ export function CategoriesCrud() {
 
       setUserId(user.id);
 
-      const { data, error } = await listCategories(client);
+      const [categoriesResult, quickEdit] = await Promise.all([
+        listCategories(client),
+        getQuickTableEditPreference(client, user.id),
+      ]);
 
-      if (error) {
-        setFeedback({ type: "error", message: error.message });
+      if (categoriesResult.error) {
+        setFeedback({ type: "error", message: categoriesResult.error.message });
         return;
       }
 
-      setCategories(data ?? []);
+      setCategories(categoriesResult.data ?? []);
+      setAllowQuickTableEdit(quickEdit);
     } catch (error) {
       setFeedback({
         type: "error",
@@ -146,6 +154,28 @@ export function CategoriesCrud() {
 
     setFeedback({ type: "success", message: "Categoria excluída." });
     await loadCategories();
+  }
+
+  async function handleQuickUpdate(category: CategoryRow, patch: Partial<CategoryFormValues>) {
+    setFeedback(null);
+
+    try {
+      const result = await updateCategory(createClient(), category.id, {
+        ...categoryToFormValues(category),
+        ...patch,
+      });
+
+      if (result.error) {
+        console.error("Erro técnico ao editar categoria rapidamente:", result.error);
+        setFeedback({ type: "error", message: "Não foi possível salvar a edição rápida." });
+        return;
+      }
+
+      await loadCategories();
+    } catch (error) {
+      console.error("Erro técnico ao editar categoria rapidamente:", error);
+      setFeedback({ type: "error", message: "Não foi possível salvar a edição rápida." });
+    }
   }
 
   async function handleCreateDefaults() {
@@ -224,27 +254,49 @@ export function CategoriesCrud() {
                 {filteredCategories.map((category) => (
                   <tr key={category.id}>
                     <td className="px-4 py-3">
-                      <TitleButton onClick={() => setModal({ mode: "edit", category })}>
-                        {category.name}
-                      </TitleButton>
+                      {allowQuickTableEdit ? (
+                        <QuickEditInput value={category.name} onCommit={(value) => void handleQuickUpdate(category, { name: value })} />
+                      ) : (
+                        <TitleButton onClick={() => setModal({ mode: "edit", category })}>
+                          {category.name}
+                        </TitleButton>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-ink-600">
-                      {optionLabel(categoryTypeOptions, category.type)}
+                      {allowQuickTableEdit ? (
+                        <QuickEditSelect value={category.type} options={categoryTypeOptions} onCommit={(value) => void handleQuickUpdate(category, { type: value })} />
+                      ) : optionLabel(categoryTypeOptions, category.type)}
                     </td>
                     <td className="px-4 py-3">
-                      <CategoryBadge category={category} />
+                      {allowQuickTableEdit ? (
+                        <QuickEditInput value={category.color ?? ""} onCommit={(value) => void handleQuickUpdate(category, { color: value })} />
+                      ) : (
+                        <CategoryBadge category={category} />
+                      )}
                     </td>
                     <td className="px-4 py-3 text-ink-600">
-                      <span className="inline-flex items-center gap-2">
-                        <CategoryIcon value={category.icon} />
-                        <span>{category.icon ?? "-"}</span>
-                      </span>
+                      {allowQuickTableEdit ? (
+                        <QuickEditInput value={category.icon ?? ""} onCommit={(value) => void handleQuickUpdate(category, { icon: value })} />
+                      ) : (
+                        <span className="inline-flex items-center gap-2">
+                          <CategoryIcon value={category.icon} />
+                          <span>{category.icon ?? "-"}</span>
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <BooleanBadge value={category.is_default} />
                     </td>
                     <td className="px-4 py-3">
-                      <BooleanBadge value={category.is_active} />
+                      {allowQuickTableEdit ? (
+                        <QuickEditSelect
+                          value={String(category.is_active)}
+                          options={[{ value: "true", label: "Ativa" }, { value: "false", label: "Inativa" }]}
+                          onCommit={(value) => void handleQuickUpdate(category, { is_active: value === "true" })}
+                        />
+                      ) : (
+                        <BooleanBadge value={category.is_active} />
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-2">

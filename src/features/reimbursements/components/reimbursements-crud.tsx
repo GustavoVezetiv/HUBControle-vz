@@ -24,11 +24,12 @@ import {
   type ReimbursementRow,
   type ReimbursementTransaction,
 } from "@/features/reimbursements/types";
-import { ActionButton, BulkActionsBar, CrudFeedback, FieldShell, inputClassName, Modal, RowSelectionHint, shouldToggleRowSelection, TextBadge, TitleButton } from "@/features/shared/crud-ui";
+import { ActionButton, BulkActionsBar, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, RowSelectionHint, shouldToggleRowSelection, TextBadge, TitleButton } from "@/features/shared/crud-ui";
 import { formatCurrency, formatDate } from "@/features/shared/format";
 import { optionLabel, reimbursementStatusOptions } from "@/features/shared/options";
 import { PeriodFilter } from "@/features/shared/period-filter";
 import { createDefaultPeriodValue, isAnyDateInPeriod } from "@/features/shared/period";
+import { getQuickTableEditPreference } from "@/features/shared/quick-edit";
 import type { FeedbackState } from "@/features/shared/types";
 import { createClient } from "@/lib/supabase/client";
 
@@ -53,6 +54,7 @@ export function ReimbursementsCrud() {
   const [modal, setModal] = useState<ModalState>(null);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [allowQuickTableEdit, setAllowQuickTableEdit] = useState(false);
 
   const periodReimbursements = useMemo(() => {
     return reimbursements.filter((reimbursement) =>
@@ -139,9 +141,10 @@ export function ReimbursementsCrud() {
     }
 
     setUserId(auth.user.id);
-    const [reimbursementsResult, support] = await Promise.all([
+    const [reimbursementsResult, support, quickEdit] = await Promise.all([
       listReimbursements(client),
       listReimbursementSupportData(client),
+      getQuickTableEditPreference(client, auth.user.id),
     ]);
     if (reimbursementsResult.error) setFeedback({ type: "error", message: reimbursementsResult.error.message });
     else setReimbursements(reimbursementsResult.data ?? []);
@@ -149,6 +152,7 @@ export function ReimbursementsCrud() {
     if (!support.transactions.error) setTransactions(support.transactions.data ?? []);
     if (!support.accounts.error) setAccounts(support.accounts.data ?? []);
     if (!support.income.error) setIncome(support.income.data ?? []);
+    setAllowQuickTableEdit(quickEdit);
     setLoading(false);
   }
 
@@ -248,6 +252,28 @@ export function ReimbursementsCrud() {
     else {
       setFeedback({ type: "success", message: "Reembolso excluído." });
       await loadData();
+    }
+  }
+
+  async function handleQuickUpdate(reimbursement: ReimbursementRow, patch: Partial<ReimbursementFormValues>) {
+    setFeedback(null);
+
+    try {
+      const result = await updateReimbursement(createClient(), reimbursement.id, {
+        ...reimbursementToFormValues(reimbursement),
+        ...patch,
+      });
+
+      if (result.error) {
+        console.error("Erro técnico ao editar reembolso rapidamente:", result.error);
+        setFeedback({ type: "error", message: "Não foi possível salvar a edição rápida." });
+        return;
+      }
+
+      await loadData();
+    } catch (error) {
+      console.error("Erro técnico ao editar reembolso rapidamente:", error);
+      setFeedback({ type: "error", message: "Não foi possível salvar a edição rápida." });
     }
   }
 
@@ -440,12 +466,30 @@ export function ReimbursementsCrud() {
                         {people.find((person) => person.id === reimbursement.person_id)?.name ?? "-"}
                       </TitleButton>
                     </td>
-                    <td className="px-4 py-3 text-ink-600">{reimbursement.description ?? "-"}</td>
-                    <td className="px-4 py-3 text-ink-950">{formatCurrency(Number(reimbursement.expected_amount))}</td>
-                    <td className="px-4 py-3 text-ink-600">{formatCurrency(Number(reimbursement.received_amount))}</td>
-                    <td className="px-4 py-3 text-ink-600">{formatDate(reimbursement.expected_date)}</td>
                     <td className="px-4 py-3 text-ink-600">
-                      {optionLabel(reimbursementStatusOptions, reimbursement.status)}
+                      {allowQuickTableEdit ? (
+                        <QuickEditInput value={reimbursement.description ?? ""} onCommit={(value) => void handleQuickUpdate(reimbursement, { description: value })} />
+                      ) : reimbursement.description ?? "-"}
+                    </td>
+                    <td className="px-4 py-3 text-ink-950">
+                      {allowQuickTableEdit ? (
+                        <QuickEditInput type="number" value={String(reimbursement.expected_amount)} onCommit={(value) => void handleQuickUpdate(reimbursement, { expected_amount: value })} />
+                      ) : formatCurrency(Number(reimbursement.expected_amount))}
+                    </td>
+                    <td className="px-4 py-3 text-ink-600">
+                      {allowQuickTableEdit ? (
+                        <QuickEditInput type="number" value={String(reimbursement.received_amount)} onCommit={(value) => void handleQuickUpdate(reimbursement, { received_amount: value })} />
+                      ) : formatCurrency(Number(reimbursement.received_amount))}
+                    </td>
+                    <td className="px-4 py-3 text-ink-600">
+                      {allowQuickTableEdit ? (
+                        <QuickEditInput type="date" value={reimbursement.expected_date ?? ""} onCommit={(value) => void handleQuickUpdate(reimbursement, { expected_date: value })} />
+                      ) : formatDate(reimbursement.expected_date)}
+                    </td>
+                    <td className="px-4 py-3 text-ink-600">
+                      {allowQuickTableEdit ? (
+                        <QuickEditSelect value={reimbursement.status} options={reimbursementStatusOptions} onCommit={(value) => void handleQuickUpdate(reimbursement, { status: value })} />
+                      ) : optionLabel(reimbursementStatusOptions, reimbursement.status)}
                     </td>
                     <td className="px-4 py-3">
                       <TextBadge tone={getLinkedTone(reimbursement)}>
