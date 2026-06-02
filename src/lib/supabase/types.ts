@@ -264,6 +264,12 @@ export type PlannedPurchase = UserOwnedRow & {
   installment_count: number | null;
   decision_status: string;
   risk_level: RiskLevel;
+  quantity: number | null;
+  priority_rank: number | null;
+  project: string | null;
+  external_url: string | null;
+  decision_label: string | null;
+  import_source: string | null;
   notes: string | null;
 };
 

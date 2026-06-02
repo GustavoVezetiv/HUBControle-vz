@@ -473,6 +473,70 @@ Known limitations:
 - Credit card, invoice, transaction, reimbursement, installment, planned purchase and goal imports are intentionally disabled until their templates are stabilized.
 - Open Finance, OCR, PDF parsing, card scraping, WhatsApp and AI classification are intentionally out of scope.
 
+### Planned purchases spreadsheet import
+
+There is a controlled local script for importing the spreadsheet
+`lista_compras_organizada.xlsx` into `planned_purchases`.
+
+Run the migration below before using it:
+
+```bash
+supabase/migrations/202606020002_extend_planned_purchases_import_metadata.sql
+```
+
+Required local environment variables:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+SUPABASE_IMPORT_USER_ID=
+```
+
+`SUPABASE_SERVICE_ROLE_KEY` is only for this local admin script. Never add it to
+Vercel, `.env.example`, frontend code or any `NEXT_PUBLIC_` variable.
+The script loads `.env.local` automatically when the variables are not already
+available in the shell.
+
+Offline preview without Supabase, useful for checking the spreadsheet mapping:
+
+```bash
+npm run import:purchases -- --file="C:\path\to\lista_compras_organizada.xlsx" --offline-preview
+```
+
+Database preview without saving:
+
+```bash
+npm run import:purchases -- --file="C:\path\to\lista_compras_organizada.xlsx"
+```
+
+Confirm import:
+
+```bash
+npm run import:purchases -- --file="C:\path\to\lista_compras_organizada.xlsx" --confirm
+```
+
+Optional category creation:
+
+```bash
+npm run import:purchases -- --file="C:\path\to\lista_compras_organizada.xlsx" --create-categories --confirm
+```
+
+Optional BoardGames tab import:
+
+```bash
+npm run import:purchases -- --file="C:\path\to\lista_compras_organizada.xlsx" --include-board-games --confirm
+```
+
+The script:
+
+- Reads `Base_Consolidada` as the main source.
+- Maps item, quantity, current value, rank, purchase status, category, project,
+  suggested decision, Notion link and observations.
+- Checks duplicates by title and Notion link before inserting.
+- Does not delete or update existing purchases.
+- Shows preview totals before saving.
+- Creates missing categories only when `--create-categories` is provided.
+
 ## Deployment
 
 Hub VZ is ready for a private beta deployment on Vercel after the Supabase project and migrations are configured.
