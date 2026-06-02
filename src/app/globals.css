@@ -274,6 +274,7 @@ select {
   html.printing-reimbursement-report body {
     background: #ffffff !important;
     color: #111827 !important;
+    overflow: visible !important;
   }
 
   html.printing-reimbursement-report body * {
@@ -286,8 +287,7 @@ select {
   }
 
   html.printing-reimbursement-report .reimbursement-report-shell {
-    position: absolute !important;
-    inset: 0 auto auto 0 !important;
+    position: static !important;
     width: 100% !important;
     max-width: none !important;
     background: #ffffff !important;
@@ -324,7 +324,9 @@ select {
     background: #ffffff !important;
     box-shadow: none !important;
     padding: 0 !important;
-    font-size: 10.5pt !important;
+    font-size: 9pt !important;
+    break-after: auto !important;
+    page-break-after: auto !important;
   }
 
   html.printing-reimbursement-report .report-header {
@@ -334,7 +336,7 @@ select {
 
   html.printing-reimbursement-report .report-summary {
     grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
-    gap: 6pt !important;
+    gap: 5pt !important;
     break-inside: avoid;
   }
 
@@ -343,7 +345,20 @@ select {
     border: 1px solid #d1d5db !important;
     background: #f9fafb !important;
     color: #111827 !important;
-    padding: 6pt !important;
+    min-height: 34pt !important;
+    padding: 5pt 6pt !important;
+  }
+
+  html.printing-reimbursement-report .report-metric-label {
+    font-size: 6.3pt !important;
+    letter-spacing: 0.04em !important;
+    white-space: nowrap !important;
+  }
+
+  html.printing-reimbursement-report .report-metric-value {
+    font-size: 10.5pt !important;
+    line-height: 1.15 !important;
+    white-space: nowrap !important;
   }
 
   html.printing-reimbursement-report .report-person-group {
@@ -364,7 +379,7 @@ select {
     width: 100% !important;
     table-layout: fixed !important;
     border-collapse: collapse !important;
-    font-size: 9pt !important;
+    font-size: 7.7pt !important;
   }
 
   html.printing-reimbursement-report .report-table thead {
@@ -380,14 +395,25 @@ select {
   html.printing-reimbursement-report .report-table td {
     border-bottom: 1px solid #e5e7eb !important;
     color: #111827 !important;
-    padding: 6pt !important;
+    padding: 5pt 6pt !important;
     vertical-align: top !important;
     word-break: break-word !important;
   }
 
   html.printing-reimbursement-report .report-table th {
     background: #f9fafb !important;
-    font-size: 7.5pt !important;
+    font-size: 6.4pt !important;
+  }
+
+  html.printing-reimbursement-report .report-description-meta {
+    color: #4b5563 !important;
+    font-size: 7pt !important;
+    line-height: 1.35 !important;
+  }
+
+  html.printing-reimbursement-report .report-money,
+  html.printing-reimbursement-report .report-status {
+    white-space: nowrap !important;
   }
 
   html.printing-reimbursement-report .report-row-late {

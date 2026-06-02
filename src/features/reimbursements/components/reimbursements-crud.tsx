@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
@@ -975,10 +975,39 @@ function ReimbursementReportModal({
   onClose: () => void;
 }) {
   const generatedAt = new Date();
+  const reportRef = useRef<HTMLElement | null>(null);
   const summary = summarizeReportReimbursements(reimbursements);
   const groups = groupReimbursementsByPerson(reimbursements, people);
 
   function handlePrint() {
+    const report = reportRef.current;
+
+    if (!report) {
+      window.print();
+      return;
+    }
+
+    const printWindow = window.open("", "hub-vz-reembolsos-pdf", "width=980,height=1200");
+
+    if (!printWindow) {
+      document.documentElement.classList.add("printing-reimbursement-report");
+      window.print();
+      window.setTimeout(() => {
+        document.documentElement.classList.remove("printing-reimbursement-report");
+      }, 300);
+      return;
+    }
+
+    printWindow.document.write(buildReimbursementPrintDocument(report.outerHTML));
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.setTimeout(() => {
+      printWindow.print();
+      printWindow.close();
+    }, 150);
+  }
+
+  function handleFallbackPrint() {
     document.documentElement.classList.add("printing-reimbursement-report");
     window.print();
     window.setTimeout(() => {
@@ -990,14 +1019,17 @@ function ReimbursementReportModal({
     <Modal title="Relatório de reembolsos" onClose={onClose}>
       <div className="reimbursement-report-shell space-y-5">
         <div className="report-actions flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-ink-600">Relatório otimizado para impressão/PDF. Usa os filtros atuais da tela.</p>
+          <p className="text-sm text-ink-600">
+            Relatório otimizado para impressão/PDF. No navegador, desative &quot;Cabeçalhos e rodapés&quot; para ocultar URL e data externas.
+          </p>
           <div className="flex flex-wrap gap-2">
             <ActionButton variant="secondary" onClick={handlePrint}>Exportar PDF</ActionButton>
+            <ActionButton variant="secondary" onClick={handleFallbackPrint}>Imprimir tela</ActionButton>
             <ActionButton variant="secondary" onClick={onClose}>Voltar</ActionButton>
           </div>
         </div>
 
-        <article className="reimbursement-report rounded-lg border border-ink-950/10 bg-white p-6 text-ink-950 shadow-sm">
+        <article ref={reportRef} className="reimbursement-report rounded-lg border border-ink-950/10 bg-white p-6 text-ink-950 shadow-sm">
           <header className="report-header border-b border-ink-950/10 pb-5">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
@@ -1052,13 +1084,12 @@ function ReimbursementReportModal({
                     <table className="report-table w-full table-fixed border-collapse text-left text-sm">
                       <thead>
                         <tr className="border-b border-ink-950/10 text-xs uppercase tracking-[0.12em] text-ink-600">
-                          <th className="w-[14%] px-4 py-3 font-semibold">Data prevista</th>
-                          <th className="w-[34%] px-4 py-3 font-semibold">Descrição</th>
-                          <th className="w-[14%] px-4 py-3 font-semibold">Categoria</th>
+                          <th className="w-[15%] px-4 py-3 font-semibold">Data prevista</th>
+                          <th className="w-[40%] px-4 py-3 font-semibold">Descrição</th>
                           <th className="w-[12%] px-4 py-3 text-right font-semibold">Esperado</th>
                           <th className="w-[12%] px-4 py-3 text-right font-semibold">Recebido</th>
                           <th className="w-[12%] px-4 py-3 text-right font-semibold">Em aberto</th>
-                          <th className="w-[12%] px-4 py-3 font-semibold">Status</th>
+                          <th className="w-[9%] px-4 py-3 font-semibold">Status</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-ink-950/10">
@@ -1077,18 +1108,18 @@ function ReimbursementReportModal({
                               </td>
                               <td className="px-4 py-3 align-top">
                                 <p className="font-semibold text-ink-950">{reimbursement.description ?? "Reembolso sem descrição"}</p>
-                                <p className="mt-1 text-xs leading-5 text-ink-600">
+                                <p className="report-description-meta mt-1 text-xs leading-5 text-ink-600">
+                                  Categoria: {category?.name ?? "-"} ·{" "}
                                   Vínculo: {getLinkedLabel(reimbursement, transactions, accounts, income, invoices, cards)}
                                 </p>
                                 {reimbursement.notes ? (
-                                  <p className="mt-1 text-xs leading-5 text-ink-600">Obs.: {reimbursement.notes}</p>
+                                  <p className="report-description-meta mt-1 text-xs leading-5 text-ink-600">Obs.: {reimbursement.notes}</p>
                                 ) : null}
                               </td>
-                              <td className="px-4 py-3 align-top text-ink-600">{category?.name ?? "-"}</td>
-                              <td className="px-4 py-3 text-right align-top font-semibold text-ink-950">{formatCurrency(Number(reimbursement.expected_amount))}</td>
-                              <td className="px-4 py-3 text-right align-top text-ink-600">{formatCurrency(Number(reimbursement.received_amount))}</td>
-                              <td className="px-4 py-3 text-right align-top font-semibold text-ink-950">{formatCurrency(openAmount)}</td>
-                              <td className="px-4 py-3 align-top">
+                              <td className="report-money px-4 py-3 text-right align-top font-semibold text-ink-950">{formatCurrency(Number(reimbursement.expected_amount))}</td>
+                              <td className="report-money px-4 py-3 text-right align-top text-ink-600">{formatCurrency(Number(reimbursement.received_amount))}</td>
+                              <td className="report-money px-4 py-3 text-right align-top font-semibold text-ink-950">{formatCurrency(openAmount)}</td>
+                              <td className="report-status px-4 py-3 align-top">
                                 <span className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${late ? "bg-amberRisk-100 text-amberRisk-500" : "bg-ink-950/5 text-ink-600"}`}>
                                   {late ? "Atrasado" : optionLabel(reimbursementStatusOptions, reimbursement.status)}
                                 </span>
@@ -1131,10 +1162,295 @@ function ReportMetric({
 
   return (
     <div className={`report-metric rounded-md border px-3 py-2 ${toneClass}`}>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] opacity-80">{label}</p>
-      <p className="mt-1 text-base font-semibold tracking-tight">{value}</p>
+      <p className="report-metric-label text-[10px] font-semibold uppercase tracking-[0.08em] opacity-80">{label}</p>
+      <p className="report-metric-value mt-1 text-base font-semibold tracking-tight">{value}</p>
     </div>
   );
+}
+
+function buildReimbursementPrintDocument(reportHtml: string) {
+  return `<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hub VZ - Relatório de Reembolsos</title>
+    <style>
+      @page {
+        size: A4;
+        margin: 12mm;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: auto;
+        overflow: visible;
+        background: #ffffff;
+        color: #111827;
+        font-family: Arial, Helvetica, sans-serif;
+      }
+
+      body {
+        width: 100%;
+        font-size: 9pt;
+        line-height: 1.35;
+      }
+
+      .reimbursement-report {
+        width: 100%;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        box-shadow: none;
+        background: #ffffff;
+      }
+
+      .report-header {
+        padding-bottom: 10pt;
+        border-bottom: 1px solid #d1d5db;
+      }
+
+      .report-header > div {
+        display: flex;
+        justify-content: space-between;
+        gap: 12pt;
+      }
+
+      .report-header p,
+      .report-header h2 {
+        margin: 0;
+      }
+
+      .report-header p:first-child {
+        color: #087f74;
+        font-size: 7pt;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .report-header h2 {
+        margin-top: 5pt;
+        color: #111827;
+        font-size: 17pt;
+        line-height: 1.1;
+      }
+
+      .report-header h2 + p {
+        margin-top: 6pt;
+        color: #4b5563;
+        font-size: 8pt;
+      }
+
+      .report-header .rounded-md {
+        align-self: flex-start;
+        border: 1px solid #99f6e4;
+        border-radius: 6pt;
+        background: #ccfbf1;
+        color: #0f766e;
+        padding: 5pt 7pt;
+        font-size: 6.5pt;
+        font-weight: 700;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+
+      .report-summary {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 5pt;
+        margin-top: 10pt;
+      }
+
+      .report-metric {
+        min-height: 34pt;
+        break-inside: avoid;
+        page-break-inside: avoid;
+        border: 1px solid #d1d5db;
+        border-radius: 5pt;
+        background: #f8fafc;
+        padding: 5pt 6pt;
+        color: #111827;
+      }
+
+      .report-metric-label {
+        margin: 0;
+        font-size: 6.3pt;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+
+      .report-metric-value {
+        margin: 2pt 0 0;
+        font-size: 10.5pt;
+        font-weight: 700;
+        line-height: 1.15;
+        white-space: nowrap;
+      }
+
+      .report-person-group {
+        margin-top: 10pt;
+        break-inside: avoid;
+        page-break-inside: avoid;
+        border: 1px solid #d1d5db;
+        border-radius: 6pt;
+        overflow: hidden;
+      }
+
+      .report-person-header {
+        border-bottom: 1px solid #d1d5db;
+        background: #f8fafc;
+        padding: 7pt 8pt;
+      }
+
+      .report-person-header > div {
+        display: flex;
+        justify-content: space-between;
+        gap: 10pt;
+      }
+
+      .report-person-header h3 {
+        margin: 0;
+        font-size: 10pt;
+        color: #111827;
+      }
+
+      .report-person-header h3 + p {
+        margin: 3pt 0 0;
+        color: #4b5563;
+        font-size: 6.7pt;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .report-person-header .grid {
+        display: grid;
+        grid-template-columns: repeat(4, max-content);
+        gap: 4pt 10pt;
+        text-align: right;
+        color: #4b5563;
+        font-size: 6.8pt;
+        white-space: nowrap;
+      }
+
+      .report-person-header strong {
+        display: block;
+        color: #111827;
+        font-size: 8pt;
+      }
+
+      .report-table {
+        width: 100%;
+        table-layout: fixed;
+        border-collapse: collapse;
+        font-size: 7.7pt;
+      }
+
+      .report-table thead {
+        display: table-header-group;
+      }
+
+      .report-table tr {
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
+
+      .report-table th,
+      .report-table td {
+        padding: 5pt 6pt;
+        border-bottom: 1px solid #e5e7eb;
+        vertical-align: top;
+        word-break: break-word;
+      }
+
+      .report-table th {
+        color: #4b5563;
+        font-size: 6.4pt;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+
+      .report-table td p {
+        margin: 0;
+      }
+
+      .report-description-meta {
+        margin-top: 2pt;
+        color: #4b5563;
+        font-size: 7pt;
+        line-height: 1.35;
+      }
+
+      .report-money,
+      .report-status {
+        white-space: nowrap;
+      }
+
+      .report-money {
+        text-align: right;
+      }
+
+      .report-status span {
+        display: inline-flex;
+        border-radius: 999px;
+        background: #f3f4f6;
+        color: #374151;
+        padding: 2pt 4pt;
+        font-size: 6.8pt;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      .report-row-late {
+        background: #fff7ed;
+      }
+
+      .report-footer {
+        margin-top: 12pt;
+        padding-top: 7pt;
+        border-top: 1px solid #d1d5db;
+        color: #4b5563;
+        font-size: 7pt;
+      }
+
+      .report-actions {
+        display: none !important;
+      }
+
+      .rounded-lg,
+      .rounded-md {
+        border-radius: 6pt;
+      }
+
+      .border {
+        border-style: solid;
+      }
+
+      @media print {
+        html,
+        body {
+          width: auto;
+          height: auto;
+        }
+
+        .reimbursement-report {
+          break-after: auto;
+          page-break-after: auto;
+        }
+      }
+    </style>
+  </head>
+  <body>${reportHtml}</body>
+</html>`;
 }
 
 function getLinkedLabel(
