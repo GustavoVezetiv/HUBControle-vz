@@ -10,6 +10,7 @@ import { StatCard } from "@/components/ui/stat-card";
 import {
   createReimbursement,
   deleteReimbursement,
+  generateLinkedEntryFromReimbursement,
   generateRecurringReimbursements,
   listReimbursements,
   listReimbursementSupportData,
@@ -19,9 +20,12 @@ import {
   emptyReimbursementForm,
   reimbursementToFormValues,
   type ReimbursementAccount,
+  type ReimbursementCard,
   type ReimbursementCategory,
   type ReimbursementFormValues,
+  type ReimbursementGeneratedLinkValues,
   type ReimbursementIncome,
+  type ReimbursementInvoice,
   type ReimbursementPerson,
   type ReimbursementRow,
   type ReimbursementTransaction,
@@ -30,12 +34,13 @@ import { ActionButton, BulkActionsBar, CategoryBadge, CrudFeedback, FieldShell, 
 import { formatCurrency, formatDate } from "@/features/shared/format";
 import { optionLabel, reimbursementStatusOptions } from "@/features/shared/options";
 import { PeriodFilter } from "@/features/shared/period-filter";
-import { isAnyDateInPeriod, parsePeriodSearchParams } from "@/features/shared/period";
+import { isAnyDateInPeriod, parsePeriodSearchParams, type PeriodValue } from "@/features/shared/period";
 import { getQuickTableEditPreference } from "@/features/shared/quick-edit";
 import type { FeedbackState } from "@/features/shared/types";
 import { createClient } from "@/lib/supabase/client";
 
 type ModalState = { mode: "create"; reimbursement: null } | { mode: "edit"; reimbursement: ReimbursementRow } | null;
+type LinkModalState = { reimbursement: ReimbursementRow } | null;
 
 export function ReimbursementsCrud() {
   const searchParams = useSearchParams();
@@ -45,6 +50,8 @@ export function ReimbursementsCrud() {
   const [accounts, setAccounts] = useState<ReimbursementAccount[]>([]);
   const [income, setIncome] = useState<ReimbursementIncome[]>([]);
   const [categories, setCategories] = useState<ReimbursementCategory[]>([]);
+  const [cards, setCards] = useState<ReimbursementCard[]>([]);
+  const [invoices, setInvoices] = useState<ReimbursementInvoice[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [personFilter, setPersonFilter] = useState("all");
@@ -56,7 +63,10 @@ export function ReimbursementsCrud() {
   const [saving, setSaving] = useState(false);
   const [deletingSelected, setDeletingSelected] = useState(false);
   const [generatingId, setGeneratingId] = useState<string | null>(null);
+  const [linkingId, setLinkingId] = useState<string | null>(null);
   const [modal, setModal] = useState<ModalState>(null);
+  const [linkModal, setLinkModal] = useState<LinkModalState>(null);
+  const [reportOpen, setReportOpen] = useState(false);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [allowQuickTableEdit, setAllowQuickTableEdit] = useState(false);
@@ -136,6 +146,9 @@ export function ReimbursementsCrud() {
       .sort((a, b) => b.open - a.open);
   }, [people, periodReimbursements]);
 
+  const reportSummary = useMemo(() => summarizeReimbursements(filteredReimbursements), [filteredReimbursements]);
+  const selectedPerson = personFilter === "all" ? null : people.find((person) => person.id === personFilter) ?? null;
+
   async function loadData() {
     setLoading(true);
     const client = createClient();
@@ -159,6 +172,8 @@ export function ReimbursementsCrud() {
     if (!support.accounts.error) setAccounts(support.accounts.data ?? []);
     if (!support.income.error) setIncome(support.income.data ?? []);
     if (!support.categories.error) setCategories(support.categories.data ?? []);
+    if (!support.cards.error) setCards(support.cards.data ?? []);
+    if (!support.invoices.error) setInvoices(support.invoices.data ?? []);
     setAllowQuickTableEdit(quickEdit);
     setLoading(false);
   }
@@ -262,6 +277,34 @@ export function ReimbursementsCrud() {
     }
   }
 
+  async function handleGenerateLinked(values: ReimbursementGeneratedLinkValues) {
+    if (!userId || !linkModal) {
+      setFeedback({ type: "error", message: "Sessão não encontrada." });
+      return;
+    }
+
+    setLinkingId(linkModal.reimbursement.id);
+    setFeedback(null);
+
+    try {
+      const result = await generateLinkedEntryFromReimbursement(createClient(), userId, linkModal.reimbursement, values);
+
+      if (result.error) {
+        setFeedback({ type: "error", message: result.error.message });
+        return;
+      }
+
+      setFeedback({ type: "success", message: values.target === "account" ? "Conta vinculada gerada." : "Lançamento de fatura vinculado gerado." });
+      setLinkModal(null);
+      await loadData();
+    } catch (error) {
+      console.error("Erro técnico ao gerar lançamento vinculado:", error);
+      setFeedback({ type: "error", message: "Não foi possível gerar o lançamento vinculado." });
+    } finally {
+      setLinkingId(null);
+    }
+  }
+
   async function handleDelete(reimbursement: ReimbursementRow) {
     if (!window.confirm("Excluir este reembolso?")) return;
     const { error } = await deleteReimbursement(createClient(), reimbursement.id);
@@ -333,7 +376,12 @@ export function ReimbursementsCrud() {
         eyebrow="Dinheiro vinculado"
         title="Reembolsos"
         description="Controle o que outras pessoas devem por despesas que você pagou antes."
-        action={<ActionButton onClick={() => setModal({ mode: "create", reimbursement: null })}>Novo reembolso</ActionButton>}
+        action={
+          <div className="flex flex-wrap justify-end gap-2">
+            <ActionButton variant="secondary" onClick={() => setReportOpen(true)}>Gerar relatório</ActionButton>
+            <ActionButton onClick={() => setModal({ mode: "create", reimbursement: null })}>Novo reembolso</ActionButton>
+          </div>
+        }
       />
       <CrudFeedback feedback={feedback} />
 
@@ -365,7 +413,15 @@ export function ReimbursementsCrud() {
         ) : (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {peopleSummary.map((item) => (
-              <div key={item.person.id} className="rounded-md border border-ink-950/10 bg-white p-4">
+              <button
+                key={item.person.id}
+                type="button"
+                className={`rounded-md border bg-white p-4 text-left transition hover:border-mint-500 hover:shadow-sm ${
+                  personFilter === item.person.id ? "border-mint-500 ring-2 ring-mint-500/20" : "border-ink-950/10"
+                }`}
+                onClick={() => setPersonFilter(item.person.id)}
+                aria-pressed={personFilter === item.person.id}
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold text-ink-950">{item.person.name}</p>
@@ -380,13 +436,19 @@ export function ReimbursementsCrud() {
                   <p>Recebido: <strong className="text-ink-950">{formatCurrency(item.received)}</strong></p>
                   <p>Em aberto: <strong className="text-ink-950">{formatCurrency(item.open)}</strong></p>
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         )}
       </SectionCard>
 
       <SectionCard title="Filtros">
+        {selectedPerson ? (
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-mint-500/30 bg-mint-50 px-3 py-2 text-sm text-ink-700">
+            <span>Filtro de pessoa ativo: <strong>{selectedPerson.name}</strong></span>
+            <ActionButton variant="secondary" onClick={() => setPersonFilter("all")}>Limpar filtro de pessoa</ActionButton>
+          </div>
+        ) : null}
         <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-5">
           <input className={inputClassName} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por descrição ou pessoa" />
           <select className={inputClassName} value={personFilter} onChange={(event) => setPersonFilter(event.target.value)}>
@@ -547,6 +609,13 @@ export function ReimbursementsCrud() {
                             {generatingId === reimbursement.id ? "Gerando..." : "Gerar próximas"}
                           </ActionButton>
                         ) : null}
+                        <ActionButton
+                          variant="secondary"
+                          disabled={linkingId === reimbursement.id}
+                          onClick={() => setLinkModal({ reimbursement })}
+                        >
+                          {linkingId === reimbursement.id ? "Gerando..." : "Gerar lançamento vinculado"}
+                        </ActionButton>
                         <ActionButton variant="secondary" onClick={() => setModal({ mode: "edit", reimbursement })}>Editar</ActionButton>
                         <ActionButton variant="danger" onClick={() => void handleDelete(reimbursement)}>Excluir</ActionButton>
                       </div>
@@ -571,6 +640,30 @@ export function ReimbursementsCrud() {
           transactions={transactions}
           onClose={() => setModal(null)}
           onSubmit={(values) => void handleSubmit(values)}
+        />
+      ) : null}
+      {linkModal ? (
+        <LinkedEntryModal
+          cards={cards}
+          invoices={invoices}
+          linking={linkingId === linkModal.reimbursement.id}
+          reimbursement={linkModal.reimbursement}
+          onClose={() => setLinkModal(null)}
+          onSubmit={(values) => void handleGenerateLinked(values)}
+        />
+      ) : null}
+      {reportOpen ? (
+        <ReimbursementReportModal
+          accounts={accounts}
+          categories={categories}
+          income={income}
+          period={period}
+          person={selectedPerson}
+          reimbursements={filteredReimbursements}
+          summary={reportSummary}
+          transactions={transactions}
+          people={people}
+          onClose={() => setReportOpen(false)}
         />
       ) : null}
     </div>
@@ -723,6 +816,221 @@ function ReimbursementModal({
   );
 }
 
+function LinkedEntryModal({
+  cards,
+  invoices,
+  linking,
+  reimbursement,
+  onClose,
+  onSubmit,
+}: {
+  cards: ReimbursementCard[];
+  invoices: ReimbursementInvoice[];
+  linking: boolean;
+  reimbursement: ReimbursementRow;
+  onClose: () => void;
+  onSubmit: (values: ReimbursementGeneratedLinkValues) => void;
+}) {
+  const hasLink = Boolean(
+    reimbursement.account_payable_id ||
+      reimbursement.credit_card_transaction_id ||
+      reimbursement.credit_card_invoice_id,
+  );
+  const defaultDate = reimbursement.expected_date ?? new Date().toISOString().slice(0, 10);
+  const defaultDescription = reimbursement.description ?? "Reembolso";
+  const defaultAmount = String(reimbursement.expected_amount);
+  const [target, setTarget] = useState<"account" | "invoice">("account");
+  const [accountValues, setAccountValues] = useState({
+    title: defaultDescription,
+    description: `Gerado a partir do reembolso: ${defaultDescription}`,
+    amount: defaultAmount,
+    due_date: defaultDate,
+  });
+  const [invoiceValues, setInvoiceValues] = useState({
+    credit_card_id: "",
+    invoice_id: "",
+    description: defaultDescription,
+    amount: defaultAmount,
+    transaction_date: defaultDate,
+  });
+  const filteredInvoices = invoices.filter((invoice) => !invoiceValues.credit_card_id || invoice.credit_card_id === invoiceValues.credit_card_id);
+
+  return (
+    <Modal title="Gerar lançamento vinculado" onClose={onClose}>
+      <form
+        className="grid gap-4 md:grid-cols-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+
+          if (hasLink) {
+            onSubmit(target === "account" ? { target, ...accountValues } : { target, ...invoiceValues });
+            return;
+          }
+
+          onSubmit(target === "account" ? { target, ...accountValues } : { target, ...invoiceValues });
+        }}
+      >
+        {hasLink ? (
+          <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 md:col-span-2">
+            Este reembolso já possui vínculo. Para evitar duplicidade, o sistema não cria outro lançamento sobre o mesmo reembolso.
+          </p>
+        ) : (
+          <p className="rounded-md border border-mint-500/30 bg-mint-50 px-3 py-2 text-sm text-ink-700 md:col-span-2">
+            Gerar lançamento vinculado cria uma conta ou lançamento de fatura rastreável a este reembolso.
+          </p>
+        )}
+        <FieldShell label="Tipo de lançamento">
+          <select className={inputClassName} value={target} onChange={(event) => setTarget(event.target.value as "account" | "invoice")}>
+            <option value="account">Gerar conta</option>
+            <option value="invoice">Gerar lançamento na fatura</option>
+          </select>
+        </FieldShell>
+        {target === "account" ? (
+          <>
+            <FieldShell label="Título">
+              <input className={inputClassName} value={accountValues.title} onChange={(event) => setAccountValues({ ...accountValues, title: event.target.value })} />
+            </FieldShell>
+            <FieldShell label="Valor">
+              <input min="0" step="0.01" type="number" className={inputClassName} value={accountValues.amount} onChange={(event) => setAccountValues({ ...accountValues, amount: event.target.value })} />
+            </FieldShell>
+            <FieldShell label="Vencimento">
+              <input type="date" className={inputClassName} value={accountValues.due_date} onChange={(event) => setAccountValues({ ...accountValues, due_date: event.target.value })} />
+            </FieldShell>
+            <div className="md:col-span-2">
+              <FieldShell label="Descrição">
+                <textarea rows={3} className={inputClassName} value={accountValues.description} onChange={(event) => setAccountValues({ ...accountValues, description: event.target.value })} />
+              </FieldShell>
+            </div>
+          </>
+        ) : (
+          <>
+            <FieldShell label="Cartão">
+              <select
+                required
+                className={inputClassName}
+                value={invoiceValues.credit_card_id}
+                onChange={(event) => setInvoiceValues({ ...invoiceValues, credit_card_id: event.target.value, invoice_id: "" })}
+              >
+                <option value="">Selecione</option>
+                {cards.map((card) => (
+                  <option key={card.id} value={card.id}>{card.name}{card.issuer ? ` - ${card.issuer}` : ""}</option>
+                ))}
+              </select>
+            </FieldShell>
+            <FieldShell label="Fatura">
+              <select required className={inputClassName} value={invoiceValues.invoice_id} onChange={(event) => setInvoiceValues({ ...invoiceValues, invoice_id: event.target.value })}>
+                <option value="">Selecione</option>
+                {filteredInvoices.map((invoice) => (
+                  <option key={invoice.id} value={invoice.id}>
+                    {invoice.reference_month.slice(0, 7)} - vence {formatDate(invoice.due_date)}
+                  </option>
+                ))}
+              </select>
+            </FieldShell>
+            <FieldShell label="Valor">
+              <input min="0" step="0.01" type="number" className={inputClassName} value={invoiceValues.amount} onChange={(event) => setInvoiceValues({ ...invoiceValues, amount: event.target.value })} />
+            </FieldShell>
+            <FieldShell label="Data">
+              <input type="date" className={inputClassName} value={invoiceValues.transaction_date} onChange={(event) => setInvoiceValues({ ...invoiceValues, transaction_date: event.target.value })} />
+            </FieldShell>
+            <div className="md:col-span-2">
+              <FieldShell label="Descrição">
+                <input className={inputClassName} value={invoiceValues.description} onChange={(event) => setInvoiceValues({ ...invoiceValues, description: event.target.value })} />
+              </FieldShell>
+            </div>
+          </>
+        )}
+        <div className="flex justify-end gap-2 md:col-span-2">
+          <ActionButton type="button" variant="secondary" onClick={onClose}>Cancelar</ActionButton>
+          <ActionButton type="submit" disabled={linking}>{linking ? "Gerando..." : "Gerar"}</ActionButton>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function ReimbursementReportModal({
+  accounts,
+  categories,
+  income,
+  period,
+  person,
+  people,
+  reimbursements,
+  summary,
+  transactions,
+  onClose,
+}: {
+  accounts: ReimbursementAccount[];
+  categories: ReimbursementCategory[];
+  income: ReimbursementIncome[];
+  period: PeriodValue;
+  person: ReimbursementPerson | null;
+  people: ReimbursementPerson[];
+  reimbursements: ReimbursementRow[];
+  summary: ReturnType<typeof summarizeReimbursements>;
+  transactions: ReimbursementTransaction[];
+  onClose: () => void;
+}) {
+  return (
+    <Modal title="Relatório de reembolsos" onClose={onClose}>
+      <div className="space-y-5">
+        <div className="flex flex-wrap justify-between gap-3 print:hidden">
+          <p className="text-sm text-ink-600">Use a impressão do navegador para salvar em PDF.</p>
+          <ActionButton variant="secondary" onClick={() => window.print()}>Imprimir / PDF</ActionButton>
+        </div>
+        <div className="rounded-md border border-ink-950/10 bg-white p-5">
+          <h2 className="text-xl font-semibold text-ink-950">Relatório de reembolsos</h2>
+          <div className="mt-3 grid gap-2 text-sm text-ink-600 md:grid-cols-3">
+            <p><strong className="text-ink-950">Período:</strong> {formatPeriodLabel(period)}</p>
+            <p><strong className="text-ink-950">Pessoa:</strong> {person?.name ?? "Todas as pessoas"}</p>
+            <p><strong className="text-ink-950">Lançamentos:</strong> {reimbursements.length}</p>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <StatCard label="Total esperado" value={formatCurrency(summary.expected)} helper="Dinheiro vinculado." tone="warning" />
+            <StatCard label="Total recebido" value={formatCurrency(summary.received)} helper="Pix recebido." tone="success" />
+            <StatCard label="Total em aberto" value={formatCurrency(summary.open)} helper="Ainda depende de terceiros." tone="danger" />
+          </div>
+          <div className="mt-5 overflow-x-auto">
+            <table className="min-w-full divide-y divide-ink-950/10 text-left text-sm">
+              <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-ink-600">
+                <tr>
+                  <th className="px-3 py-2">Lançamento</th>
+                  <th className="px-3 py-2">Pessoa</th>
+                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2">Categoria</th>
+                  <th className="px-3 py-2">Prevista</th>
+                  <th className="px-3 py-2">Recebida</th>
+                  <th className="px-3 py-2">Esperado</th>
+                  <th className="px-3 py-2">Recebido</th>
+                  <th className="px-3 py-2">Vínculo</th>
+                  <th className="px-3 py-2">Observações</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-ink-950/10">
+                {reimbursements.map((reimbursement) => (
+                  <tr key={reimbursement.id}>
+                    <td className="px-3 py-2 text-ink-950">{reimbursement.description ?? "-"}</td>
+                    <td className="px-3 py-2 text-ink-600">{people.find((item) => item.id === reimbursement.person_id)?.name ?? "-"}</td>
+                    <td className="px-3 py-2 text-ink-600">{optionLabel(reimbursementStatusOptions, reimbursement.status)}</td>
+                    <td className="px-3 py-2"><CategoryBadge category={categories.find((category) => category.id === reimbursement.category_id)} /></td>
+                    <td className="px-3 py-2 text-ink-600">{formatDate(reimbursement.expected_date)}</td>
+                    <td className="px-3 py-2 text-ink-600">{formatDate(reimbursement.received_date)}</td>
+                    <td className="px-3 py-2 text-ink-950">{formatCurrency(Number(reimbursement.expected_amount))}</td>
+                    <td className="px-3 py-2 text-ink-600">{formatCurrency(Number(reimbursement.received_amount))}</td>
+                    <td className="px-3 py-2 text-ink-600">{getLinkedLabel(reimbursement, transactions, accounts, income)}</td>
+                    <td className="px-3 py-2 text-ink-600">{reimbursement.notes ?? "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function getLinkedLabel(
   reimbursement: ReimbursementRow,
   transactions: ReimbursementTransaction[],
@@ -752,4 +1060,20 @@ function getLinkedTone(reimbursement: ReimbursementRow) {
   if (reimbursement.account_payable_id) return "warning";
   if (reimbursement.income_source_id) return "success";
   return "neutral";
+}
+
+function summarizeReimbursements(rows: ReimbursementRow[]) {
+  const expected = rows.reduce((sum, item) => sum + Number(item.expected_amount), 0);
+  const received = rows.reduce((sum, item) => sum + Number(item.received_amount), 0);
+  const open = rows
+    .filter((item) => ["expected", "partial", "late"].includes(item.status))
+    .reduce((sum, item) => sum + Number(item.expected_amount) - Number(item.received_amount), 0);
+
+  return { expected, received, open };
+}
+
+function formatPeriodLabel(period: PeriodValue) {
+  if (period.preset === "all") return "Todos";
+  if (period.startDate && period.endDate) return `${formatDate(period.startDate)} até ${formatDate(period.endDate)}`;
+  return "Período selecionado";
 }

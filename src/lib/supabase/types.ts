@@ -93,6 +93,7 @@ export type AccountPayable = UserOwnedRow & {
   paid_with_credit_card: boolean;
   credit_card_transaction_id: string | null;
   credit_card_invoice_id: string | null;
+  reimbursement_id: string | null;
   notes: string | null;
 };
 
@@ -164,6 +165,7 @@ export type CreditCardTransaction = UserOwnedRow & {
   recurrence_end_date: string | null;
   recurrence_parent_id: string | null;
   recurrence_generated_until: string | null;
+  reimbursement_id: string | null;
   notes: string | null;
 };
 
