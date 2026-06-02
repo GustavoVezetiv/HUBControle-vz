@@ -1,13 +1,15 @@
-import type { AccountPayable, CreditCardTransaction, IncomeSource, Person, Reimbursement } from "@/lib/supabase/types";
+import type { AccountPayable, Category, CreditCardTransaction, IncomeSource, Person, Reimbursement } from "@/lib/supabase/types";
 
 export type ReimbursementRow = Reimbursement;
 export type ReimbursementPerson = Pick<Person, "id" | "name">;
 export type ReimbursementTransaction = Pick<CreditCardTransaction, "id" | "description" | "amount" | "transaction_date">;
 export type ReimbursementAccount = Pick<AccountPayable, "id" | "title" | "amount">;
 export type ReimbursementIncome = Pick<IncomeSource, "id" | "name" | "amount">;
+export type ReimbursementCategory = Pick<Category, "id" | "name" | "type" | "color" | "icon">;
 
 export type ReimbursementFormValues = {
   person_id: string;
+  category_id: string;
   credit_card_transaction_id: string;
   account_payable_id: string;
   income_source_id: string;
@@ -27,6 +29,7 @@ export type ReimbursementFormValues = {
 
 export const emptyReimbursementForm: ReimbursementFormValues = {
   person_id: "",
+  category_id: "",
   credit_card_transaction_id: "",
   account_payable_id: "",
   income_source_id: "",
@@ -47,6 +50,7 @@ export const emptyReimbursementForm: ReimbursementFormValues = {
 export function reimbursementToFormValues(reimbursement: ReimbursementRow): ReimbursementFormValues {
   return {
     person_id: reimbursement.person_id,
+    category_id: reimbursement.category_id ?? "",
     credit_card_transaction_id: reimbursement.credit_card_transaction_id ?? "",
     account_payable_id: reimbursement.account_payable_id ?? "",
     income_source_id: reimbursement.income_source_id ?? "",

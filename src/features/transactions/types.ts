@@ -29,6 +29,11 @@ export type TransactionFormValues = {
   notes: string;
   create_reimbursement: boolean;
   reimbursement_expected_date: string;
+  is_recurring: boolean;
+  recurrence_frequency: "monthly";
+  recurrence_start_date: string;
+  recurrence_end_date: string;
+  recurrence_occurrences: string;
 };
 
 export const emptyTransactionForm: TransactionFormValues = {
@@ -47,6 +52,11 @@ export const emptyTransactionForm: TransactionFormValues = {
   notes: "",
   create_reimbursement: false,
   reimbursement_expected_date: "",
+  is_recurring: false,
+  recurrence_frequency: "monthly",
+  recurrence_start_date: "",
+  recurrence_end_date: "",
+  recurrence_occurrences: "0",
 };
 
 export function transactionToFormValues(transaction: TransactionRow): TransactionFormValues {
@@ -66,5 +76,10 @@ export function transactionToFormValues(transaction: TransactionRow): Transactio
     notes: transaction.notes ?? "",
     create_reimbursement: false,
     reimbursement_expected_date: "",
+    is_recurring: transaction.is_recurring,
+    recurrence_frequency: "monthly",
+    recurrence_start_date: transaction.recurrence_start_date ?? transaction.transaction_date,
+    recurrence_end_date: transaction.recurrence_end_date ?? "",
+    recurrence_occurrences: "0",
   };
 }

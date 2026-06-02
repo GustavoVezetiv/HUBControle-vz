@@ -155,6 +155,12 @@ export type CreditCardTransaction = UserOwnedRow & {
   installment_group_id: string | null;
   installment_number: number | null;
   installment_total: number | null;
+  is_recurring: boolean;
+  recurrence_frequency: string | null;
+  recurrence_start_date: string | null;
+  recurrence_end_date: string | null;
+  recurrence_parent_id: string | null;
+  recurrence_generated_until: string | null;
   notes: string | null;
 };
 
