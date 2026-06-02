@@ -38,6 +38,7 @@ export function InvoicesCrud() {
   const [saving, setSaving] = useState(false);
   const [modal, setModal] = useState<ModalState>(null);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
+  const [collapsedMonths, setCollapsedMonths] = useState<Set<string>>(new Set());
 
   const periodInvoices = useMemo(() => {
     return invoices.filter((invoice) =>
@@ -65,6 +66,23 @@ export function InvoicesCrud() {
     return { openTotal, overdueTotal, paidThisMonth, nextDue };
   }, [periodInvoices]);
 
+  const groupedInvoices = useMemo(() => {
+    const groups = new Map<string, InvoiceRow[]>();
+
+    filteredInvoices.forEach((invoice) => {
+      const key = invoice.reference_month.slice(0, 7);
+      groups.set(key, [...(groups.get(key) ?? []), invoice]);
+    });
+
+    return Array.from(groups.entries())
+      .sort(([a], [b]) => b.localeCompare(a))
+      .map(([month, rows]) => ({
+        month,
+        label: formatMonthLabel(month),
+        rows: rows.sort((a, b) => a.due_date.localeCompare(b.due_date)),
+      }));
+  }, [filteredInvoices]);
+
   async function loadData() {
     setLoading(true);
     const client = createClient();
@@ -90,12 +108,25 @@ export function InvoicesCrud() {
       setFeedback({ type: "error", message: "Cartão, mês de referência e vencimento são obrigatórios." });
       return;
     }
-    if (Number(values.total_amount) < 0 || Number(values.paid_amount) < 0) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(values.reference_month) || !/^\d{4}-\d{2}-\d{2}$/.test(values.due_date)) {
+      setFeedback({ type: "error", message: "Informe mês de referência e vencimento válidos." });
+      return;
+    }
+    if (values.closing_date && !/^\d{4}-\d{2}-\d{2}$/.test(values.closing_date)) {
+      setFeedback({ type: "error", message: "Informe uma data de fechamento válida." });
+      return;
+    }
+    const totalAmount = Number(values.total_amount);
+    const paidAmount = Number(values.paid_amount);
+    if (Number.isNaN(totalAmount) || Number.isNaN(paidAmount) || totalAmount < 0 || paidAmount < 0) {
       setFeedback({ type: "error", message: "Valores devem ser maiores ou iguais a zero." });
       return;
     }
+    if (!invoiceStatusOptions.some((option) => option.value === values.status)) {
+      setFeedback({ type: "error", message: "Selecione um status válido para a fatura." });
+      return;
+    }
     if (!userId) return;
-    setSaving(true);
     setSaving(true);
     setFeedback(null);
     try {
@@ -115,6 +146,15 @@ export function InvoicesCrud() {
     } finally {
       setSaving(false);
     }
+  }
+
+  function toggleMonth(month: string) {
+    setCollapsedMonths((current) => {
+      const next = new Set(current);
+      if (next.has(month)) next.delete(month);
+      else next.add(month);
+      return next;
+    });
   }
 
   async function handlePayment(invoice: InvoiceRow, paymentAmount: string) {
@@ -183,10 +223,84 @@ export function InvoicesCrud() {
         </div>
       </SectionCard>
       <SectionCard title="Faturas cadastradas">
-        {loading ? <p className="text-sm text-ink-600">Carregando faturas...</p> : invoices.length === 0 ? <EmptyState title="Nenhuma fatura cadastrada" description="Crie faturas para lançar compras e acompanhar o impacto mensal." /> : filteredInvoices.length === 0 ? <EmptyState title="Nenhuma fatura no período" description="Ajuste o período ou os filtros para ver outras faturas." /> : (
-          <div className="overflow-x-auto"><table className="min-w-full divide-y divide-ink-950/10 text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-ink-600"><tr><th className="px-4 py-3">Cartão</th><th className="px-4 py-3">Mês</th><th className="px-4 py-3">Vencimento</th><th className="px-4 py-3">Total</th><th className="px-4 py-3">Pago</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Ações</th></tr></thead><tbody className="divide-y divide-ink-950/10">
-            {filteredInvoices.map((invoice) => <tr key={invoice.id}><td className="px-4 py-3"><TitleButton onClick={() => setModal({ mode: "edit", invoice })}>{cards.find((c) => c.id === invoice.credit_card_id)?.name ?? "-"}</TitleButton></td><td className="px-4 py-3 text-ink-600">{invoice.reference_month.slice(0, 7)}</td><td className="px-4 py-3 text-ink-600">{formatDate(invoice.due_date)}</td><td className="px-4 py-3 text-ink-950">{formatCurrency(Number(invoice.total_amount))}</td><td className="px-4 py-3 text-ink-600">{formatCurrency(Number(invoice.paid_amount))}</td><td className="px-4 py-3 text-ink-600">{optionLabel(invoiceStatusOptions, invoice.status)}</td><td className="px-4 py-3"><div className="flex justify-end gap-2"><Link className="rounded-md border border-ink-950/10 px-4 py-2.5 text-sm font-semibold text-ink-950 hover:border-mint-500 hover:text-mint-600" href={`/dashboard/invoices/${invoice.id}`}>Lançamentos</Link><ActionButton variant="secondary" onClick={() => setModal({ mode: "payment", invoice })}>Registrar pagamento</ActionButton><ActionButton variant="secondary" onClick={() => setModal({ mode: "edit", invoice })}>Editar</ActionButton><ActionButton variant="danger" onClick={() => void handleDelete(invoice)}>Excluir</ActionButton></div></td></tr>)}
-          </tbody></table></div>
+        {loading ? (
+          <p className="text-sm text-ink-600">Carregando faturas...</p>
+        ) : invoices.length === 0 ? (
+          <EmptyState title="Nenhuma fatura cadastrada" description="Crie faturas para lançar compras e acompanhar o impacto mensal." />
+        ) : filteredInvoices.length === 0 ? (
+          <EmptyState title="Nenhuma fatura no período" description="Ajuste o período ou os filtros para ver outras faturas." />
+        ) : (
+          <div className="space-y-4">
+            {groupedInvoices.map((group) => {
+              const collapsed = collapsedMonths.has(group.month);
+              const total = group.rows.reduce((sum, invoice) => sum + Number(invoice.total_amount), 0);
+
+              return (
+                <div key={group.month} className="rounded-md border border-ink-950/10">
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between gap-3 bg-slate-50 px-4 py-3 text-left transition hover:bg-mint-100"
+                    onClick={() => toggleMonth(group.month)}
+                    aria-expanded={!collapsed}
+                  >
+                    <span>
+                      <span className="block text-sm font-semibold text-ink-950">{group.label}</span>
+                      <span className="mt-1 block text-xs text-ink-600">
+                        {group.rows.length} fatura(s) · {formatCurrency(total)}
+                      </span>
+                    </span>
+                    <span className="text-sm font-semibold text-mint-600">{collapsed ? "Expandir" : "Recolher"}</span>
+                  </button>
+                  {collapsed ? null : (
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full divide-y divide-ink-950/10 text-left text-sm">
+                        <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-ink-600">
+                          <tr>
+                            <th className="px-4 py-3">Cartão</th>
+                            <th className="px-4 py-3">Mês</th>
+                            <th className="px-4 py-3">Vencimento</th>
+                            <th className="px-4 py-3">Total</th>
+                            <th className="px-4 py-3">Pago</th>
+                            <th className="px-4 py-3">Status</th>
+                            <th className="px-4 py-3 text-right">Ações</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-ink-950/10">
+                          {group.rows.map((invoice) => (
+                            <tr key={invoice.id}>
+                              <td className="px-4 py-3">
+                                <TitleButton onClick={() => setModal({ mode: "edit", invoice })}>
+                                  {cards.find((card) => card.id === invoice.credit_card_id)?.name ?? "-"}
+                                </TitleButton>
+                              </td>
+                              <td className="px-4 py-3 text-ink-600">{invoice.reference_month.slice(0, 7)}</td>
+                              <td className="px-4 py-3 text-ink-600">{formatDate(invoice.due_date)}</td>
+                              <td className="px-4 py-3 text-ink-950">{formatCurrency(Number(invoice.total_amount))}</td>
+                              <td className="px-4 py-3 text-ink-600">{formatCurrency(Number(invoice.paid_amount))}</td>
+                              <td className="px-4 py-3 text-ink-600">{optionLabel(invoiceStatusOptions, invoice.status)}</td>
+                              <td className="px-4 py-3">
+                                <div className="flex flex-wrap justify-end gap-2">
+                                  <Link
+                                    className="hub-action hub-action-secondary rounded-md border border-ink-950/10 px-4 py-2.5 text-sm font-semibold text-ink-950 hover:border-mint-500 hover:text-mint-600"
+                                    href={`/dashboard/invoices/${invoice.id}`}
+                                  >
+                                    Lançamentos
+                                  </Link>
+                                  <ActionButton variant="secondary" onClick={() => setModal({ mode: "payment", invoice })}>Registrar pagamento</ActionButton>
+                                  <ActionButton variant="secondary" onClick={() => setModal({ mode: "edit", invoice })}>Editar</ActionButton>
+                                  <ActionButton variant="danger" onClick={() => void handleDelete(invoice)}>Excluir</ActionButton>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         )}
       </SectionCard>
       {modal?.mode === "create" || modal?.mode === "edit" ? <InvoiceModal modal={modal} cards={cards} saving={saving} onClose={() => setModal(null)} onSubmit={(values) => void handleSubmit(values)} /> : null}
@@ -252,4 +366,10 @@ function addMonths(month: string, count: number) {
   const [year, monthNumber] = month.split("-").map(Number);
   const date = new Date(year, monthNumber - 1 + count, 1);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function formatMonthLabel(month: string) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const date = new Date(year, monthNumber - 1, 1);
+  return new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric" }).format(date);
 }

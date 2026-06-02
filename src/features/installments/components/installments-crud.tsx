@@ -29,8 +29,9 @@ import {
   type InstallmentInvoice,
   type InstallmentPerson,
   type InstallmentRow,
+  type InstallmentTransaction,
 } from "@/features/installments/types";
-import { ActionButton, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, TextBadge, TitleButton } from "@/features/shared/crud-ui";
+import { ActionButton, CategoryBadge, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, TextBadge, TitleButton } from "@/features/shared/crud-ui";
 import { formatCurrency, formatDate } from "@/features/shared/format";
 import { installmentStatusOptions, optionLabel } from "@/features/shared/options";
 import { PeriodFilter } from "@/features/shared/period-filter";
@@ -46,6 +47,7 @@ export function InstallmentsCrud() {
   const [installments, setInstallments] = useState<InstallmentRow[]>([]);
   const [cards, setCards] = useState<InstallmentCard[]>([]);
   const [invoices, setInvoices] = useState<InstallmentInvoice[]>([]);
+  const [transactions, setTransactions] = useState<InstallmentTransaction[]>([]);
   const [categories, setCategories] = useState<InstallmentCategory[]>([]);
   const [people, setPeople] = useState<InstallmentPerson[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
@@ -114,6 +116,7 @@ export function InstallmentsCrud() {
     else setInstallments(installmentsResult.data ?? []);
     if (!support.cards.error) setCards(support.cards.data ?? []);
     if (!support.invoices.error) setInvoices(support.invoices.data ?? []);
+    if (!support.transactions.error) setTransactions(support.transactions.data ?? []);
     if (!support.categories.error) setCategories(support.categories.data ?? []);
     if (!support.people.error) setPeople(support.people.data ?? []);
     setAllowQuickTableEdit(quickEdit);
@@ -340,6 +343,7 @@ export function InstallmentsCrud() {
                 <tr>
                   <th className="px-4 py-3">Descrição</th>
                   <th className="px-4 py-3">Valor mensal</th>
+                  <th className="px-4 py-3">Categoria</th>
                   <th className="px-4 py-3">Parcela</th>
                   <th className="px-4 py-3">Origem</th>
                   <th className="px-4 py-3">Vínculo</th>
@@ -371,13 +375,20 @@ export function InstallmentsCrud() {
                         <QuickEditInput type="number" value={String(item.installment_amount)} onCommit={(value) => void handleQuickUpdate(item, { installment_amount: value })} />
                       ) : formatCurrency(Number(item.installment_amount))}
                     </td>
+                    <td className="px-4 py-3">
+                      {allowQuickTableEdit ? (
+                        <QuickEditSelect value={item.category_id ?? ""} options={[{ value: "", label: "Sem categoria" }, ...categories.map((category) => ({ value: category.id, label: category.name }))]} onCommit={(value) => void handleQuickUpdate(item, { category_id: value })} />
+                      ) : (
+                        <CategoryBadge category={categories.find((category) => category.id === item.category_id)} />
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-ink-600">{item.current_installment ?? item.installment_number}/{item.installment_total ?? item.installment_count}</td>
                     <td className="px-4 py-3">
                       <TextBadge tone={item.invoice_id || item.credit_card_id ? "info" : "neutral"}>
                         {getInstallmentOriginLabel(item)}
                       </TextBadge>
                     </td>
-                    <td className="px-4 py-3 text-ink-600">{getInstallmentLinkLabel(item, cards, invoices)}</td>
+                    <td className="px-4 py-3 text-ink-600">{getInstallmentLinkLabel(item, cards, invoices, transactions)}</td>
                     <td className="px-4 py-3 text-ink-600">
                       {allowQuickTableEdit ? (
                         <QuickEditInput type="date" value={item.start_date ?? item.due_month ?? ""} onCommit={(value) => void handleQuickUpdate(item, { start_date: value })} />
@@ -421,6 +432,7 @@ export function InstallmentsCrud() {
           modal={modal}
           people={people}
           saving={saving}
+          transactions={transactions}
           onClose={() => setModal(null)}
           onSubmit={(values) => void handleSubmit(values)}
         />
@@ -436,6 +448,7 @@ function InstallmentModal({
   modal,
   people,
   saving,
+  transactions,
   onClose,
   onSubmit,
 }: {
@@ -445,6 +458,7 @@ function InstallmentModal({
   modal: ModalState;
   people: InstallmentPerson[];
   saving: boolean;
+  transactions: InstallmentTransaction[];
   onClose: () => void;
   onSubmit: (values: InstallmentFormValues) => void;
 }) {
@@ -454,6 +468,10 @@ function InstallmentModal({
   const filteredInvoices = values.credit_card_id
     ? invoices.filter((invoice) => invoice.credit_card_id === values.credit_card_id)
     : [];
+  const filteredTransactions = transactions.filter((transaction) =>
+    (!values.credit_card_id || transaction.credit_card_id === values.credit_card_id) &&
+    (!values.invoice_id || transaction.invoice_id === values.invoice_id),
+  );
 
   return (
     <Modal title={modal?.mode === "edit" ? "Editar parcelamento" : "Novo parcelamento"} onClose={onClose}>
@@ -473,13 +491,26 @@ function InstallmentModal({
             {installmentOriginOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
         </FieldShell>
-        <FieldShell label="Cartão"><select className={inputClassName} value={values.credit_card_id} onChange={(event) => setValues({ ...values, credit_card_id: event.target.value, invoice_id: "", installment_origin: event.target.value ? "card" : values.installment_origin })}><option value="">Sem cartão</option>{cards.map((card) => <option key={card.id} value={card.id}>{card.name}</option>)}</select></FieldShell>
+        <FieldShell label="Cartão"><select className={inputClassName} value={values.credit_card_id} onChange={(event) => setValues({ ...values, credit_card_id: event.target.value, invoice_id: "", credit_card_transaction_id: "", installment_origin: event.target.value ? "card" : values.installment_origin })}><option value="">Sem cartão</option>{cards.map((card) => <option key={card.id} value={card.id}>{card.name}</option>)}</select></FieldShell>
         <FieldShell label="Fatura">
-          <select className={inputClassName} value={values.invoice_id} disabled={!values.credit_card_id} onChange={(event) => setValues({ ...values, invoice_id: event.target.value, installment_origin: event.target.value ? "invoice" : values.installment_origin })}>
+          <select className={inputClassName} value={values.invoice_id} disabled={!values.credit_card_id} onChange={(event) => setValues({ ...values, invoice_id: event.target.value, credit_card_transaction_id: "", installment_origin: event.target.value ? "invoice" : values.installment_origin })}>
             <option value="">{values.credit_card_id ? "Sem fatura" : "Selecione um cartão primeiro"}</option>
             {filteredInvoices.map((invoice) => <option key={invoice.id} value={invoice.id}>{cards.find((card) => card.id === invoice.credit_card_id)?.name ?? "Cartão"} - {invoice.reference_month.slice(0, 7)} - vence {formatDate(invoice.due_date)} - {invoice.status}</option>)}
           </select>
           {!values.credit_card_id ? <p className="mt-2 text-xs text-ink-600">Selecione um cartão para listar as faturas correspondentes.</p> : null}
+        </FieldShell>
+        <FieldShell label="Lançamento de origem">
+          <select className={inputClassName} value={values.credit_card_transaction_id} disabled={!values.credit_card_id} onChange={(event) => setValues({ ...values, credit_card_transaction_id: event.target.value })}>
+            <option value="">{values.credit_card_id ? "Sem lançamento vinculado" : "Selecione um cartão primeiro"}</option>
+            {filteredTransactions.map((transaction) => (
+              <option key={transaction.id} value={transaction.id}>
+                {transaction.description} · {formatDate(transaction.transaction_date)} · {formatCurrency(Number(transaction.amount))}
+              </option>
+            ))}
+          </select>
+          <p className="mt-2 text-xs leading-5 text-ink-600">
+            Use este vínculo quando o parcelamento nasceu de um lançamento específico da fatura. O vínculo é rastreio e não duplica o valor.
+          </p>
         </FieldShell>
         {values.invoice_id ? (
           <div className="rounded-md border border-amberRisk-500/20 bg-amberRisk-100 p-4 text-sm leading-6 text-ink-800 md:col-span-2">
@@ -513,7 +544,13 @@ function getInstallmentLinkLabel(
   item: InstallmentRow,
   cards: InstallmentCard[],
   invoices: InstallmentInvoice[],
+  transactions: InstallmentTransaction[],
 ) {
+  if (item.credit_card_transaction_id) {
+    const transaction = transactions.find((transactionItem) => transactionItem.id === item.credit_card_transaction_id);
+    return transaction ? `Lançamento: ${transaction.description}` : "Lançamento vinculado";
+  }
+
   if (item.invoice_id) {
     const invoice = invoices.find((invoiceItem) => invoiceItem.id === item.invoice_id);
     return invoice ? `Fatura ${invoice.reference_month.slice(0, 7)}` : "Fatura vinculada";

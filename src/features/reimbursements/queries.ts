@@ -28,7 +28,7 @@ export async function listReimbursementSupportData(client: AppSupabaseClient) {
     client.from("credit_cards").select("id,name,issuer").eq("is_active", true).order("name", { ascending: true }),
     client
       .from("credit_card_invoices")
-      .select("id,credit_card_id,reference_month,due_date,status")
+      .select("id,credit_card_id,reference_month,due_date,status,total_amount")
       .neq("status", "cancelled")
       .order("due_date", { ascending: false }),
   ]);

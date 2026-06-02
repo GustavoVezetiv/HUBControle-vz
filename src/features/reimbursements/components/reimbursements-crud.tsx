@@ -32,7 +32,7 @@ import {
 } from "@/features/reimbursements/types";
 import { ActionButton, BulkActionsBar, CategoryBadge, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, RowSelectionHint, shouldToggleRowSelection, TextBadge, TitleButton } from "@/features/shared/crud-ui";
 import { formatCurrency, formatDate } from "@/features/shared/format";
-import { optionLabel, reimbursementStatusOptions } from "@/features/shared/options";
+import { invoiceStatusOptions, optionLabel, reimbursementStatusOptions } from "@/features/shared/options";
 import { PeriodFilter } from "@/features/shared/period-filter";
 import { isAnyDateInPeriod, parsePeriodSearchParams, type PeriodValue } from "@/features/shared/period";
 import { getQuickTableEditPreference } from "@/features/shared/quick-edit";
@@ -70,6 +70,7 @@ export function ReimbursementsCrud() {
   const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [allowQuickTableEdit, setAllowQuickTableEdit] = useState(false);
+  const [showAllPeopleSummary, setShowAllPeopleSummary] = useState(false);
 
   const periodReimbursements = useMemo(() => {
     return reimbursements.filter((reimbursement) =>
@@ -145,6 +146,10 @@ export function ReimbursementsCrud() {
       .filter((item) => item.count > 0)
       .sort((a, b) => b.open - a.open);
   }, [people, periodReimbursements]);
+
+  const visiblePeopleSummary = useMemo(() => {
+    return showAllPeopleSummary ? peopleSummary : peopleSummary.filter((item) => item.open > 0);
+  }, [peopleSummary, showAllPeopleSummary]);
 
   const selectedPerson = personFilter === "all" ? null : people.find((person) => person.id === personFilter) ?? null;
 
@@ -406,12 +411,24 @@ export function ReimbursementsCrud() {
         </p>
       </SectionCard>
 
-      <SectionCard title="Quem deve agora" description="Resumo por pessoa responsável.">
+      <SectionCard title="Quem deve agora" description="Por padrão, mostra apenas pessoas com valor em aberto.">
+        <div className="mb-4 flex justify-end">
+          <label className="inline-flex items-center gap-2 text-sm font-medium text-ink-600">
+            <input
+              type="checkbox"
+              checked={showAllPeopleSummary}
+              onChange={(event) => setShowAllPeopleSummary(event.target.checked)}
+            />
+            Mostrar pessoas sem saldo em aberto
+          </label>
+        </div>
         {peopleSummary.length === 0 ? (
           <EmptyState title="Nenhuma pessoa com reembolso" description="Quando houver reembolsos, o resumo por pessoa aparecerá aqui." />
+        ) : visiblePeopleSummary.length === 0 ? (
+          <EmptyState title="Ninguém deve agora" description="Não há pessoas com valor em aberto no período filtrado." />
         ) : (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {peopleSummary.map((item) => (
+            {visiblePeopleSummary.map((item) => (
               <button
                 key={item.person.id}
                 type="button"
@@ -922,7 +939,7 @@ function LinkedEntryModal({
                 <option value="">Selecione</option>
                 {filteredInvoices.map((invoice) => (
                   <option key={invoice.id} value={invoice.id}>
-                    {invoice.reference_month.slice(0, 7)} - vence {formatDate(invoice.due_date)}
+                    {formatInvoiceOptionLabel(invoice, cards)}
                   </option>
                 ))}
               </select>
@@ -1108,10 +1125,10 @@ function ReimbursementReportModal({
                               </td>
                               <td className="px-4 py-3 align-top">
                                 <p className="font-semibold text-ink-950">{reimbursement.description ?? "Reembolso sem descrição"}</p>
-                                <p className="report-description-meta mt-1 text-xs leading-5 text-ink-600">
-                                  Categoria: {category?.name ?? "-"} ·{" "}
-                                  Vínculo: {getLinkedLabel(reimbursement, transactions, accounts, income, invoices, cards)}
-                                </p>
+                                <div className="report-description-meta mt-1 flex flex-wrap items-center gap-2 text-xs leading-5 text-ink-600">
+                                  <CategoryBadge category={category} />
+                                  <span>Vínculo: {getLinkedLabel(reimbursement, transactions, accounts, income, invoices, cards)}</span>
+                                </div>
                                 {reimbursement.notes ? (
                                   <p className="report-description-meta mt-1 text-xs leading-5 text-ink-600">Obs.: {reimbursement.notes}</p>
                                 ) : null}
@@ -1390,6 +1407,27 @@ function buildReimbursementPrintDocument(reportHtml: string) {
         line-height: 1.35;
       }
 
+      .hub-category-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 3pt;
+        max-width: 90pt;
+        border: 1px solid transparent;
+        border-radius: 999px;
+        background: var(--category-color, #e2e8f0);
+        color: var(--category-text, #0f172a);
+        padding: 1.5pt 4pt;
+        font-size: 6.6pt;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      .hub-category-badge svg {
+        width: 7pt;
+        height: 7pt;
+        flex: 0 0 auto;
+      }
+
       .report-money,
       .report-status {
         white-space: nowrap;
@@ -1486,6 +1524,17 @@ function getLinkedLabel(
   }
 
   return "Manual";
+}
+
+function formatInvoiceOptionLabel(invoice: ReimbursementInvoice, cards: ReimbursementCard[]) {
+  const card = cards.find((item) => item.id === invoice.credit_card_id);
+  return [
+    card?.name ?? "Cartão",
+    invoice.reference_month.slice(0, 7),
+    `vence ${formatDate(invoice.due_date)}`,
+    optionLabel(invoiceStatusOptions, invoice.status),
+    formatCurrency(Number(invoice.total_amount)),
+  ].join(" · ");
 }
 
 function getLinkedTone(reimbursement: ReimbursementRow) {

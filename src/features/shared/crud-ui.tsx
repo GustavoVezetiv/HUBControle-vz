@@ -21,7 +21,7 @@ export function FieldShell({ label, children }: FieldShellProps) {
 }
 
 export const inputClassName =
-  "w-full rounded-md border border-ink-950/10 bg-white px-3 py-2.5 text-sm text-ink-950 outline-none transition focus:border-mint-500 focus:ring-4 focus:ring-mint-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-ink-600";
+  "hub-input w-full rounded-md border border-ink-950/10 bg-white px-3 py-2.5 text-sm text-ink-950 outline-none transition focus:border-mint-500 focus:ring-4 focus:ring-mint-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-ink-600";
 
 export function CrudFeedback({
   feedback,
@@ -72,13 +72,13 @@ export function Modal({ title, description, children, onClose }: ModalProps) {
       onMouseDown={onClose}
     >
       <section
-        className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-lg border border-ink-950/10 bg-white p-6 shadow-soft"
+        className="hub-modal max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-lg border border-ink-950/10 bg-white shadow-soft"
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <div className="flex items-start justify-between gap-4">
+        <div className="hub-modal-header sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-ink-950/10 bg-white px-6 py-4">
           <div>
             <h2 id="modal-title" className="text-lg font-semibold text-ink-950">{title}</h2>
             {description ? (
@@ -88,12 +88,12 @@ export function Modal({ title, description, children, onClose }: ModalProps) {
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md border border-ink-950/10 px-3 py-2 text-sm font-semibold text-ink-600 transition hover:border-danger-600 hover:text-danger-600"
+            className="hub-action hub-action-secondary rounded-md border border-ink-950/10 px-3 py-2 text-sm font-semibold text-ink-600 transition hover:border-danger-600 hover:text-danger-600"
           >
             Fechar
           </button>
         </div>
-        <div className="mt-5">{children}</div>
+        <div className="px-6 py-5">{children}</div>
       </section>
     </div>
   );
@@ -108,16 +108,17 @@ export function ActionButton({
 }) {
   const className =
     variant === "primary"
-      ? "bg-ink-950 text-white hover:bg-ink-800"
+      ? "hub-action-primary bg-slate-950 text-white hover:bg-slate-800"
       : variant === "danger"
-        ? "border border-danger-600/20 bg-danger-100 text-danger-600 hover:border-danger-600"
-        : "border border-ink-950/10 bg-white text-ink-950 hover:border-mint-500 hover:text-mint-600";
+        ? "hub-action-danger border border-danger-600/20 bg-danger-100 text-danger-600 hover:border-danger-600"
+        : "hub-action-secondary border border-ink-950/10 bg-white text-ink-950 hover:border-mint-500 hover:text-mint-600";
 
   return (
     <button
       {...props}
       className={[
         "inline-flex items-center justify-center rounded-md px-4 py-2.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60",
+        "hub-action",
         className,
         props.className,
       ]
@@ -256,7 +257,7 @@ export function QuickEditInput({
 
   return (
     <input
-      className="w-full min-w-28 rounded-md border border-ink-950/10 bg-white px-2 py-1 text-sm text-ink-950"
+      className="hub-input w-full min-w-28 rounded-md border border-ink-950/10 bg-white px-2 py-1 text-sm text-ink-950"
       type={type}
       value={draft}
       onBlur={commit}
@@ -280,7 +281,7 @@ export function QuickEditSelect({
 }) {
   return (
     <select
-      className="w-full min-w-32 rounded-md border border-ink-950/10 bg-white px-2 py-1 text-sm text-ink-950"
+      className="hub-input w-full min-w-32 rounded-md border border-ink-950/10 bg-white px-2 py-1 text-sm text-ink-950"
       value={value}
       onChange={(event) => onCommit(event.target.value)}
     >
