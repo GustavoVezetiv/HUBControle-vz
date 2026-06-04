@@ -55,6 +55,9 @@ type ModalProps = {
 };
 
 export function Modal({ title, description, children, onClose, headerAction }: ModalProps) {
+  const sectionRef = useRef<HTMLElement | null>(null);
+  const [hasForm, setHasForm] = useState(false);
+
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
@@ -66,6 +69,15 @@ export function Modal({ title, description, children, onClose, headerAction }: M
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
+  useEffect(() => {
+    setHasForm(Boolean(sectionRef.current?.querySelector("form")));
+  }, [children]);
+
+  function submitFirstForm() {
+    const form = sectionRef.current?.querySelector("form");
+    form?.requestSubmit();
+  }
+
   return (
     <div
       className="fixed inset-0 z-40 flex items-center justify-center bg-ink-950/45 px-4 py-6"
@@ -73,6 +85,7 @@ export function Modal({ title, description, children, onClose, headerAction }: M
       onMouseDown={onClose}
     >
       <section
+        ref={sectionRef}
         className="hub-modal max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-lg border border-ink-950/10 bg-white shadow-soft"
         role="dialog"
         aria-modal="true"
@@ -87,7 +100,11 @@ export function Modal({ title, description, children, onClose, headerAction }: M
             ) : null}
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            {headerAction}
+            {headerAction ?? (hasForm ? (
+              <ActionButton type="button" onClick={submitFirstForm}>
+                Salvar
+              </ActionButton>
+            ) : null)}
             <button
               type="button"
               onClick={onClose}
