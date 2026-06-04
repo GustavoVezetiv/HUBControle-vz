@@ -279,6 +279,7 @@ export type PlannedPurchase = UserOwnedRow & {
 };
 
 export type Goal = UserOwnedRow & {
+  category_id: string | null;
   name: string;
   goal_type: string;
   target_amount: number;

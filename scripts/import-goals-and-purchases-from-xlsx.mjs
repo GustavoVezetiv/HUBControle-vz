@@ -153,7 +153,7 @@ async function prepareWorkbook(workbook, existing) {
 
   if (workbook.SheetNames.includes(GOALS_SHEET)) {
     const rows = sheetToRows(workbook, GOALS_SHEET);
-    prepared.goals.push(...prepareGoalRows(rows, existing));
+    prepared.goals.push(...prepareGoalRows(rows, existing, categoriesByName));
   }
 
   if (prepared.purchases.length === 0 && prepared.goals.length === 0) {
@@ -217,7 +217,7 @@ async function preparePurchaseRows(rows, existing, categoriesByName, prepared, d
   return output;
 }
 
-function prepareGoalRows(rows, existing) {
+function prepareGoalRows(rows, existing, categoriesByName) {
   const existingNames = new Set(existing.goals.map((item) => normalizeKey(item.name)));
   const seenNames = new Set();
 
@@ -229,6 +229,7 @@ function prepareGoalRows(rows, existing) {
     if (nameKey && existingNames.has(nameKey)) errors.push("Meta já existe com o mesmo nome.");
     if (nameKey && seenNames.has(nameKey)) errors.push("Meta duplicada na planilha.");
     if (nameKey) seenNames.add(nameKey);
+    const category = mapped.category_label ? categoriesByName.get(normalizeKey(mapped.category_label)) : null;
 
     return {
       module: "Metas",
@@ -237,7 +238,7 @@ function prepareGoalRows(rows, existing) {
       status: errors.length ? "error" : "new",
       duplicate: errors.some((error) => error.toLowerCase().includes("duplicad") || error.toLowerCase().includes("já existe")),
       errors,
-      payload: { ...mapped, user_id: userId },
+      payload: { ...mapped, category_id: category?.id ?? null, user_id: userId },
     };
   });
 }

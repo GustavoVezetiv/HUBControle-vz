@@ -40,6 +40,10 @@ export async function listGoals(client: AppSupabaseClient) {
   return client.from("goals").select("*").order("target_date", { ascending: true });
 }
 
+export async function listGoalCategories(client: AppSupabaseClient) {
+  return client.from("categories").select("id,name,type,color,icon").eq("is_active", true).order("name");
+}
+
 export async function createGoal(client: AppSupabaseClient, userId: string, values: GoalFormValues) {
   return client.from("goals").insert(toPayload(userId, values)).select("*").single();
 }
