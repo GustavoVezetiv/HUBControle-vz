@@ -18,6 +18,9 @@ export async function upsertProfile(client: AppSupabaseClient, userId: string, v
     visual_style: values.visual_style,
     interface_density: values.interface_density,
     category_badge_style: values.category_badge_style,
+    content_width: values.content_width,
+    animations_enabled: values.animations_enabled,
+    interactive_cards_enabled: values.interactive_cards_enabled,
   };
 
   return client.from("profiles").upsert(payload).select("*").single();

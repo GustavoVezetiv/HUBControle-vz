@@ -11,6 +11,7 @@ import {
   ActionButton,
   BulkActionsBar,
   CategoryBadge,
+  CategorySelect,
   CrudFeedback,
   FieldShell,
   inputClassName,
@@ -365,10 +366,12 @@ export function IncomeSourcesCrud() {
             <option value="all">Todas confianças</option>
             {confidenceOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
-          <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} className={inputClassName}>
-            <option value="all">Todas categorias</option>
-            {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
-          </select>
+          <CategorySelect
+            categories={categories}
+            value={categoryFilter === "all" ? "" : categoryFilter}
+            placeholder="Todas categorias"
+            onChange={(value) => setCategoryFilter(value || "all")}
+          />
         </div>
       </SectionCard>
 
@@ -613,10 +616,7 @@ function IncomeModal({
           </select>
         </FieldShell>
         <FieldShell label="Categoria">
-          <select value={values.category_id} onChange={(event) => setValues({ ...values, category_id: event.target.value })} className={inputClassName}>
-            <option value="">Sem categoria</option>
-            {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
-          </select>
+          <CategorySelect categories={categories} value={values.category_id} onChange={(category_id) => setValues({ ...values, category_id })} />
         </FieldShell>
         <FieldShell label="Pessoa">
           <select value={values.person_id} onChange={(event) => setValues({ ...values, person_id: event.target.value })} className={inputClassName}>

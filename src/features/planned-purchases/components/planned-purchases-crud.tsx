@@ -9,7 +9,7 @@ import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
 import { createPlannedPurchase, deletePlannedPurchase, listPlannedPurchases, listPlannedPurchaseSupportData, updatePlannedPurchase } from "@/features/planned-purchases/queries";
 import { decisionStatusOptions, emptyPlannedPurchaseForm, plannedPurchaseToFormValues, type PlannedPurchaseFormValues, type PlannedPurchaseRow, type PlannedPurchaseSupportData } from "@/features/planned-purchases/types";
-import { ActionButton, BulkActionsBar, CategoryBadge, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, RowSelectionHint, shouldToggleRowSelection, TextBadge, TitleButton } from "@/features/shared/crud-ui";
+import { ActionButton, BulkActionsBar, CategoryBadge, CategorySelect, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, RowSelectionHint, shouldToggleRowSelection, TextBadge, TitleButton } from "@/features/shared/crud-ui";
 import { formatCurrency, formatDate } from "@/features/shared/format";
 import { optionLabel, paymentMethodOptions, priorityOptions } from "@/features/shared/options";
 import { PeriodFilter } from "@/features/shared/period-filter";
@@ -368,7 +368,7 @@ function PlannedPurchaseModal({ modal, saving, support, onClose, onSubmit }: { m
         <div className="md:col-span-2"><FieldShell label="Descrição"><textarea rows={3} className={inputClassName} value={values.description} onChange={(event) => setValues({ ...values, description: event.target.value })} /></FieldShell></div>
         <FieldShell label="Valor estimado"><input min="0" step="0.01" type="number" className={inputClassName} value={values.estimated_amount} onChange={(event) => setValues({ ...values, estimated_amount: event.target.value })} /></FieldShell>
         <FieldShell label="Data alvo"><input type="date" className={inputClassName} value={values.target_date} onChange={(event) => setValues({ ...values, target_date: event.target.value })} /></FieldShell>
-        <FieldShell label="Categoria"><select className={inputClassName} value={values.category_id} onChange={(event) => setValues({ ...values, category_id: event.target.value })}><option value="">Sem categoria</option>{support.categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></FieldShell>
+        <FieldShell label="Categoria"><CategorySelect categories={support.categories} value={values.category_id} onChange={(category_id) => setValues({ ...values, category_id })} /></FieldShell>
         <FieldShell label="Forma planejada"><select className={inputClassName} value={values.payment_method} onChange={(event) => setValues({ ...values, payment_method: event.target.value })}>{paymentMethodOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></FieldShell>
         <FieldShell label="Parcelas"><input min="1" type="number" className={inputClassName} value={values.installment_count} onChange={(event) => setValues({ ...values, installment_count: event.target.value })} /></FieldShell>
         <FieldShell label="Status"><select className={inputClassName} value={values.decision_status} onChange={(event) => setValues({ ...values, decision_status: event.target.value })}>{decisionStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></FieldShell>

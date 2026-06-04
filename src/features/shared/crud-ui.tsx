@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type MouseEvent } from "react";
 
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import { CategoryIcon } from "@/features/shared/category-icons";
@@ -160,6 +160,114 @@ export function CategoryBadge({ category }: { category?: CategoryBadgeCategory |
     >
       {icon ? <CategoryIcon value={icon} /> : null}
       <span className="truncate">{label}</span>
+    </span>
+  );
+}
+
+export function CategorySelect({
+  categories,
+  value,
+  onChange,
+  disabled = false,
+  required = false,
+  placeholder = "Sem categoria",
+}: {
+  categories: CategoryBadgeCategory[];
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  required?: boolean;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const selectedCategory = categories.find((category) => category.id === value) ?? null;
+
+  useEffect(() => {
+    function handlePointerDown(event: PointerEvent) {
+      if (!wrapperRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, []);
+
+  function selectCategory(nextValue: string) {
+    onChange(nextValue);
+    setOpen(false);
+  }
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      <button
+        type="button"
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className={[
+          inputClassName,
+          "flex items-center justify-between gap-3 text-left",
+          disabled ? "cursor-not-allowed opacity-70" : "cursor-pointer",
+        ].join(" ")}
+        onClick={() => !disabled && setOpen((current) => !current)}
+      >
+        <CategoryOptionContent category={selectedCategory} placeholder={placeholder} />
+        <span className="text-xs text-ink-600">▾</span>
+      </button>
+      {required ? <input tabIndex={-1} className="sr-only" required value={value} onChange={() => undefined} /> : null}
+      {open ? (
+        <div
+          role="listbox"
+          className="absolute z-30 mt-2 max-h-72 w-full overflow-y-auto rounded-md border border-ink-950/10 bg-white p-1 shadow-soft"
+        >
+          <button
+            type="button"
+            role="option"
+            aria-selected={!value}
+            className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm text-ink-700 hover:bg-slate-50"
+            onClick={() => selectCategory("")}
+          >
+            <CategoryOptionContent category={null} placeholder={placeholder} />
+          </button>
+          {categories.map((category) => (
+            <button
+              key={category.id}
+              type="button"
+              role="option"
+              aria-selected={category.id === value}
+              className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm text-ink-800 hover:bg-slate-50"
+              onClick={() => selectCategory(category.id)}
+            >
+              <CategoryOptionContent category={category} placeholder={placeholder} />
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function CategoryOptionContent({
+  category,
+  placeholder,
+}: {
+  category: CategoryBadgeCategory | null;
+  placeholder: string;
+}) {
+  const color = category?.color?.trim();
+  const safeColor = color && isValidHexColor(color) ? color : "#cbd5e1";
+
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <span
+        className="inline-flex size-6 shrink-0 items-center justify-center rounded-full border border-ink-950/10"
+        style={{ backgroundColor: safeColor, color: getReadableTextColor(safeColor) }}
+      >
+        {category?.icon ? <CategoryIcon value={category.icon} /> : null}
+      </span>
+      <span className="truncate">{category?.name ?? placeholder}</span>
     </span>
   );
 }

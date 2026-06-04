@@ -8,7 +8,7 @@ import type {
 } from "@/lib/supabase/types";
 
 export type TransactionRow = CreditCardTransaction;
-export type TransactionCard = Pick<CreditCard, "id" | "name">;
+export type TransactionCard = Pick<CreditCard, "id" | "name" | "closing_day" | "due_day">;
 export type TransactionInvoice = Pick<CreditCardInvoice, "id" | "credit_card_id" | "reference_month" | "due_date" | "status">;
 export type TransactionCategory = Pick<Category, "id" | "name" | "type" | "color" | "icon">;
 export type TransactionPerson = Pick<Person, "id" | "name">;

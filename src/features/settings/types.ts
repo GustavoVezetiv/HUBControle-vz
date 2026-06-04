@@ -5,6 +5,7 @@ export type ProfileRow = Profile;
 export type VisualStyle = "classic" | "minimal" | "colorful" | "glass" | "compact" | "creative";
 export type InterfaceDensity = "comfortable" | "compact";
 export type CategoryBadgeStyle = "solid" | "soft" | "outline" | "creative_pill";
+export type ContentWidth = "compact" | "standard" | "wide" | "full";
 
 export type SettingsFormValues = {
   display_name: string;
@@ -15,6 +16,9 @@ export type SettingsFormValues = {
   visual_style: VisualStyle;
   interface_density: InterfaceDensity;
   category_badge_style: CategoryBadgeStyle;
+  content_width: ContentWidth;
+  animations_enabled: boolean;
+  interactive_cards_enabled: boolean;
 };
 
 export const currencyOptions = [
@@ -51,6 +55,13 @@ export const categoryBadgeStyleOptions: Array<{ value: CategoryBadgeStyle; label
   { value: "creative_pill", label: "Pill criativo" },
 ];
 
+export const contentWidthOptions: Array<{ value: ContentWidth; label: string; description: string }> = [
+  { value: "compact", label: "Compacta", description: "Conteúdo mais estreito para leitura focada." },
+  { value: "standard", label: "Padrão", description: "Largura equilibrada para uso geral." },
+  { value: "wide", label: "Ampla", description: "Mais espaço para tabelas e cards." },
+  { value: "full", label: "Tela cheia", description: "Usa quase toda a largura disponível." },
+];
+
 export function profileToFormValues(profile: ProfileRow | null): SettingsFormValues {
   return {
     display_name: profile?.display_name ?? "",
@@ -61,6 +72,9 @@ export function profileToFormValues(profile: ProfileRow | null): SettingsFormVal
     visual_style: normalizeVisualStyle(profile?.visual_style),
     interface_density: normalizeInterfaceDensity(profile?.interface_density),
     category_badge_style: normalizeCategoryBadgeStyle(profile?.category_badge_style),
+    content_width: normalizeContentWidth(profile?.content_width),
+    animations_enabled: profile?.animations_enabled ?? true,
+    interactive_cards_enabled: profile?.interactive_cards_enabled ?? true,
   };
 }
 
@@ -74,4 +88,8 @@ export function normalizeInterfaceDensity(value: string | null | undefined): Int
 
 export function normalizeCategoryBadgeStyle(value: string | null | undefined): CategoryBadgeStyle {
   return categoryBadgeStyleOptions.some((option) => option.value === value) ? (value as CategoryBadgeStyle) : "solid";
+}
+
+export function normalizeContentWidth(value: string | null | undefined): ContentWidth {
+  return contentWidthOptions.some((option) => option.value === value) ? (value as ContentWidth) : "standard";
 }
