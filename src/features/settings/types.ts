@@ -6,6 +6,7 @@ export type VisualStyle = "classic" | "minimal" | "colorful" | "glass" | "compac
 export type InterfaceDensity = "comfortable" | "compact";
 export type CategoryBadgeStyle = "solid" | "soft" | "outline" | "creative_pill";
 export type ContentWidth = "compact" | "standard" | "wide" | "full";
+export type SurfaceRadius = "soft" | "medium" | "rounded";
 
 export type SettingsFormValues = {
   display_name: string;
@@ -19,6 +20,8 @@ export type SettingsFormValues = {
   content_width: ContentWidth;
   animations_enabled: boolean;
   interactive_cards_enabled: boolean;
+  card_glow_enabled: boolean;
+  surface_radius: SurfaceRadius;
 };
 
 export const currencyOptions = [
@@ -62,6 +65,12 @@ export const contentWidthOptions: Array<{ value: ContentWidth; label: string; de
   { value: "full", label: "Tela cheia", description: "Usa quase toda a largura disponível." },
 ];
 
+export const surfaceRadiusOptions: Array<{ value: SurfaceRadius; label: string }> = [
+  { value: "soft", label: "Suave" },
+  { value: "medium", label: "Média" },
+  { value: "rounded", label: "Arredondada" },
+];
+
 export function profileToFormValues(profile: ProfileRow | null): SettingsFormValues {
   return {
     display_name: profile?.display_name ?? "",
@@ -75,6 +84,8 @@ export function profileToFormValues(profile: ProfileRow | null): SettingsFormVal
     content_width: normalizeContentWidth(profile?.content_width),
     animations_enabled: profile?.animations_enabled ?? true,
     interactive_cards_enabled: profile?.interactive_cards_enabled ?? true,
+    card_glow_enabled: profile?.card_glow_enabled ?? false,
+    surface_radius: normalizeSurfaceRadius(profile?.surface_radius),
   };
 }
 
@@ -92,4 +103,8 @@ export function normalizeCategoryBadgeStyle(value: string | null | undefined): C
 
 export function normalizeContentWidth(value: string | null | undefined): ContentWidth {
   return contentWidthOptions.some((option) => option.value === value) ? (value as ContentWidth) : "standard";
+}
+
+export function normalizeSurfaceRadius(value: string | null | undefined): SurfaceRadius {
+  return surfaceRadiusOptions.some((option) => option.value === value) ? (value as SurfaceRadius) : "medium";
 }

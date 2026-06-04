@@ -51,9 +51,10 @@ type ModalProps = {
   description?: string;
   children: React.ReactNode;
   onClose: () => void;
+  headerAction?: React.ReactNode;
 };
 
-export function Modal({ title, description, children, onClose }: ModalProps) {
+export function Modal({ title, description, children, onClose, headerAction }: ModalProps) {
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
@@ -85,13 +86,16 @@ export function Modal({ title, description, children, onClose }: ModalProps) {
               <p className="mt-1 text-sm leading-6 text-ink-600">{description}</p>
             ) : null}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="hub-action hub-action-secondary rounded-md border border-ink-950/10 px-3 py-2 text-sm font-semibold text-ink-600 transition hover:border-danger-600 hover:text-danger-600"
-          >
-            Fechar
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            {headerAction}
+            <button
+              type="button"
+              onClick={onClose}
+              className="hub-action hub-action-secondary rounded-md border border-ink-950/10 px-3 py-2 text-sm font-semibold text-ink-600 transition hover:border-danger-600 hover:text-danger-600"
+            >
+              Fechar
+            </button>
+          </div>
         </div>
         <div className="px-6 py-5">{children}</div>
       </section>
@@ -156,6 +160,9 @@ export function CategoryBadge({ category }: { category?: CategoryBadgeCategory |
       style={safeColor ? {
         "--category-color": safeColor,
         "--category-text": textColor,
+        backgroundColor: safeColor,
+        borderColor: safeColor,
+        color: textColor,
       } as CSSProperties : undefined}
     >
       {icon ? <CategoryIcon value={icon} /> : null}
@@ -295,11 +302,13 @@ export function BulkActionsBar({
   deleting,
   onClear,
   onDelete,
+  children,
 }: {
   selectedCount: number;
   deleting: boolean;
   onClear: () => void;
   onDelete: () => void;
+  children?: React.ReactNode;
 }) {
   if (selectedCount === 0) {
     return null;
@@ -310,7 +319,8 @@ export function BulkActionsBar({
       <p className="text-sm font-medium text-ink-800">
         {selectedCount} item(ns) selecionado(s)
       </p>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
+        {children}
         <ActionButton type="button" variant="secondary" onClick={onClear} disabled={deleting}>
           Limpar seleção
         </ActionButton>

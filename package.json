@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "import:purchases": "node scripts/import-planned-purchases-from-xlsx.mjs",
+    "import:goals-purchases": "node scripts/import-goals-and-purchases-from-xlsx.mjs",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check ."

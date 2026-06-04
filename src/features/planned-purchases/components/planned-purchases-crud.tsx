@@ -36,6 +36,10 @@ export function PlannedPurchasesCrud() {
   const [deletingSelected, setDeletingSelected] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [allowQuickTableEdit, setAllowQuickTableEdit] = useState(false);
+  const [bulkUpdating, setBulkUpdating] = useState(false);
+  const [bulkStatus, setBulkStatus] = useState("");
+  const [bulkCategoryId, setBulkCategoryId] = useState("");
+  const [bulkRisk, setBulkRisk] = useState("");
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -203,6 +207,49 @@ export function PlannedPurchasesCrud() {
     }
   }
 
+  async function handleBulkUpdate(
+    label: string,
+    getPatch: (item: PlannedPurchaseRow) => Partial<PlannedPurchaseFormValues>,
+  ) {
+    const selected = items.filter((item) => selectedIds.has(item.id));
+    if (selected.length === 0) return;
+    if (!window.confirm(`${label} em ${selected.length} compra(s) selecionada(s)?`)) return;
+
+    setBulkUpdating(true);
+    setFeedback(null);
+
+    try {
+      const client = createClient();
+      const results = await Promise.all(
+        selected.map((item) =>
+          updatePlannedPurchase(client, item.id, {
+            ...plannedPurchaseToFormValues(item),
+            ...getPatch(item),
+          }),
+        ),
+      );
+      const failed = results.find((result) => result.error);
+
+      if (failed?.error) {
+        console.error("Erro técnico ao alterar compras em lote:", failed.error);
+        setFeedback({ type: "error", message: "Não foi possível alterar todas as compras selecionadas." });
+        return;
+      }
+
+      setSelectedIds(new Set());
+      setBulkStatus("");
+      setBulkCategoryId("");
+      setBulkRisk("");
+      setFeedback({ type: "success", message: `${selected.length} compra(s) atualizada(s).` });
+      await loadData();
+    } catch (error) {
+      console.error("Erro técnico ao alterar compras em lote:", error);
+      setFeedback({ type: "error", message: "Não foi possível alterar as compras selecionadas." });
+    } finally {
+      setBulkUpdating(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -241,10 +288,33 @@ export function PlannedPurchasesCrud() {
           <>
           <BulkActionsBar
             selectedCount={selectedIds.size}
-            deleting={deletingSelected}
+            deleting={deletingSelected || bulkUpdating}
             onClear={() => setSelectedIds(new Set())}
             onDelete={() => void handleBulkDelete()}
-          />
+          >
+            <select className={inputClassName} value={bulkStatus} disabled={deletingSelected || bulkUpdating} onChange={(event) => setBulkStatus(event.target.value)}>
+              <option value="">Status</option>
+              {decisionStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+            <ActionButton type="button" variant="secondary" disabled={!bulkStatus || deletingSelected || bulkUpdating} onClick={() => void handleBulkUpdate("Alterar status", () => ({ decision_status: bulkStatus }))}>
+              Alterar status
+            </ActionButton>
+            <select className={inputClassName} value={bulkCategoryId} disabled={deletingSelected || bulkUpdating} onChange={(event) => setBulkCategoryId(event.target.value)}>
+              <option value="">Categoria</option>
+              <option value="__none">Sem categoria</option>
+              {support.categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+            </select>
+            <ActionButton type="button" variant="secondary" disabled={!bulkCategoryId || deletingSelected || bulkUpdating} onClick={() => void handleBulkUpdate("Alterar categoria", () => ({ category_id: bulkCategoryId === "__none" ? "" : bulkCategoryId }))}>
+              Alterar categoria
+            </ActionButton>
+            <select className={inputClassName} value={bulkRisk} disabled={deletingSelected || bulkUpdating} onChange={(event) => setBulkRisk(event.target.value)}>
+              <option value="">Risco</option>
+              {priorityOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+            <ActionButton type="button" variant="secondary" disabled={!bulkRisk || deletingSelected || bulkUpdating} onClick={() => void handleBulkUpdate("Alterar risco", () => ({ risk_level: bulkRisk as PlannedPurchaseFormValues["risk_level"] }))}>
+              Alterar risco
+            </ActionButton>
+          </BulkActionsBar>
           <RowSelectionHint />
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-ink-950/10 text-left text-sm">

@@ -75,6 +75,10 @@ export function IncomeSourcesCrud() {
   const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [allowQuickTableEdit, setAllowQuickTableEdit] = useState(false);
+  const [bulkUpdating, setBulkUpdating] = useState(false);
+  const [bulkStatus, setBulkStatus] = useState("");
+  const [bulkCategoryId, setBulkCategoryId] = useState("");
+  const [bulkPersonId, setBulkPersonId] = useState("");
 
   const periodIncome = useMemo(() => {
     return incomeSources.filter((income) =>
@@ -320,6 +324,49 @@ export function IncomeSourcesCrud() {
     }
   }
 
+  async function handleBulkUpdate(
+    label: string,
+    getPatch: (income: IncomeSourceRow) => Partial<IncomeSourceFormValues>,
+  ) {
+    const selected = incomeSources.filter((income) => selectedIds.has(income.id));
+    if (selected.length === 0) return;
+    if (!window.confirm(`${label} em ${selected.length} entrada(s) selecionada(s)?`)) return;
+
+    setBulkUpdating(true);
+    setFeedback(null);
+
+    try {
+      const client = createClient();
+      const results = await Promise.all(
+        selected.map((income) =>
+          updateIncomeSource(client, income.id, {
+            ...incomeToFormValues(income),
+            ...getPatch(income),
+          }),
+        ),
+      );
+      const failed = results.find((result) => result.error);
+
+      if (failed?.error) {
+        console.error("Erro técnico ao alterar receitas em lote:", failed.error);
+        setFeedback({ type: "error", message: "Não foi possível alterar todas as entradas selecionadas." });
+        return;
+      }
+
+      setSelectedIds(new Set());
+      setBulkStatus("");
+      setBulkCategoryId("");
+      setBulkPersonId("");
+      setFeedback({ type: "success", message: `${selected.length} entrada(s) atualizada(s).` });
+      await loadIncomeSources();
+    } catch (error) {
+      console.error("Erro técnico ao alterar receitas em lote:", error);
+      setFeedback({ type: "error", message: "Não foi possível alterar as entradas selecionadas." });
+    } finally {
+      setBulkUpdating(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -386,10 +433,34 @@ export function IncomeSourcesCrud() {
           <>
           <BulkActionsBar
             selectedCount={selectedIds.size}
-            deleting={deletingSelected}
+            deleting={deletingSelected || bulkUpdating}
             onClear={() => setSelectedIds(new Set())}
             onDelete={() => void handleBulkDelete()}
-          />
+          >
+            <select className={inputClassName} value={bulkStatus} disabled={deletingSelected || bulkUpdating} onChange={(event) => setBulkStatus(event.target.value)}>
+              <option value="">Status</option>
+              {incomeStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+            <ActionButton type="button" variant="secondary" disabled={!bulkStatus || deletingSelected || bulkUpdating} onClick={() => void handleBulkUpdate("Alterar status", () => ({ status: bulkStatus }))}>
+              Alterar status
+            </ActionButton>
+            <select className={inputClassName} value={bulkCategoryId} disabled={deletingSelected || bulkUpdating} onChange={(event) => setBulkCategoryId(event.target.value)}>
+              <option value="">Categoria</option>
+              <option value="__none">Sem categoria</option>
+              {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+            </select>
+            <ActionButton type="button" variant="secondary" disabled={!bulkCategoryId || deletingSelected || bulkUpdating} onClick={() => void handleBulkUpdate("Alterar categoria", () => ({ category_id: bulkCategoryId === "__none" ? "" : bulkCategoryId }))}>
+              Alterar categoria
+            </ActionButton>
+            <select className={inputClassName} value={bulkPersonId} disabled={deletingSelected || bulkUpdating} onChange={(event) => setBulkPersonId(event.target.value)}>
+              <option value="">Pessoa</option>
+              <option value="__none">Sem pessoa</option>
+              {people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
+            </select>
+            <ActionButton type="button" variant="secondary" disabled={!bulkPersonId || deletingSelected || bulkUpdating} onClick={() => void handleBulkUpdate("Alterar pessoa", () => ({ person_id: bulkPersonId === "__none" ? "" : bulkPersonId }))}>
+              Alterar pessoa
+            </ActionButton>
+          </BulkActionsBar>
           <RowSelectionHint />
           <IncomeTable
             incomeSources={filteredIncome}
