@@ -230,7 +230,7 @@ async function prepareRows(rows, existingData) {
       const categoryKey = normalizeKey(mapped.categoryName);
       let category = categoriesByName.get(categoryKey);
 
-      if (!category && createMissingCategories) {
+      if (!category && createMissingCategories && confirmImport) {
         category = await createCategory(mapped.categoryName);
         categoriesByName.set(categoryKey, category);
         createdCategoryNames.add(mapped.categoryName);
@@ -435,7 +435,7 @@ function printPreview(prepared, validRows) {
     for (const name of prepared.missingCategoryNames) {
       console.log(`- ${name}`);
     }
-    console.log("Use --create-categories para criá-las com user_id informado.");
+    console.log("Use --confirm --create-categories para criá-las no momento da importação.");
   }
 
   if (duplicateOrInvalidRows.length > 0) {
