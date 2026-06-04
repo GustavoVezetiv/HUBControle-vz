@@ -11,6 +11,8 @@ type AppShellProps = {
   contentWidth?: string;
   animationsEnabled?: boolean;
   interactiveCardsEnabled?: boolean;
+  cardGlowEnabled?: boolean;
+  surfaceRadius?: string;
 };
 
 export function AppShell({
@@ -22,6 +24,8 @@ export function AppShell({
   contentWidth = "standard",
   animationsEnabled = true,
   interactiveCardsEnabled = true,
+  cardGlowEnabled = false,
+  surfaceRadius = "medium",
 }: AppShellProps) {
   const contentWidthClass =
     contentWidth === "compact"
@@ -41,6 +45,8 @@ export function AppShell({
       data-content-width={contentWidth}
       data-animations={animationsEnabled ? "on" : "off"}
       data-interactive-cards={interactiveCardsEnabled ? "on" : "off"}
+      data-card-glow={cardGlowEnabled ? "on" : "off"}
+      data-surface-radius={surfaceRadius}
     >
       <Sidebar items={navigationItems} />
       <div className="min-w-0 flex-1">

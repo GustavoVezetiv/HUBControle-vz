@@ -13,6 +13,7 @@ import {
   currencyOptions,
   interfaceDensityOptions,
   profileToFormValues,
+  surfaceRadiusOptions,
   timezoneOptions,
   visualStyleOptions,
   type ProfileRow,
@@ -165,6 +166,17 @@ export function SettingsPanel() {
                     <option value="false">Desativados</option>
                   </select>
                 </FieldShell>
+                <FieldShell label="Brilho nos cards">
+                  <select className={inputClassName} value={String(values.card_glow_enabled)} onChange={(event) => setValues({ ...values, card_glow_enabled: event.target.value === "true" })}>
+                    <option value="false">Desativado</option>
+                    <option value="true">Ativado</option>
+                  </select>
+                </FieldShell>
+                <FieldShell label="Bordas arredondadas">
+                  <select className={inputClassName} value={values.surface_radius} onChange={(event) => setValues({ ...values, surface_radius: event.target.value as SettingsFormValues["surface_radius"] })}>
+                    {surfaceRadiusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                </FieldShell>
               </div>
               <VisualPreview values={values} />
             </div>
@@ -191,6 +203,7 @@ function VisualPreview({ values }: { values: SettingsFormValues }) {
   const densityLabel = interfaceDensityOptions.find((option) => option.value === values.interface_density)?.label ?? "Confortável";
   const badgeLabel = categoryBadgeStyleOptions.find((option) => option.value === values.category_badge_style)?.label ?? "Sólido";
   const widthLabel = contentWidthOptions.find((option) => option.value === values.content_width)?.label ?? "Padrão";
+  const radiusLabel = surfaceRadiusOptions.find((option) => option.value === values.surface_radius)?.label ?? "Média";
 
   return (
     <div
@@ -201,12 +214,14 @@ function VisualPreview({ values }: { values: SettingsFormValues }) {
       data-content-width={values.content_width}
       data-animations={values.animations_enabled ? "on" : "off"}
       data-interactive-cards={values.interactive_cards_enabled ? "on" : "off"}
+      data-card-glow={values.card_glow_enabled ? "on" : "off"}
+      data-surface-radius={values.surface_radius}
     >
       <div className="hub-card rounded-lg border border-ink-950/10 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-ink-950">Prévia</p>
-            <p className="mt-1 text-xs text-ink-600">{visualLabel} · {densityLabel} · {badgeLabel} · {widthLabel}</p>
+            <p className="mt-1 text-xs text-ink-600">{visualLabel} · {densityLabel} · {badgeLabel} · {widthLabel} · {radiusLabel}</p>
           </div>
           <span
             className="hub-category-badge inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold"

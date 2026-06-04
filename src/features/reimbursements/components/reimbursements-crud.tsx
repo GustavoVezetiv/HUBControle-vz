@@ -69,6 +69,10 @@ export function ReimbursementsCrud() {
   const [reportOpen, setReportOpen] = useState(false);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkUpdating, setBulkUpdating] = useState(false);
+  const [bulkStatus, setBulkStatus] = useState("");
+  const [bulkCategoryId, setBulkCategoryId] = useState("");
+  const [bulkPersonId, setBulkPersonId] = useState("");
   const [allowQuickTableEdit, setAllowQuickTableEdit] = useState(false);
   const [showAllPeopleSummary, setShowAllPeopleSummary] = useState(false);
 
@@ -341,6 +345,92 @@ export function ReimbursementsCrud() {
     }
   }
 
+  async function handleStatusUpdate(reimbursement: ReimbursementRow, status: string) {
+    const patch: Partial<ReimbursementFormValues> = { status };
+
+    if (status === "received" && (!Number(reimbursement.received_amount) || !reimbursement.received_date)) {
+      const remaining = Math.max(Number(reimbursement.expected_amount) - Number(reimbursement.received_amount), 0);
+      const amountRaw = window.prompt(
+        "Informe o valor recebido para marcar este reembolso como recebido.",
+        String(remaining || reimbursement.expected_amount || 0),
+      );
+      if (amountRaw === null) return;
+
+      const amount = Number(amountRaw.replace(",", "."));
+      if (Number.isNaN(amount) || amount < 0) {
+        setFeedback({ type: "error", message: "Informe um valor recebido válido." });
+        return;
+      }
+
+      const today = new Date().toISOString().slice(0, 10);
+      const receivedDate = window.prompt("Informe a data de recebimento.", reimbursement.received_date || today);
+      if (receivedDate === null) return;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(receivedDate)) {
+        setFeedback({ type: "error", message: "Informe uma data recebida válida no formato AAAA-MM-DD." });
+        return;
+      }
+
+      patch.received_amount = String(amount);
+      patch.received_date = receivedDate;
+    }
+
+    await handleQuickUpdate(reimbursement, patch);
+  }
+
+  async function handleBulkUpdate(
+    label: string,
+    getPatch: (reimbursement: ReimbursementRow) => Partial<ReimbursementFormValues> | null,
+  ) {
+    const selected = reimbursements.filter((item) => selectedIds.has(item.id));
+    if (selected.length === 0) return;
+    if (!window.confirm(`${label} em ${selected.length} reembolso(s) selecionado(s)?`)) return;
+
+    setBulkUpdating(true);
+    setFeedback(null);
+
+    try {
+      const client = createClient();
+      const results = await Promise.all(
+        selected.map((reimbursement) => {
+          const patch = getPatch(reimbursement);
+          if (!patch) return Promise.resolve({ error: null });
+          return updateReimbursement(client, reimbursement.id, {
+            ...reimbursementToFormValues(reimbursement),
+            ...patch,
+          });
+        }),
+      );
+      const failed = results.find((result) => result.error);
+
+      if (failed?.error) {
+        console.error("Erro técnico ao alterar reembolsos em lote:", failed.error);
+        setFeedback({ type: "error", message: "Não foi possível alterar todos os reembolsos selecionados." });
+        return;
+      }
+
+      setSelectedIds(new Set());
+      setBulkStatus("");
+      setBulkCategoryId("");
+      setBulkPersonId("");
+      setFeedback({ type: "success", message: `${selected.length} reembolso(s) atualizado(s).` });
+      await loadData();
+    } catch (error) {
+      console.error("Erro técnico ao alterar reembolsos em lote:", error);
+      setFeedback({ type: "error", message: "Não foi possível alterar os reembolsos selecionados." });
+    } finally {
+      setBulkUpdating(false);
+    }
+  }
+
+  async function handleBulkMarkReceived() {
+    const today = new Date().toISOString().slice(0, 10);
+    await handleBulkUpdate("Marcar como recebido", (reimbursement) => ({
+      status: "received",
+      received_amount: String(Number(reimbursement.expected_amount)),
+      received_date: reimbursement.received_date || today,
+    }));
+  }
+
   async function handleBulkDelete() {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
@@ -500,10 +590,71 @@ export function ReimbursementsCrud() {
           <>
           <BulkActionsBar
             selectedCount={selectedIds.size}
-            deleting={deletingSelected}
+            deleting={deletingSelected || bulkUpdating}
             onClear={() => setSelectedIds(new Set())}
             onDelete={() => void handleBulkDelete()}
-          />
+          >
+            <select
+              className={inputClassName}
+              value={bulkStatus}
+              disabled={bulkUpdating || deletingSelected}
+              onChange={(event) => setBulkStatus(event.target.value)}
+            >
+              <option value="">Status</option>
+              {reimbursementStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+            <ActionButton
+              type="button"
+              variant="secondary"
+              disabled={!bulkStatus || bulkUpdating || deletingSelected}
+              onClick={() => void handleBulkUpdate("Alterar status", () => ({ status: bulkStatus }))}
+            >
+              Alterar status
+            </ActionButton>
+            <select
+              className={inputClassName}
+              value={bulkCategoryId}
+              disabled={bulkUpdating || deletingSelected}
+              onChange={(event) => setBulkCategoryId(event.target.value)}
+            >
+              <option value="">Categoria</option>
+              <option value="__none">Sem categoria</option>
+              {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+            </select>
+            <ActionButton
+              type="button"
+              variant="secondary"
+              disabled={!bulkCategoryId || bulkUpdating || deletingSelected}
+              onClick={() => void handleBulkUpdate("Alterar categoria", () => ({ category_id: bulkCategoryId === "__none" ? "" : bulkCategoryId }))}
+            >
+              Alterar categoria
+            </ActionButton>
+            <select
+              className={inputClassName}
+              value={bulkPersonId}
+              disabled={bulkUpdating || deletingSelected}
+              onChange={(event) => setBulkPersonId(event.target.value)}
+            >
+              <option value="">Pessoa</option>
+              {people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
+            </select>
+            <ActionButton
+              type="button"
+              variant="secondary"
+              disabled={!bulkPersonId || bulkUpdating || deletingSelected}
+              onClick={() => void handleBulkUpdate("Alterar pessoa", () => ({ person_id: bulkPersonId }))}
+            >
+              Alterar pessoa
+            </ActionButton>
+            <ActionButton
+              type="button"
+              variant="secondary"
+              disabled={bulkUpdating || deletingSelected}
+              onClick={() => void handleBulkMarkReceived()}
+            >
+              Marcar recebido
+            </ActionButton>
+          </BulkActionsBar>
           <RowSelectionHint />
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-ink-950/10 text-left text-sm">
@@ -589,9 +740,7 @@ export function ReimbursementsCrud() {
                       ) : formatDate(reimbursement.expected_date)}
                     </td>
                     <td className="px-4 py-3 text-ink-600">
-                      {allowQuickTableEdit ? (
-                        <QuickEditSelect value={reimbursement.status} options={reimbursementStatusOptions} onCommit={(value) => void handleQuickUpdate(reimbursement, { status: value })} />
-                      ) : optionLabel(reimbursementStatusOptions, reimbursement.status)}
+                      <QuickEditSelect value={reimbursement.status} options={reimbursementStatusOptions} onCommit={(value) => void handleStatusUpdate(reimbursement, value)} />
                     </td>
                     <td className="px-4 py-3">
                       {allowQuickTableEdit ? (
@@ -715,8 +864,17 @@ function ReimbursementModal({
   );
 
   return (
-    <Modal title={modal?.mode === "edit" ? "Editar reembolso" : "Novo reembolso"} onClose={onClose}>
+    <Modal
+      title={modal?.mode === "edit" ? "Editar reembolso" : "Novo reembolso"}
+      onClose={onClose}
+      headerAction={
+        <ActionButton type="submit" form="reimbursement-form" disabled={saving}>
+          {saving ? "Salvando..." : "Salvar"}
+        </ActionButton>
+      }
+    >
       <form
+        id="reimbursement-form"
         className="grid gap-4 md:grid-cols-2"
         onSubmit={(event) => {
           event.preventDefault();
@@ -872,8 +1030,17 @@ function LinkedEntryModal({
   const filteredInvoices = invoices.filter((invoice) => !invoiceValues.credit_card_id || invoice.credit_card_id === invoiceValues.credit_card_id);
 
   return (
-    <Modal title="Gerar lançamento vinculado" onClose={onClose}>
+    <Modal
+      title="Gerar lançamento vinculado"
+      onClose={onClose}
+      headerAction={
+        <ActionButton type="submit" form="linked-reimbursement-form" disabled={linking}>
+          {linking ? "Gerando..." : "Salvar"}
+        </ActionButton>
+      }
+    >
       <form
+        id="linked-reimbursement-form"
         className="grid gap-4 md:grid-cols-2"
         onSubmit={(event) => {
           event.preventDefault();

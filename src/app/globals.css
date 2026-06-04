@@ -235,6 +235,22 @@ select {
   padding-bottom: var(--hub-table-cell-y);
 }
 
+.hub-shell[data-card-glow="on"] {
+  --hub-card-shadow: 0 18px 48px rgba(24, 185, 143, 0.16), 0 2px 10px rgba(15, 23, 42, 0.08);
+}
+
+.hub-shell[data-surface-radius="soft"] {
+  --hub-card-radius: 0.5rem;
+}
+
+.hub-shell[data-surface-radius="medium"] {
+  --hub-card-radius: 0.75rem;
+}
+
+.hub-shell[data-surface-radius="rounded"] {
+  --hub-card-radius: 1rem;
+}
+
 .hub-category-badge {
   background: var(--hub-badge-bg);
   border-color: var(--hub-badge-border);
