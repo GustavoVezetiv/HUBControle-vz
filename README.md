@@ -121,6 +121,20 @@ Format files:
 npm run format
 ```
 
+## Codex Project Hooks
+
+This repository includes project-local Codex hooks in `.codex/`. They create
+local backups before edits, run the minimum validation command after code
+changes, update a technical changelog, and create a local commit when validation
+passes. They do not push automatically and refuse automatic commits on `main` or
+`master`.
+
+Review and trust the hooks from Codex with `/hooks`. Details are documented in:
+
+```bash
+docs/CODEX_HOOKS.md
+```
+
 ## Supabase Setup
 
 Create a Supabase project:

@@ -1,0 +1,52 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/.codex/hooks/user-prompt-submit.mjs\"",
+            "commandWindows": "node .codex/hooks/user-prompt-submit.mjs",
+            "statusMessage": "Preparing Codex project baseline"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^(apply_patch|Edit|Write)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/.codex/hooks/pre-tool-use-backup.mjs\"",
+            "commandWindows": "node .codex/hooks/pre-tool-use-backup.mjs",
+            "statusMessage": "Creating local backup before edit"
+          }
+        ]
+      },
+      {
+        "matcher": "^Bash$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/.codex/hooks/pre-tool-use-safety.mjs\"",
+            "commandWindows": "node .codex/hooks/pre-tool-use-safety.mjs",
+            "statusMessage": "Checking command safety"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/.codex/hooks/stop-quality-gate.mjs\"",
+            "commandWindows": "node .codex/hooks/stop-quality-gate.mjs",
+            "statusMessage": "Running project quality gate"
+          }
+        ]
+      }
+    ]
+  }
+}
