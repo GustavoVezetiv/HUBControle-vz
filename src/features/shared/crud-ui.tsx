@@ -51,9 +51,13 @@ type ModalProps = {
   description?: string;
   children: React.ReactNode;
   onClose: () => void;
+  headerAction?: React.ReactNode;
 };
 
-export function Modal({ title, description, children, onClose }: ModalProps) {
+export function Modal({ title, description, children, onClose, headerAction }: ModalProps) {
+  const sectionRef = useRef<HTMLElement | null>(null);
+  const [hasForm, setHasForm] = useState(false);
+
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
@@ -65,6 +69,15 @@ export function Modal({ title, description, children, onClose }: ModalProps) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
+  useEffect(() => {
+    setHasForm(Boolean(sectionRef.current?.querySelector("form")));
+  }, [children]);
+
+  function submitFirstForm() {
+    const form = sectionRef.current?.querySelector("form");
+    form?.requestSubmit();
+  }
+
   return (
     <div
       className="fixed inset-0 z-40 flex items-center justify-center bg-ink-950/45 px-4 py-6"
@@ -72,6 +85,7 @@ export function Modal({ title, description, children, onClose }: ModalProps) {
       onMouseDown={onClose}
     >
       <section
+        ref={sectionRef}
         className="hub-modal max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-lg border border-ink-950/10 bg-white shadow-soft"
         role="dialog"
         aria-modal="true"
@@ -85,13 +99,20 @@ export function Modal({ title, description, children, onClose }: ModalProps) {
               <p className="mt-1 text-sm leading-6 text-ink-600">{description}</p>
             ) : null}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="hub-action hub-action-secondary rounded-md border border-ink-950/10 px-3 py-2 text-sm font-semibold text-ink-600 transition hover:border-danger-600 hover:text-danger-600"
-          >
-            Fechar
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            {headerAction ?? (hasForm ? (
+              <ActionButton type="button" onClick={submitFirstForm}>
+                Salvar
+              </ActionButton>
+            ) : null)}
+            <button
+              type="button"
+              onClick={onClose}
+              className="hub-action hub-action-secondary rounded-md border border-ink-950/10 px-3 py-2 text-sm font-semibold text-ink-600 transition hover:border-danger-600 hover:text-danger-600"
+            >
+              Fechar
+            </button>
+          </div>
         </div>
         <div className="px-6 py-5">{children}</div>
       </section>
@@ -156,6 +177,9 @@ export function CategoryBadge({ category }: { category?: CategoryBadgeCategory |
       style={safeColor ? {
         "--category-color": safeColor,
         "--category-text": textColor,
+        backgroundColor: safeColor,
+        borderColor: safeColor,
+        color: textColor,
       } as CSSProperties : undefined}
     >
       {icon ? <CategoryIcon value={icon} /> : null}
@@ -295,11 +319,13 @@ export function BulkActionsBar({
   deleting,
   onClear,
   onDelete,
+  children,
 }: {
   selectedCount: number;
   deleting: boolean;
   onClear: () => void;
   onDelete: () => void;
+  children?: React.ReactNode;
 }) {
   if (selectedCount === 0) {
     return null;
@@ -310,7 +336,8 @@ export function BulkActionsBar({
       <p className="text-sm font-medium text-ink-800">
         {selectedCount} item(ns) selecionado(s)
       </p>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
+        {children}
         <ActionButton type="button" variant="secondary" onClick={onClear} disabled={deleting}>
           Limpar seleção
         </ActionButton>

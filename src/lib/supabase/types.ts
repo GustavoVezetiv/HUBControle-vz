@@ -36,6 +36,8 @@ export type Profile = {
   content_width: string;
   animations_enabled: boolean;
   interactive_cards_enabled: boolean;
+  card_glow_enabled: boolean;
+  surface_radius: string;
   created_at: string;
   updated_at: string;
 };
@@ -277,11 +279,16 @@ export type PlannedPurchase = UserOwnedRow & {
 };
 
 export type Goal = UserOwnedRow & {
+  category_id: string | null;
   name: string;
   goal_type: string;
   target_amount: number;
   current_amount: number;
   target_date: string | null;
+  start_date: string | null;
+  category_label: string | null;
+  source_label: string | null;
+  import_source: string | null;
   monthly_contribution: number;
   status: string;
   notes: string | null;
