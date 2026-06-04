@@ -9,6 +9,7 @@ import { StatCard } from "@/components/ui/stat-card";
 import { getProfile, upsertProfile } from "@/features/settings/queries";
 import {
   categoryBadgeStyleOptions,
+  contentWidthOptions,
   currencyOptions,
   interfaceDensityOptions,
   profileToFormValues,
@@ -146,6 +147,24 @@ export function SettingsPanel() {
                     {categoryBadgeStyleOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                   </select>
                 </FieldShell>
+                <FieldShell label="Largura do conteúdo">
+                  <select className={inputClassName} value={values.content_width} onChange={(event) => setValues({ ...values, content_width: event.target.value as SettingsFormValues["content_width"] })}>
+                    {contentWidthOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                  <p className="mt-2 text-xs text-ink-600">{contentWidthOptions.find((option) => option.value === values.content_width)?.description}</p>
+                </FieldShell>
+                <FieldShell label="Animações">
+                  <select className={inputClassName} value={String(values.animations_enabled)} onChange={(event) => setValues({ ...values, animations_enabled: event.target.value === "true" })}>
+                    <option value="true">Ativadas</option>
+                    <option value="false">Desativadas</option>
+                  </select>
+                </FieldShell>
+                <FieldShell label="Cards interativos">
+                  <select className={inputClassName} value={String(values.interactive_cards_enabled)} onChange={(event) => setValues({ ...values, interactive_cards_enabled: event.target.value === "true" })}>
+                    <option value="true">Ativados</option>
+                    <option value="false">Desativados</option>
+                  </select>
+                </FieldShell>
               </div>
               <VisualPreview values={values} />
             </div>
@@ -171,6 +190,7 @@ function VisualPreview({ values }: { values: SettingsFormValues }) {
   const visualLabel = visualStyleOptions.find((option) => option.value === values.visual_style)?.label ?? "Clássico";
   const densityLabel = interfaceDensityOptions.find((option) => option.value === values.interface_density)?.label ?? "Confortável";
   const badgeLabel = categoryBadgeStyleOptions.find((option) => option.value === values.category_badge_style)?.label ?? "Sólido";
+  const widthLabel = contentWidthOptions.find((option) => option.value === values.content_width)?.label ?? "Padrão";
 
   return (
     <div
@@ -178,12 +198,15 @@ function VisualPreview({ values }: { values: SettingsFormValues }) {
       data-visual-style={values.visual_style}
       data-density={values.interface_density}
       data-category-badge-style={values.category_badge_style}
+      data-content-width={values.content_width}
+      data-animations={values.animations_enabled ? "on" : "off"}
+      data-interactive-cards={values.interactive_cards_enabled ? "on" : "off"}
     >
       <div className="hub-card rounded-lg border border-ink-950/10 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-ink-950">Prévia</p>
-            <p className="mt-1 text-xs text-ink-600">{visualLabel} · {densityLabel} · {badgeLabel}</p>
+            <p className="mt-1 text-xs text-ink-600">{visualLabel} · {densityLabel} · {badgeLabel} · {widthLabel}</p>
           </div>
           <span
             className="hub-category-badge inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold"

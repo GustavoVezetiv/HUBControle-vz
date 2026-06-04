@@ -11,6 +11,7 @@ import {
   ActionButton,
   BulkActionsBar,
   CategoryBadge,
+  CategorySelect,
   CrudFeedback,
   FieldShell,
   inputClassName,
@@ -490,10 +491,12 @@ export function AccountsPayableCrud() {
             <option value="all">Todas prioridades</option>
             {priorityOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
-          <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} className={inputClassName}>
-            <option value="all">Todas categorias</option>
-            {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
-          </select>
+          <CategorySelect
+            categories={categories}
+            value={categoryFilter === "all" ? "" : categoryFilter}
+            placeholder="Todas categorias"
+            onChange={(value) => setCategoryFilter(value || "all")}
+          />
           <select value={personFilter} onChange={(event) => setPersonFilter(event.target.value)} className={inputClassName}>
             <option value="all">Todas as pessoas</option>
             <option value="none">Sem pessoa</option>
@@ -837,10 +840,7 @@ function AccountModal({
           <input value={values.due_date} onChange={(event) => setValues({ ...values, due_date: event.target.value })} type="date" className={inputClassName} required />
         </FieldShell>
         <FieldShell label="Categoria">
-          <select value={values.category_id} onChange={(event) => setValues({ ...values, category_id: event.target.value })} className={inputClassName}>
-            <option value="">Sem categoria</option>
-            {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
-          </select>
+          <CategorySelect categories={categories} value={values.category_id} onChange={(category_id) => setValues({ ...values, category_id })} />
         </FieldShell>
         <FieldShell label="Pessoa">
           <select value={values.person_id} onChange={(event) => setValues({ ...values, person_id: event.target.value })} className={inputClassName}>

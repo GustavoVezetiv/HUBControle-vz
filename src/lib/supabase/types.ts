@@ -33,6 +33,9 @@ export type Profile = {
   visual_style: string;
   interface_density: string;
   category_badge_style: string;
+  content_width: string;
+  animations_enabled: boolean;
+  interactive_cards_enabled: boolean;
   created_at: string;
   updated_at: string;
 };

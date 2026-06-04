@@ -195,6 +195,30 @@ select {
   padding: var(--hub-card-padding);
 }
 
+.hub-shell[data-animations="off"] *,
+.hub-shell[data-animations="off"] *::before,
+.hub-shell[data-animations="off"] *::after {
+  scroll-behavior: auto !important;
+  transition-duration: 0ms !important;
+  animation-duration: 0ms !important;
+  animation-iteration-count: 1 !important;
+}
+
+.hub-shell[data-interactive-cards="on"] .hub-card,
+.hub-shell[data-interactive-cards="on"] a[href] .hub-card {
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.hub-shell[data-interactive-cards="on"] a[href] .hub-card:hover,
+.hub-shell[data-interactive-cards="on"] .hub-card:hover {
+  border-color: rgba(24, 185, 143, 0.32);
+  transform: translateY(-1px);
+}
+
+.hub-shell[data-interactive-cards="off"] .hub-card {
+  transform: none !important;
+}
+
 .hub-shell[data-visual-style="glass"] .hub-card {
   backdrop-filter: blur(18px);
 }
@@ -292,6 +316,17 @@ select {
   padding: 0.75rem 1.5rem 0.25rem;
 }
 
+.hub-modal form > .flex.justify-end:last-child::before {
+  content: "Ações";
+  margin-right: auto;
+  align-self: center;
+  color: rgb(var(--hub-ink-600));
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
 :root.dark .hub-modal form > .flex.justify-end:last-child {
   border-color: rgba(148, 163, 184, 0.2);
   background: #111827;
@@ -321,6 +356,15 @@ select {
   background-color: rgba(127, 29, 29, 0.42) !important;
   border-color: rgba(248, 113, 113, 0.32) !important;
   color: #fca5a5 !important;
+}
+
+:root.dark [role="listbox"] {
+  background-color: #111827 !important;
+  border-color: rgba(148, 163, 184, 0.22) !important;
+}
+
+:root.dark [role="option"]:hover {
+  background-color: #0f172a !important;
 }
 
 :root.dark .fixed.inset-0 {

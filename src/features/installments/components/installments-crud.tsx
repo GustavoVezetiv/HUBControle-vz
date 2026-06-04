@@ -31,7 +31,7 @@ import {
   type InstallmentRow,
   type InstallmentTransaction,
 } from "@/features/installments/types";
-import { ActionButton, CategoryBadge, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, TextBadge, TitleButton } from "@/features/shared/crud-ui";
+import { ActionButton, CategoryBadge, CategorySelect, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, TextBadge, TitleButton } from "@/features/shared/crud-ui";
 import { formatCurrency, formatDate } from "@/features/shared/format";
 import { installmentStatusOptions, optionLabel } from "@/features/shared/options";
 import { PeriodFilter } from "@/features/shared/period-filter";
@@ -517,7 +517,7 @@ function InstallmentModal({
             Este parcelamento está vinculado a uma fatura. Verifique se o valor já está sendo contado na fatura.
           </div>
         ) : null}
-        <FieldShell label="Categoria"><select className={inputClassName} value={values.category_id} onChange={(event) => setValues({ ...values, category_id: event.target.value })}><option value="">Sem categoria</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></FieldShell>
+        <FieldShell label="Categoria"><CategorySelect categories={categories} value={values.category_id} onChange={(category_id) => setValues({ ...values, category_id })} /></FieldShell>
         <FieldShell label="Pessoa"><select className={inputClassName} value={values.person_id} onChange={(event) => setValues({ ...values, person_id: event.target.value })}><option value="">Sem pessoa</option>{people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></FieldShell>
         <FieldShell label="Status"><select className={inputClassName} value={values.status} onChange={(event) => setValues({ ...values, status: event.target.value })}>{installmentStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></FieldShell>
         <FieldShell label="Gerar parcelas em Contas?">

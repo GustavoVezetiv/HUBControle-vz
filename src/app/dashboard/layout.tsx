@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { AppShell } from "@/components/layout/app-shell";
 import {
   normalizeCategoryBadgeStyle,
+  normalizeContentWidth,
   normalizeInterfaceDensity,
   normalizeVisualStyle,
 } from "@/features/settings/types";
@@ -35,7 +36,7 @@ async function ProtectedDashboardLayout({ children }: { children: React.ReactNod
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("visual_style,interface_density,category_badge_style")
+    .select("visual_style,interface_density,category_badge_style,content_width,animations_enabled,interactive_cards_enabled")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -45,6 +46,9 @@ async function ProtectedDashboardLayout({ children }: { children: React.ReactNod
       visualStyle={normalizeVisualStyle(profile?.visual_style)}
       density={normalizeInterfaceDensity(profile?.interface_density)}
       categoryBadgeStyle={normalizeCategoryBadgeStyle(profile?.category_badge_style)}
+      contentWidth={normalizeContentWidth(profile?.content_width)}
+      animationsEnabled={profile?.animations_enabled ?? true}
+      interactiveCardsEnabled={profile?.interactive_cards_enabled ?? true}
     >
       {children}
     </AppShell>

@@ -30,7 +30,7 @@ import {
   type ReimbursementRow,
   type ReimbursementTransaction,
 } from "@/features/reimbursements/types";
-import { ActionButton, BulkActionsBar, CategoryBadge, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, RowSelectionHint, shouldToggleRowSelection, TextBadge, TitleButton } from "@/features/shared/crud-ui";
+import { ActionButton, BulkActionsBar, CategoryBadge, CategorySelect, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, RowSelectionHint, shouldToggleRowSelection, TextBadge, TitleButton } from "@/features/shared/crud-ui";
 import { formatCurrency, formatDate } from "@/features/shared/format";
 import { invoiceStatusOptions, optionLabel, reimbursementStatusOptions } from "@/features/shared/options";
 import { PeriodFilter } from "@/features/shared/period-filter";
@@ -475,10 +475,12 @@ export function ReimbursementsCrud() {
             <option value="all">Todos status</option>
             {reimbursementStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
-          <select className={inputClassName} value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
-            <option value="all">Todas categorias</option>
-            {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
-          </select>
+          <CategorySelect
+            categories={categories}
+            value={categoryFilter === "all" ? "" : categoryFilter}
+            placeholder="Todas categorias"
+            onChange={(value) => setCategoryFilter(value || "all")}
+          />
           <select className={inputClassName} value={linkedFilter} onChange={(event) => setLinkedFilter(event.target.value)}>
             <option value="all">Todos vínculos</option>
             <option value="linked">Com lançamento</option>
@@ -733,10 +735,7 @@ function ReimbursementModal({
           </select>
         </FieldShell>
         <FieldShell label="Categoria">
-          <select className={inputClassName} value={values.category_id} onChange={(event) => setValues({ ...values, category_id: event.target.value })}>
-            <option value="">Sem categoria</option>
-            {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
-          </select>
+          <CategorySelect categories={categories} value={values.category_id} onChange={(category_id) => setValues({ ...values, category_id })} />
         </FieldShell>
         <div className="md:col-span-2">
           <FieldShell label="Descrição">

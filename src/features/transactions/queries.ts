@@ -1,6 +1,7 @@
 import type { AppSupabaseClient } from "@/features/shared/types";
 import type { TransactionFormValues, TransactionRow } from "@/features/transactions/types";
-import type { Reimbursement } from "@/lib/supabase/types";
+import { createSafeUuid } from "@/lib/uuid";
+import type { CreditCard, CreditCardInvoice, Reimbursement } from "@/lib/supabase/types";
 
 export type GenerateRecurringTransactionsResult = {
   created: number;
@@ -10,9 +11,15 @@ export type GenerateRecurringTransactionsResult = {
   error: { message: string } | null;
 };
 
+export type GenerateInstallmentTransactionsResult = {
+  created: number;
+  skipped: number;
+  error: { message: string } | null;
+};
+
 export async function listTransactionSupportData(client: AppSupabaseClient) {
   const [cards, invoices, categories, people] = await Promise.all([
-    client.from("credit_cards").select("id,name").order("name", { ascending: true }),
+    client.from("credit_cards").select("id,name,closing_day,due_day").order("name", { ascending: true }),
     client
       .from("credit_card_invoices")
       .select("id,credit_card_id,reference_month,due_date,status")
@@ -86,26 +93,13 @@ export async function generateRecurringTransactions(
     return emptyGenerationResult("Nenhuma ocorrência futura dentro do período da recorrência.");
   }
 
-  const candidateMonths = candidateDates.map(toMonthKey);
-  const invoicesResult = await client
-    .from("credit_card_invoices")
-    .select("id,credit_card_id,reference_month,due_date,status")
-    .eq("user_id", userId)
-    .eq("credit_card_id", transaction.credit_card_id);
+  const ensuredInvoices = await ensureInvoicesForDates(client, userId, transaction.credit_card_id, candidateDates);
 
-  if (invoicesResult.error) {
-    console.error("Erro técnico ao buscar faturas para recorrência:", invoicesResult.error);
-    return emptyGenerationResult("Não foi possível buscar as faturas do cartão.");
+  if (ensuredInvoices.error) {
+    return emptyGenerationResult(ensuredInvoices.error.message);
   }
 
-  const invoicesByMonth = new Map(
-    (invoicesResult.data ?? []).map((invoice) => [String(invoice.reference_month).slice(0, 7), invoice]),
-  );
-  const missingMonths = candidateMonths.filter((month) => !invoicesByMonth.has(month));
-
-  if (missingMonths.length > 0) {
-    return emptyGenerationResult(`Crie as faturas destes meses antes de gerar recorrências: ${[...new Set(missingMonths)].join(", ")}.`);
-  }
+  const invoicesByMonth = ensuredInvoices.invoicesByMonth;
 
   const existingResult = await client
     .from("credit_card_transactions")
@@ -208,6 +202,104 @@ export async function generateRecurringTransactions(
   };
 }
 
+export async function generateInstallmentTransactions(
+  client: AppSupabaseClient,
+  userId: string,
+  transaction: TransactionRow,
+): Promise<GenerateInstallmentTransactionsResult> {
+  const currentInstallment = transaction.installment_number ?? 1;
+  const totalInstallments = transaction.installment_total ?? 1;
+
+  if (!transaction.installment_number || !transaction.installment_total || totalInstallments <= currentInstallment) {
+    return { created: 0, skipped: 0, error: null };
+  }
+
+  const installmentGroupId = transaction.installment_group_id ?? createSafeUuid();
+  const futureNumbers = Array.from(
+    { length: totalInstallments - currentInstallment },
+    (_, index) => currentInstallment + index + 1,
+  );
+  const futureDates = futureNumbers.map((number) => addMonths(transaction.transaction_date, number - currentInstallment));
+  const ensuredInvoices = await ensureInvoicesForDates(client, userId, transaction.credit_card_id, futureDates);
+
+  if (ensuredInvoices.error) {
+    return { created: 0, skipped: 0, error: ensuredInvoices.error };
+  }
+
+  if (!transaction.installment_group_id) {
+    const updateParent = await client
+      .from("credit_card_transactions")
+      .update({ installment_group_id: installmentGroupId })
+      .eq("id", transaction.id);
+
+    if (updateParent.error) {
+      console.error("Erro técnico ao atualizar grupo do parcelamento:", updateParent.error);
+      return { created: 0, skipped: 0, error: { message: "Não foi possível preparar o vínculo das parcelas." } };
+    }
+  }
+
+  const existingResult = await client
+    .from("credit_card_transactions")
+    .select("id,installment_group_id,installment_number")
+    .eq("user_id", userId)
+    .eq("installment_group_id", installmentGroupId)
+    .in("installment_number", futureNumbers);
+
+  if (existingResult.error) {
+    console.error("Erro técnico ao verificar parcelas existentes:", existingResult.error);
+    return { created: 0, skipped: 0, error: { message: "Não foi possível verificar parcelas já geradas." } };
+  }
+
+  const existingNumbers = new Set((existingResult.data ?? []).map((item) => item.installment_number));
+  const rows = futureNumbers
+    .filter((number) => !existingNumbers.has(number))
+    .map((number) => {
+      const transactionDate = addMonths(transaction.transaction_date, number - currentInstallment);
+
+      return {
+        user_id: userId,
+        credit_card_id: transaction.credit_card_id,
+        invoice_id: ensuredInvoices.invoicesByMonth.get(toMonthKey(transactionDate))?.id ?? null,
+        category_id: transaction.category_id,
+        person_id: transaction.person_id,
+        description: transaction.description,
+        merchant: transaction.merchant,
+        amount: Number(transaction.amount),
+        transaction_date: transactionDate,
+        posting_date: null,
+        ownership_type: transaction.ownership_type,
+        is_reimbursable: transaction.is_reimbursable,
+        reimbursement_status: transaction.reimbursement_status,
+        installment_group_id: installmentGroupId,
+        installment_number: number,
+        installment_total: totalInstallments,
+        is_recurring: false,
+        recurrence_frequency: null,
+        recurrence_start_date: null,
+        recurrence_end_date: null,
+        recurrence_parent_id: null,
+        notes: transaction.notes,
+      };
+    });
+
+  if (rows.length === 0) {
+    return { created: 0, skipped: futureNumbers.length, error: null };
+  }
+
+  const insertResult = await client.from("credit_card_transactions").insert(rows).select("id");
+
+  if (insertResult.error) {
+    console.error("Erro técnico ao gerar parcelas no cartão:", insertResult.error);
+    return { created: 0, skipped: futureNumbers.length - rows.length, error: { message: "Não foi possível gerar as parcelas futuras." } };
+  }
+
+  return {
+    created: insertResult.data?.length ?? rows.length,
+    skipped: futureNumbers.length - rows.length,
+    error: null,
+  };
+}
+
 export async function createExpectedReimbursementForTransaction(
   client: AppSupabaseClient,
   userId: string,
@@ -238,6 +330,7 @@ function toPayload(
   userId: string | undefined,
   values: TransactionFormValues,
 ): Partial<TransactionRow> {
+  const isCreate = Boolean(userId);
   return {
     ...(userId ? { user_id: userId } : {}),
     credit_card_id: values.credit_card_id,
@@ -250,6 +343,7 @@ function toPayload(
     ownership_type: values.ownership_type,
     installment_number: values.is_installment_purchase && values.installment_number ? Number(values.installment_number) : null,
     installment_total: values.is_installment_purchase && values.installment_total ? Number(values.installment_total) : null,
+    ...(isCreate && values.is_installment_purchase ? { installment_group_id: createSafeUuid() } : {}),
     is_reimbursable: values.is_reimbursable,
     reimbursement_status: values.is_reimbursable ? "expected" : "not_applicable",
     is_recurring: values.is_recurring,
@@ -258,6 +352,82 @@ function toPayload(
     recurrence_end_date: values.is_recurring && values.recurrence_end_date ? values.recurrence_end_date : null,
     notes: values.notes.trim() || null,
   };
+}
+
+async function ensureInvoicesForDates(
+  client: AppSupabaseClient,
+  userId: string,
+  creditCardId: string,
+  dates: string[],
+): Promise<{ invoicesByMonth: Map<string, Pick<CreditCardInvoice, "id" | "credit_card_id" | "reference_month" | "due_date" | "status">>; error: { message: string } | null }> {
+  const uniqueMonths = [...new Set(dates.map(toMonthKey))];
+
+  const [cardResult, invoicesResult] = await Promise.all([
+    client.from("credit_cards").select("id,name,closing_day,due_day").eq("user_id", userId).eq("id", creditCardId).single(),
+    client
+      .from("credit_card_invoices")
+      .select("id,credit_card_id,reference_month,due_date,status")
+      .eq("user_id", userId)
+      .eq("credit_card_id", creditCardId),
+  ]);
+
+  if (cardResult.error) {
+    console.error("Erro técnico ao buscar cartão para faturas automáticas:", cardResult.error);
+    return { invoicesByMonth: new Map(), error: { message: "Não foi possível buscar o cartão para criar faturas futuras." } };
+  }
+
+  if (invoicesResult.error) {
+    console.error("Erro técnico ao buscar faturas automáticas:", invoicesResult.error);
+    return { invoicesByMonth: new Map(), error: { message: "Não foi possível buscar as faturas do cartão." } };
+  }
+
+  const card = cardResult.data as Pick<CreditCard, "id" | "name" | "closing_day" | "due_day">;
+
+  if (!card.closing_day || !card.due_day) {
+    return { invoicesByMonth: new Map(), error: { message: `Configure dia de fechamento e vencimento do cartão ${card.name} antes de gerar faturas futuras.` } };
+  }
+
+  const invoicesByMonth = new Map(
+    (invoicesResult.data ?? []).map((invoice) => [String(invoice.reference_month).slice(0, 7), invoice]),
+  );
+  const missingMonths = uniqueMonths.filter((month) => !invoicesByMonth.has(month));
+
+  if (missingMonths.length > 0) {
+    const rows = missingMonths.map((month) => ({
+      user_id: userId,
+      credit_card_id: creditCardId,
+      reference_month: `${month}-01`,
+      closing_date: buildCardDate(month, card.closing_day ?? 1, 0),
+      due_date: buildCardDate(month, card.due_day ?? 1, (card.due_day ?? 1) <= (card.closing_day ?? 1) ? 1 : 0),
+      total_amount: 0,
+      paid_amount: 0,
+      status: "open",
+      notes: "Fatura criada automaticamente para lançamento recorrente ou parcelado.",
+    }));
+
+    const insertResult = await client
+      .from("credit_card_invoices")
+      .insert(rows)
+      .select("id,credit_card_id,reference_month,due_date,status");
+
+    if (insertResult.error) {
+      console.error("Erro técnico ao criar faturas automáticas:", insertResult.error);
+      return { invoicesByMonth: new Map(), error: { message: "Não foi possível criar as faturas futuras automaticamente." } };
+    }
+
+    (insertResult.data ?? []).forEach((invoice) => invoicesByMonth.set(String(invoice.reference_month).slice(0, 7), invoice));
+  }
+
+  return { invoicesByMonth, error: null };
+}
+
+function buildCardDate(month: string, configuredDay: number, monthOffset: number) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const date = new Date(year, monthNumber - 1 + monthOffset, 1);
+  const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  date.setDate(Math.min(configuredDay, lastDay));
+
+  return toDateInputValue(date);
 }
 
 async function generateLinkedRecurringReimbursements(

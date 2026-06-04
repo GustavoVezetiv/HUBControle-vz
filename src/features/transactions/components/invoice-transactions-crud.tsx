@@ -8,7 +8,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
 import { calculateInvoiceSummary, type InvoiceCard, type InvoiceReimbursementRow, type InvoiceRow } from "@/features/invoices/types";
-import { ActionButton, BooleanBadge, CategoryBadge, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect } from "@/features/shared/crud-ui";
+import { ActionButton, BooleanBadge, CategoryBadge, CategorySelect, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect } from "@/features/shared/crud-ui";
 import { formatCurrency, formatDate } from "@/features/shared/format";
 import { optionLabel, ownershipTypeOptions } from "@/features/shared/options";
 import { getQuickTableEditPreference } from "@/features/shared/quick-edit";
@@ -17,6 +17,7 @@ import {
   createExpectedReimbursementForTransaction,
   createTransaction,
   deleteTransaction,
+  generateInstallmentTransactions,
   generateRecurringTransactions,
   listTransactionSupportData,
   updateTransaction,
@@ -203,6 +204,19 @@ export function InvoiceTransactionsCrud({ invoiceId }: { invoiceId: string }) {
         }
       }
       let generationMessage = "";
+      if (result.data && modal?.mode === "create" && values.is_installment_purchase) {
+        const installmentGeneration = await generateInstallmentTransactions(client, userId, result.data);
+
+        if (installmentGeneration.error) {
+          setFeedback({ type: "error", message: installmentGeneration.error.message });
+          return;
+        }
+
+        if (installmentGeneration.created || installmentGeneration.skipped) {
+          generationMessage += ` ${installmentGeneration.created} parcela(s) futura(s) criada(s), ${installmentGeneration.skipped} já existia(m).`;
+        }
+      }
+
       const occurrences = Number(values.recurrence_occurrences || 0);
 
       if (result.data && values.is_recurring && occurrences > 0) {
@@ -321,10 +335,12 @@ export function InvoiceTransactionsCrud({ invoiceId }: { invoiceId: string }) {
       <SectionCard title="Filtros" description="Refine os lançamentos desta fatura.">
         <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
           <input className={inputClassName} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar descrição" />
-          <select className={inputClassName} value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
-            <option value="all">Todas categorias</option>
-            {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
-          </select>
+          <CategorySelect
+            categories={categories}
+            value={categoryFilter === "all" ? "" : categoryFilter}
+            placeholder="Todas categorias"
+            onChange={(value) => setCategoryFilter(value || "all")}
+          />
           <select className={inputClassName} value={personFilter} onChange={(event) => setPersonFilter(event.target.value)}>
             <option value="all">Todas pessoas</option>
             {people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
@@ -584,16 +600,7 @@ function TransactionModal({
           </FieldShell>
         </div>
         <FieldShell label="Categoria">
-          <select
-            className={inputClassName}
-            value={values.category_id}
-            onChange={(event) => setValues({ ...values, category_id: event.target.value })}
-          >
-            <option value="">Sem categoria</option>
-            {categories.map((category) => (
-              <option key={category.id} value={category.id}>{category.name}</option>
-            ))}
-          </select>
+          <CategorySelect categories={categories} value={values.category_id} onChange={(category_id) => setValues({ ...values, category_id })} />
         </FieldShell>
         <FieldShell label="Pessoa responsável">
           <select
@@ -729,7 +736,7 @@ function TransactionModal({
               />
             </FieldShell>
             <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 md:col-span-2">
-              As próximas ocorrências serão criadas nas faturas correspondentes do mesmo cartão. Se a fatura do mês não existir, crie a fatura antes de gerar.
+              As próximas ocorrências serão criadas nas faturas correspondentes do mesmo cartão. Se a fatura do mês não existir, o sistema tentará criá-la automaticamente com base no fechamento e vencimento do cartão.
             </p>
           </>
         ) : null}
