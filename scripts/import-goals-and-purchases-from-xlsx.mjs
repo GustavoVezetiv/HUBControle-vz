@@ -209,6 +209,7 @@ async function preparePurchaseRows(rows, existing, categoriesByName, prepared, d
       row,
       mapped,
       status: errors.length ? "error" : "new",
+      duplicate: errors.some((error) => error.toLowerCase().includes("duplicad") || error.toLowerCase().includes("já existe")),
       errors,
       payload: { ...mapped, category_id, user_id: userId },
     });
@@ -234,6 +235,7 @@ function prepareGoalRows(rows, existing) {
       row,
       mapped,
       status: errors.length ? "error" : "new",
+      duplicate: errors.some((error) => error.toLowerCase().includes("duplicad") || error.toLowerCase().includes("já existe")),
       errors,
       payload: { ...mapped, user_id: userId },
     };
@@ -350,12 +352,14 @@ async function reviewOrDeleteImportSource(importSource, shouldDelete) {
 
 function printPreview(prepared) {
   const all = [...prepared.purchases, ...prepared.goals];
-  const errors = all.filter((row) => row.status === "error");
+  const duplicates = all.filter((row) => row.duplicate);
+  const errors = all.filter((row) => row.status === "error" && !row.duplicate);
   const newRows = all.filter((row) => row.status === "new");
   console.log("Prévia da importação");
   console.log(`Total lido: ${all.length}`);
   console.log(`Novos: ${newRows.length}`);
-  console.log(`Com erro/duplicidade: ${errors.length}`);
+  console.log(`Ignorados por duplicidade: ${duplicates.length}`);
+  console.log(`Com erro: ${errors.length}`);
   console.log(`Categorias criadas: ${prepared.createdCategories.size}`);
   console.log(`Categorias não encontradas: ${prepared.missingCategories.size}`);
   if (prepared.missingCategories.size) console.log([...prepared.missingCategories].join(", "));
