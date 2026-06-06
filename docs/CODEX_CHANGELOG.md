@@ -2,6 +2,52 @@
 
 This file is maintained by project-local Codex hooks.
 
+## 2026-06-06T19:12:24.893Z - codex/test8-reimbursements-import-preview
+
+Objective: update project documentation
+
+Files changed:
+- _none_
+
+Impact: documentation or metadata only
+
+Risk: low
+
+Validation: `not run` - no code, config, migration, or script changes detected
+
+Documentation: covered by changed files or not required
+
+Generated real estate intake files:
+- _none_
+
+Skipped from auto-commit because they were dirty before the turn:
+- `README.md`
+- `src/app/dashboard/layout.tsx`
+- `src/app/dashboard/page.tsx`
+- `src/app/globals.css`
+- `src/components/layout/app-shell.tsx`
+- `src/features/goals/components/goals-crud.tsx`
+- `src/features/imports/components/imports-workbench.tsx`
+- `src/features/imports/import-engine.ts`
+- `src/features/imports/parser.ts`
+- `src/features/imports/queries.ts`
+- `src/features/income-sources/components/income-sources-crud.tsx`
+- `src/features/income-sources/queries.ts`
+- `src/features/income-sources/types.ts`
+- `src/features/reimbursements/components/reimbursements-crud.tsx`
+- `src/features/settings/components/settings-panel.tsx`
+- `src/features/settings/queries.ts`
+- `src/features/settings/types.ts`
+- `src/lib/supabase/types.ts`
+- `supabase/migrations/202606050001_goal_quality_and_import_batches.sql`
+- `supabase/migrations/202606060001_income_sources_recurrence_fields.sql`
+- `supabase/migrations/202606060002_profile_advanced_visual_preferences.sql`
+
+Skipped binary/PDF assets from auto-commit:
+- _none_
+
+Rollback: restore listed files from Git or from local snapshots in `.codex/backups`; after an automatic commit, use `git revert <commit>`.
+
 ## 2026-06-06T19:06:31.419Z - codex/test8-reimbursements-import-preview
 
 Objective: update project documentation
