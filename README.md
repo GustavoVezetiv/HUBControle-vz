@@ -571,6 +571,13 @@ Optional BoardGames tab import:
 npm run import:purchases -- --file="C:\path\to\lista_compras_organizada.xlsx" --include-board-games --confirm
 ```
 
+### Legacy goals and purchases script
+
+`npm run import:goals-purchases` is intentionally disabled. Use `/dashboard/imports`
+with the `Metas e compras` target instead. The current UI flow is safer because it
+requires preview, explicit confirmation, `import_batch_id` tracking and does not
+create categories automatically.
+
 The script:
 
 - Reads `Base_Consolidada` as the main source.

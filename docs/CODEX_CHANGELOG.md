@@ -2,6 +2,120 @@
 
 This file is maintained by project-local Codex hooks.
 
+## 2026-06-06T01:13:05.380Z - codex/test8-reimbursements-import-preview
+
+Objective: update project automation scripts
+
+Files changed:
+- `README.md`
+- `scripts/import-goals-and-purchases-from-xlsx.mjs`
+
+Impact: local automation behavior may change
+
+Risk: low
+
+Validation: `npm run lint` - failed
+
+Documentation: covered by changed files or not required
+
+Generated real estate intake files:
+- _none_
+
+Skipped from auto-commit because they were dirty before the turn:
+- `eslint.config.mjs`
+- `scripts/import-planned-purchases-from-xlsx.mjs`
+- `src/features/goals/components/goals-crud.tsx`
+- `src/features/goals/queries.ts`
+- `src/features/imports/components/imports-workbench.tsx`
+- `src/features/imports/import-engine.ts`
+- `src/features/imports/parser.ts`
+- `src/features/imports/queries.ts`
+- `src/features/imports/templates.ts`
+- `src/features/imports/types.ts`
+- `src/lib/supabase/types.ts`
+- `supabase/migrations/202606050001_goal_quality_and_import_batches.sql`
+
+Skipped binary/PDF assets from auto-commit:
+- _none_
+
+Rollback: restore listed files from Git or from local snapshots in `.codex/backups`; after an automatic commit, use `git revert <commit>`.
+
+## 2026-06-06T01:11:13.031Z - codex/test8-reimbursements-import-preview
+
+Objective: update project automation scripts
+
+Files changed:
+- `README.md`
+- `scripts/import-goals-and-purchases-from-xlsx.mjs`
+
+Impact: local automation behavior may change
+
+Risk: low
+
+Validation: `npm run lint` - failed
+
+Documentation: covered by changed files or not required
+
+Generated real estate intake files:
+- _none_
+
+Skipped from auto-commit because they were dirty before the turn:
+- `eslint.config.mjs`
+- `scripts/import-planned-purchases-from-xlsx.mjs`
+- `src/features/goals/components/goals-crud.tsx`
+- `src/features/goals/queries.ts`
+- `src/features/imports/components/imports-workbench.tsx`
+- `src/features/imports/import-engine.ts`
+- `src/features/imports/parser.ts`
+- `src/features/imports/queries.ts`
+- `src/features/imports/templates.ts`
+- `src/features/imports/types.ts`
+- `src/lib/supabase/types.ts`
+- `supabase/migrations/202606050001_goal_quality_and_import_batches.sql`
+
+Skipped binary/PDF assets from auto-commit:
+- _none_
+
+Rollback: restore listed files from Git or from local snapshots in `.codex/backups`; after an automatic commit, use `git revert <commit>`.
+
+## 2026-06-06T01:07:36.561Z - codex/test8-reimbursements-import-preview
+
+Objective: update project automation scripts
+
+Files changed:
+- `README.md`
+- `scripts/import-goals-and-purchases-from-xlsx.mjs`
+
+Impact: local automation behavior may change
+
+Risk: low
+
+Validation: `npm run lint` - passed after follow-up fixes
+
+Documentation: covered by changed files or not required
+
+Generated real estate intake files:
+- _none_
+
+Skipped from auto-commit because they were dirty before the turn:
+- `eslint.config.mjs`
+- `scripts/import-planned-purchases-from-xlsx.mjs`
+- `src/features/goals/components/goals-crud.tsx`
+- `src/features/goals/queries.ts`
+- `src/features/imports/components/imports-workbench.tsx`
+- `src/features/imports/import-engine.ts`
+- `src/features/imports/parser.ts`
+- `src/features/imports/queries.ts`
+- `src/features/imports/templates.ts`
+- `src/features/imports/types.ts`
+- `src/lib/supabase/types.ts`
+- `supabase/migrations/202606050001_goal_quality_and_import_batches.sql`
+
+Skipped binary/PDF assets from auto-commit:
+- _none_
+
+Rollback: restore listed files from Git or from local snapshots in `.codex/backups`; after an automatic commit, use `git revert <commit>`.
+
 ## 2026-06-06T01:02:50.344Z - codex/test8-reimbursements-import-preview
 
 Objective: update project documentation

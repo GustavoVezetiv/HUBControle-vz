@@ -1,5 +1,5 @@
 import { isActiveImportTarget } from "@/features/imports/templates";
-import type { ImportTarget, PreviewRow, RawImportRow, ReferenceData } from "@/features/imports/types";
+import type { ImportTarget, PreviewRow, RawImportRow, ReferenceData, SystemImportRows } from "@/features/imports/types";
 import type { Json } from "@/lib/supabase/types";
 
 type Mapped = Record<string, Json>;
@@ -12,6 +12,9 @@ const ownershipTypes = ["personal", "third_party", "shared", "family", "reimburs
 const reimbursementStatuses = ["expected", "partial", "received", "late", "overdue", "canceled", "cancelled", "forgiven"];
 const installmentStatuses = ["active", "finished", "cancelled", "paused"];
 const riskLevels = ["low", "medium", "high", "critical"];
+const goalCategories = ["personal", "professional", "course", "education", "project"];
+const goalStatuses = ["active", "paused", "completed", "canceled"];
+const purchaseStatuses = ["considering", "approved", "delayed", "canceled", "purchased", "review", "waiting", "promotion"];
 
 export function buildPreviewRows(target: ImportTarget, rawRows: RawImportRow[], references: ReferenceData) {
   if (!isActiveImportTarget(target)) {
@@ -28,6 +31,22 @@ export function buildPreviewRows(target: ImportTarget, rawRows: RawImportRow[], 
   return rawRows.map((raw, index) => validateRow(target, raw, index + 2, references, seen));
 }
 
+export function buildSystemGoalsPurchasesPreviewRows(rows: SystemImportRows, references: ReferenceData) {
+  const seenGoals = new Set<string>();
+  const seenPurchases = new Set<string>();
+  const goalRows = rows.goals.map((raw, index) =>
+    validateRow("goals", raw, index + 2, references, seenGoals, { softMissingCategory: true }),
+  );
+  const purchaseRows = rows.purchases.map((raw, index) =>
+    validateRow("planned_purchases", raw, index + 2, references, seenPurchases, { softMissingCategory: true }),
+  );
+
+  return [
+    ...goalRows.map((row) => ({ ...row, target: "goals" as const })),
+    ...purchaseRows.map((row) => ({ ...row, target: "planned_purchases" as const })),
+  ];
+}
+
 export function rowCounts(rows: PreviewRow[]) {
   return {
     total: rows.length,
@@ -40,7 +59,7 @@ export function rowCounts(rows: PreviewRow[]) {
 }
 
 export function buildInsertPayload(target: ImportTarget, userId: string, mapped: Mapped) {
-  if (!isActiveImportTarget(target)) {
+  if (!isActiveImportTarget(target) && !isSystemFinalTarget(target)) {
     throw new Error("Importação deste módulo ainda não está disponível.");
   }
 
@@ -190,21 +209,41 @@ export function buildInsertPayload(target: ImportTarget, userId: string, mapped:
       target_date: mapped.target_date ?? null,
       category_id: mapped.category_id ?? null,
       payment_method: mapped.payment_method ?? "unknown",
+      installment_count: mapped.installment_count ?? null,
       decision_status: mapped.status ?? "considering",
       risk_level: mapped.risk_level ?? "medium",
+      external_url: mapped.external_url ?? null,
+      decision_label: mapped.decision_label ?? null,
+      import_source: mapped.import_source ?? null,
+      import_batch_id: mapped.import_batch_id ?? null,
       notes: mapped.notes ?? null,
     };
   }
   return {
     user_id: userId,
     name: mapped.name,
-    goal_type: mapped.goal_type ?? "other",
-    target_amount: mapped.target_amount ?? 0,
-    current_amount: mapped.current_amount ?? 0,
+    goal_type: mapped.goal_type ?? mapped.goal_category ?? "personal",
+    goal_category: mapped.goal_category ?? "personal",
+    goal_kind: mapped.goal_kind ?? "qualitative",
+    target_amount: mapped.target_amount ?? null,
+    current_amount: mapped.current_amount ?? null,
+    manual_progress_percent: mapped.manual_progress_percent ?? null,
+    start_date: mapped.start_date ?? null,
     target_date: mapped.target_date ?? null,
-    monthly_contribution: mapped.monthly_contribution ?? 0,
+    monthly_contribution: mapped.monthly_contribution ?? null,
+    urgency_level: mapped.urgency_level ?? calculateUrgency(mapped.target_date),
+    category_id: mapped.category_id ?? null,
+    category_label: mapped.category_label ?? null,
+    source_label: mapped.source_label ?? null,
+    import_source: mapped.import_source ?? null,
+    import_batch_id: mapped.import_batch_id ?? null,
     status: mapped.status ?? "active",
+    notes: mapped.notes ?? null,
   };
+}
+
+function isSystemFinalTarget(target: ImportTarget) {
+  return target === "goals" || target === "planned_purchases";
 }
 
 function validateRow(
@@ -213,20 +252,40 @@ function validateRow(
   rowNumber: number,
   references: ReferenceData,
   seen: Set<string>,
+  options: { softMissingCategory?: boolean } = {},
 ): PreviewRow {
   const errors: string[] = [];
-  const mapped = mapRow(target, raw, references, errors);
+  const warnings: string[] = [];
+  const mapped = mapRow(target, raw, references, errors, warnings, options);
   const duplicateKey = buildDuplicateKey(target, mapped);
+  let duplicate = false;
   if (duplicateKey) {
     if (seen.has(duplicateKey) || existsDuplicate(target, mapped, references)) {
       errors.push("Duplicidade detectada. A linha não será importada por padrão.");
+      duplicate = true;
     }
     seen.add(duplicateKey);
   }
-  return { rowNumber, raw, mapped, status: errors.length ? "invalid" : "valid", errors };
+  return {
+    rowNumber,
+    raw,
+    mapped,
+    status: errors.length ? "invalid" : "valid",
+    errors,
+    warnings,
+    duplicate,
+    missingCategoryName: (mapped.missing_category_name as string | null | undefined) ?? null,
+  };
 }
 
-function mapRow(target: ImportTarget, raw: RawImportRow, references: ReferenceData, errors: string[]): Mapped {
+function mapRow(
+  target: ImportTarget,
+  raw: RawImportRow,
+  references: ReferenceData,
+  errors: string[],
+  warnings: string[] = [],
+  options: { softMissingCategory?: boolean } = {},
+): Mapped {
   if (target === "people") {
     const name = text(raw.nome);
     requireField(errors, name, "Nome");
@@ -375,28 +434,52 @@ function mapRow(target: ImportTarget, raw: RawImportRow, references: ReferenceDa
   if (target === "planned_purchases") {
     const title = text(raw.item || raw.nome);
     requireField(errors, title, "Item");
+    const category = resolveCategoryInfo(raw.categoria, references, warnings, options.softMissingCategory);
+    const externalUrl = nullable(raw.link_notion || raw.link || raw.url);
     return {
       title,
       description: nullable(raw.descricao),
       estimated_amount: optionalMoney(raw.valor_estimado, errors, "Valor estimado") ?? 0,
       target_date: optionalDate(raw.data_alvo, errors, "Data alvo"),
-      category_id: resolveCategory(raw.categoria, references, errors),
-      payment_method: normalizeEnum(raw.metodo_pagamento, ["cash", "credit_card", "installment", "unknown"], "unknown"),
-      status: normalizeEnum(raw.status, ["considering", "approved", "delayed", "canceled", "purchased"], "considering"),
+      category_id: category.id,
+      category_label: category.name,
+      missing_category_name: category.missingName,
+      payment_method: normalizePaymentMethod(raw.forma_planejada || raw.metodo_pagamento),
+      installment_count: optionalInteger(raw.parcelas, errors, "Parcelas"),
+      status: normalizePurchaseStatus(raw.status),
       risk_level: normalizeEnum(raw.risco, riskLevels, "medium"),
-      notes: nullable(raw.observacoes),
+      external_url: externalUrl,
+      import_source: "compras_metas_para_sistema.xlsx:Compras_Sistema",
+      notes: nullable(raw.notas || raw.observacoes),
     };
   }
   const name = text(raw.nome);
   requireField(errors, name, "Nome");
+  const extracted = extractGoalNotes(raw.observacoes);
+  const goalCategory = normalizeGoalCategory(raw.tipo);
+  const targetAmount = optionalMoney(raw.valor_objetivo || raw.valor_alvo, errors, "Valor objetivo");
+  const currentAmount = optionalMoney(raw.valor_atual, errors, "Valor atual");
+  const monthlyContribution = optionalMoney(raw.aporte_mensal || raw.contribuicao_mensal, errors, "Aporte mensal");
+  const manualProgress = optionalPercent(raw.progresso_manual || extracted.progresso_original || undefined, errors, "Progresso manual");
+  const category = resolveCategoryInfo(raw.tipo, references, warnings, options.softMissingCategory);
   return {
     name,
-    goal_type: normalizeEnum(raw.tipo, ["emergency_reserve", "debt_reduction", "planned_purchase", "savings", "other"], "other"),
-    target_amount: optionalMoney(raw.valor_alvo, errors, "Valor alvo") ?? 0,
-    current_amount: optionalMoney(raw.valor_atual, errors, "Valor atual") ?? 0,
-    target_date: optionalDate(raw.data_alvo, errors, "Data alvo"),
-    monthly_contribution: optionalMoney(raw.contribuicao_mensal, errors, "Contribuição mensal") ?? 0,
-    status: normalizeEnum(raw.status, ["active", "paused", "completed", "canceled"], "active"),
+    goal_type: goalCategory,
+    goal_category: goalCategory,
+    goal_kind: inferGoalKind(targetAmount, currentAmount, monthlyContribution, manualProgress),
+    target_amount: targetAmount,
+    current_amount: currentAmount,
+    manual_progress_percent: manualProgress,
+    target_date: optionalDate(raw.data_alvo || extracted.final_original || undefined, errors, "Data alvo"),
+    start_date: optionalDate(extracted.inicio || undefined, errors, "Início"),
+    monthly_contribution: monthlyContribution,
+    status: normalizeGoalStatus(raw.status || extracted.status_manual_da_planilha || undefined),
+    category_id: category.id,
+    category_label: category.name ?? text(raw.tipo),
+    missing_category_name: category.missingName,
+    source_label: extracted.origem ?? null,
+    import_source: "compras_metas_para_sistema.xlsx:Metas_Sistema",
+    notes: buildGoalNotes(raw.observacoes, extracted),
   };
 }
 
@@ -409,6 +492,8 @@ function buildDuplicateKey(target: ImportTarget, mapped: Mapped) {
   if (target === "credit_card_invoices") return `${mapped.credit_card_id}|${mapped.reference_month}`;
   if (target === "credit_card_transactions") return `${mapped.invoice_id}|${mapped.transaction_date}|${lower(mapped.description)}|${mapped.amount}`;
   if (target === "reimbursements") return `${mapped.person_id}|${lower(mapped.description)}|${mapped.expected_amount}|${mapped.expected_date}`;
+  if (target === "planned_purchases") return `${lower(mapped.title)}|${lower(mapped.external_url)}|${lower(mapped.category_label)}`;
+  if (target === "goals") return `${lower(mapped.name)}|${mapped.target_date ?? ""}|${lower(mapped.goal_category ?? mapped.category_label)}`;
   return "";
 }
 
@@ -421,6 +506,20 @@ function existsDuplicate(target: ImportTarget, mapped: Mapped, references: Refer
   if (target === "credit_card_invoices") return references.existing.credit_card_invoices.some((item) => item.credit_card_id === mapped.credit_card_id && item.reference_month === mapped.reference_month);
   if (target === "credit_card_transactions") return references.existing.credit_card_transactions.some((item) => item.invoice_id === mapped.invoice_id && item.transaction_date === mapped.transaction_date && lower(item.description) === lower(mapped.description) && Number(item.amount) === Number(mapped.amount));
   if (target === "reimbursements") return references.existing.reimbursements.some((item) => item.person_id === mapped.person_id && lower(item.description) === lower(mapped.description) && Number(item.expected_amount) === Number(mapped.expected_amount) && item.expected_date === mapped.expected_date);
+  if (target === "planned_purchases") {
+    return references.existing.planned_purchases.some((item) => {
+      const sameName = lower(item.title) === lower(mapped.title);
+      const sameLink = Boolean(item.external_url && mapped.external_url && lower(item.external_url) === lower(mapped.external_url));
+      const sameCategory = lower(item.category_name ?? item.category_id) === lower(mapped.category_label ?? mapped.category_id);
+      return sameLink || (sameName && sameCategory);
+    });
+  }
+  if (target === "goals") {
+    return references.existing.goals.some((item) => {
+      const sameCategory = lower(item.goal_category ?? item.category_label ?? item.category_id) === lower(mapped.goal_category ?? mapped.category_label ?? mapped.category_id);
+      return lower(item.name) === lower(mapped.name) && item.target_date === mapped.target_date && sameCategory;
+    });
+  }
   return false;
 }
 
@@ -438,6 +537,22 @@ function resolveCategory(value: string | undefined, references: ReferenceData, e
   const category = references.categories.find((item) => lower(item.name) === lower(name));
   if (!category) errors.push(`Categoria não encontrada: ${name}`);
   return category?.id ?? null;
+}
+
+function resolveCategoryInfo(
+  value: string | undefined,
+  references: ReferenceData,
+  warnings: string[],
+  softMissingCategory?: boolean,
+) {
+  const name = text(value);
+  if (!name) return { id: null, name: null, missingName: null };
+  const category = references.categories.find((item) => lower(item.name) === lower(name));
+  if (!category && softMissingCategory) {
+    warnings.push(`Categoria não encontrada: ${name}. O item pode ser importado sem categoria.`);
+    return { id: null, name, missingName: name };
+  }
+  return { id: category?.id ?? null, name: category?.name ?? name, missingName: category ? null : name };
 }
 
 function resolveCard(value: string | undefined, references: ReferenceData, errors: string[]) {
@@ -548,6 +663,76 @@ function normalizeIncomeSourceType(value: string | undefined) {
   return "other";
 }
 
+function normalizeGoalCategory(value: string | undefined) {
+  const normalized = slug(value);
+  const aliases: Record<string, string> = {
+    pessoal: "personal",
+    personal: "personal",
+    profissional: "professional",
+    professional: "professional",
+    curso: "course",
+    course: "course",
+    formacao: "education",
+    formacao_academica: "education",
+    educacao: "education",
+    education: "education",
+    projeto: "project",
+    projetos: "project",
+    project: "project",
+  };
+  const resolved = aliases[normalized] ?? normalized;
+  return goalCategories.includes(resolved) ? resolved : "personal";
+}
+
+function inferGoalKind(
+  targetAmount: number | null,
+  currentAmount: number | null,
+  monthlyContribution: number | null,
+  manualProgress: number | null,
+) {
+  if (targetAmount !== null || currentAmount !== null || monthlyContribution !== null) return "financial";
+  if (manualProgress !== null) return "numeric";
+  return "qualitative";
+}
+
+function normalizeGoalStatus(value: string | undefined) {
+  const normalized = normalizeEnum(value, goalStatuses, "active");
+  if (normalized === "done" || normalized === "finished") return "completed";
+  if (normalized === "cancelled") return "canceled";
+  return normalized;
+}
+
+function normalizePurchaseStatus(value: string | undefined) {
+  const normalized = slug(value);
+  const aliases: Record<string, string> = {
+    comprado: "purchased",
+    comprada: "purchased",
+    ja_comprado: "purchased",
+    priorizar: "approved",
+    aprovado: "approved",
+    aprovada: "approved",
+    revisar: "review",
+    revisar_para_priorizar: "review",
+    esperar: "waiting",
+    esperar_revisar: "waiting",
+    so_em_promocao: "promotion",
+    promocao: "promotion",
+    atrasado: "delayed",
+    cancelado: "canceled",
+    cancelada: "canceled",
+  };
+  const resolved = aliases[normalized] ?? normalizeEnum(value, purchaseStatuses, "considering");
+  return purchaseStatuses.includes(resolved) ? resolved : "considering";
+}
+
+function normalizePaymentMethod(value: string | undefined) {
+  const normalized = slug(value);
+  if (["cartao", "cartao_de_credito", "credit_card"].includes(normalized)) return "credit_card";
+  if (["parcelado", "parcelamento", "installment"].includes(normalized)) return "installment";
+  if (["pix", "cash", "dinheiro", "avista", "a_vista"].includes(normalized)) return "cash";
+  return "unknown";
+}
+
 function bool(value: string | undefined, fallback: boolean) {
   const normalized = slug(value);
   if (!normalized) return fallback;
@@ -578,6 +763,18 @@ function optionalInteger(value: string | undefined, errors: string[], label: str
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || parsed < 0) {
     errors.push(`${label} deve ser um número inteiro válido.`);
+    return null;
+  }
+  return parsed;
+}
+
+function optionalPercent(value: string | undefined, errors: string[], label: string) {
+  const raw = text(value).replace("%", "");
+  if (!raw) return null;
+  const normalized = raw.replace(/\./g, "").replace(",", ".");
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) {
+    errors.push(`${label} deve ser um percentual entre 0 e 100.`);
     return null;
   }
   return parsed;
@@ -618,4 +815,65 @@ function parseMonth(value: string) {
   const slash = value.match(/^(\d{1,2})\/(\d{4})$/);
   if (slash) return `${slash[2]}-${slash[1].padStart(2, "0")}`;
   return "";
+}
+
+function calculateUrgency(value: Json | undefined) {
+  const targetDate = typeof value === "string" ? parseDate(value) : null;
+  if (!targetDate) return "no_target";
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(`${targetDate}T00:00:00`);
+  const days = Math.ceil((target.getTime() - today.getTime()) / 86_400_000);
+  if (days < 0 || days <= 7) return "urgent";
+  if (days <= 30) return "attention";
+  return "comfortable";
+}
+
+function extractGoalNotes(value: string | undefined) {
+  const notes = text(value);
+  const keys = [
+    "Origem",
+    "Seção original",
+    "Secao original",
+    "Início",
+    "Inicio",
+    "Final original",
+    "Duração em meses",
+    "Duracao em meses",
+    "Progresso original",
+    "Status manual da planilha",
+  ];
+  const result: Record<string, string | null> = {};
+
+  for (const key of keys) {
+    const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = notes.match(new RegExp(`${escaped}\\s*:\\s*([^;\\n]+)`, "i"));
+    const normalizedKey = slug(key);
+    result[normalizedKey] = match?.[1]?.trim() ?? null;
+  }
+
+  return {
+    origem: result.origem,
+    secao_original: result.secao_original,
+    inicio: result.inicio,
+    final_original: result.final_original,
+    duracao_em_meses: result.duracao_em_meses,
+    progresso_original: result.progresso_original,
+    status_manual_da_planilha: result.status_manual_da_planilha,
+  };
+}
+
+function buildGoalNotes(original: string | undefined, extracted: ReturnType<typeof extractGoalNotes>) {
+  const lines = [nullable(original)].filter(Boolean) as string[];
+  const extractedLines = [
+    extracted.origem ? `Origem: ${extracted.origem}` : null,
+    extracted.secao_original ? `Seção original: ${extracted.secao_original}` : null,
+    extracted.inicio ? `Início: ${extracted.inicio}` : null,
+    extracted.final_original ? `Final original: ${extracted.final_original}` : null,
+    extracted.duracao_em_meses ? `Duração em meses: ${extracted.duracao_em_meses}` : null,
+    extracted.progresso_original ? `Progresso original: ${extracted.progresso_original}` : null,
+    extracted.status_manual_da_planilha ? `Status manual da planilha: ${extracted.status_manual_da_planilha}` : null,
+  ].filter(Boolean);
+  const combined = [...lines, ...extractedLines].join("\n");
+  return combined || null;
 }

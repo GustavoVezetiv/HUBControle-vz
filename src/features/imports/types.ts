@@ -11,7 +11,8 @@ export type ImportTarget =
   | "reimbursements"
   | "installments"
   | "planned_purchases"
-  | "goals";
+  | "goals"
+  | "system_goals_purchases";
 
 export type RawImportRow = Record<string, string>;
 
@@ -19,10 +20,14 @@ export type PreviewStatus = "valid" | "invalid" | "skipped" | "imported" | "fail
 
 export type PreviewRow = {
   rowNumber: number;
+  target?: ImportTarget;
   raw: RawImportRow;
   mapped: Record<string, Json>;
   status: PreviewStatus;
   errors: string[];
+  warnings?: string[];
+  duplicate?: boolean;
+  missingCategoryName?: string | null;
 };
 
 export type ImportTargetConfig = {
@@ -58,5 +63,23 @@ export type ReferenceData = {
       expected_amount: number;
       expected_date: string | null;
     }[];
+    planned_purchases: {
+      title: string;
+      external_url: string | null;
+      category_id: string | null;
+      category_name?: string | null;
+    }[];
+    goals: {
+      name: string;
+      target_date: string | null;
+      goal_category?: string | null;
+      category_id?: string | null;
+      category_label?: string | null;
+    }[];
   };
+};
+
+export type SystemImportRows = {
+  goals: RawImportRow[];
+  purchases: RawImportRow[];
 };

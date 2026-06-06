@@ -50,6 +50,16 @@ export const activeImportTargets: ImportTargetConfig[] = [
       "observacoes",
     ],
   },
+  {
+    target: "system_goals_purchases",
+    label: "Metas e compras",
+    description: "XLSX com as abas Metas_Sistema e Compras_Sistema.",
+    headers: [
+      "Use XLSX com duas abas:",
+      "Metas_Sistema: Nome,Tipo,Valor objetivo,Valor atual,Data alvo,Aporte mensal,Status,Observações",
+      "Compras_Sistema: Nome,Descrição,Valor estimado,Data alvo,Categoria,Forma planejada,Parcelas,Status,Risco,Notas",
+    ],
+  },
 ];
 
 export const futureImportTargets: ImportTargetConfig[] = [
@@ -105,7 +115,7 @@ export const futureImportTargets: ImportTargetConfig[] = [
   {
     target: "goals",
     label: "Metas",
-    description: "Metas financeiras simples.",
+    description: "Metas qualitativas, financeiras e numéricas.",
     headers: ["nome", "tipo", "valor_alvo", "valor_atual", "data_alvo", "contribuicao_mensal", "status"],
   },
 ];
@@ -121,6 +131,14 @@ export function getImportTargetConfig(target: ImportTarget) {
 }
 
 export function buildTemplateCsv(target: ImportTarget) {
+  if (target === "system_goals_purchases") {
+    return [
+      "Este alvo usa XLSX com duas abas.",
+      "Aba Metas_Sistema: Nome,Tipo,Valor objetivo,Valor atual,Data alvo,Aporte mensal,Status,Observações",
+      "Aba Compras_Sistema: Nome,Descrição,Valor estimado,Data alvo,Categoria,Forma planejada,Parcelas,Status,Risco,Notas",
+      "",
+    ].join("\n");
+  }
   const headers = getImportTargetConfig(target).headers;
   return `${headers.join(",")}\n`;
 }

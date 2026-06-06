@@ -4,8 +4,12 @@ import type { Goal } from "@/lib/supabase/types";
 export type GoalFormValues = {
   name: string;
   goal_type: string;
+  goal_category: string;
+  goal_kind: string;
   target_amount: string;
   current_amount: string;
+  manual_progress_percent: string;
+  start_date: string;
   target_date: string;
   monthly_contribution: string;
   status: string;
@@ -14,11 +18,15 @@ export type GoalFormValues = {
 
 export const emptyGoalForm: GoalFormValues = {
   name: "",
-  goal_type: "other",
-  target_amount: "0",
-  current_amount: "0",
+  goal_type: "personal",
+  goal_category: "personal",
+  goal_kind: "qualitative",
+  target_amount: "",
+  current_amount: "",
+  manual_progress_percent: "",
+  start_date: "",
   target_date: "",
-  monthly_contribution: "0",
+  monthly_contribution: "",
   status: "active",
   notes: "",
 };
@@ -27,10 +35,14 @@ export function goalToFormValues(goal: Goal): GoalFormValues {
   return {
     name: goal.name,
     goal_type: goal.goal_type,
-    target_amount: String(goal.target_amount),
-    current_amount: String(goal.current_amount),
+    goal_category: goal.goal_category ?? goal.goal_type ?? "personal",
+    goal_kind: goal.goal_kind ?? "qualitative",
+    target_amount: goal.target_amount === null ? "" : String(goal.target_amount),
+    current_amount: goal.current_amount === null ? "" : String(goal.current_amount),
+    manual_progress_percent: goal.manual_progress_percent === null ? "" : String(goal.manual_progress_percent),
+    start_date: goal.start_date ?? "",
     target_date: goal.target_date ?? "",
-    monthly_contribution: String(goal.monthly_contribution),
+    monthly_contribution: goal.monthly_contribution === null ? "" : String(goal.monthly_contribution),
     status: goal.status,
     notes: goal.notes ?? "",
   };
@@ -60,12 +72,33 @@ function toPayload(userId: string | undefined, values: GoalFormValues): Partial<
   return {
     ...(userId ? { user_id: userId } : {}),
     name: values.name.trim(),
-    goal_type: values.goal_type,
-    target_amount: Number(values.target_amount || 0),
-    current_amount: Number(values.current_amount || 0),
+    goal_type: values.goal_category,
+    goal_category: values.goal_category,
+    goal_kind: values.goal_kind,
+    target_amount: optionalNumber(values.target_amount),
+    current_amount: optionalNumber(values.current_amount),
+    manual_progress_percent: optionalNumber(values.manual_progress_percent),
+    start_date: values.start_date || null,
     target_date: values.target_date || null,
-    monthly_contribution: Number(values.monthly_contribution || 0),
+    monthly_contribution: optionalNumber(values.monthly_contribution),
+    urgency_level: calculateUrgency(values.target_date),
     status: values.status,
     notes: values.notes.trim() || null,
   };
+}
+
+function optionalNumber(value: string) {
+  const trimmed = value.trim();
+  return trimmed ? Number(trimmed) : null;
+}
+
+function calculateUrgency(targetDate: string) {
+  if (!targetDate) return "no_target";
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(`${targetDate}T00:00:00`);
+  const days = Math.ceil((target.getTime() - today.getTime()) / 86_400_000);
+  if (days < 0 || days <= 7) return "urgent";
+  if (days <= 30) return "attention";
+  return "comfortable";
 }

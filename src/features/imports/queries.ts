@@ -9,11 +9,13 @@ export async function listImportBatches(client: AppSupabaseClient) {
 }
 
 export async function loadImportReferenceData(client: AppSupabaseClient): Promise<ReferenceData> {
-  const [people, categories, accounts, incomeSources] = await Promise.all([
+  const [people, categories, accounts, incomeSources, goals, plannedPurchases] = await Promise.all([
     client.from("people").select("id,name").order("name"),
     client.from("categories").select("id,name,type").order("name"),
     client.from("accounts_payable").select("id,title,amount,due_date"),
     client.from("income_sources").select("id,name,amount,expected_date"),
+    client.from("goals").select("name,target_date,goal_category,category_id,category_label"),
+    client.from("planned_purchases").select("title,external_url,category_id"),
   ]);
 
   return {
@@ -32,6 +34,14 @@ export async function loadImportReferenceData(client: AppSupabaseClient): Promis
       credit_card_invoices: [],
       credit_card_transactions: [],
       reimbursements: [],
+      planned_purchases:
+        plannedPurchases.data?.map((item) => ({
+          title: item.title,
+          external_url: item.external_url,
+          category_id: item.category_id,
+          category_name: categories.data?.find((category) => category.id === item.category_id)?.name ?? null,
+        })) ?? [],
+      goals: goals.data ?? [],
     },
   };
 }
@@ -80,7 +90,7 @@ export async function saveImportPreview(
     validation_errors: row.errors,
     errors: row.errors,
     status: row.status,
-    target_entity_type: target,
+    target_entity_type: row.target ?? target,
   })) satisfies Partial<ImportRow>[];
 
   const rowResult = await client.from("import_rows").insert(rowPayload).select("*");
@@ -104,12 +114,25 @@ export async function confirmImportRows(
   for (const row of rows) {
     if (row.status !== "valid") {
       results.push(row);
+      await client
+        .from("import_rows")
+        .update({
+          status: row.status,
+          errors: row.errors,
+          validation_errors: row.errors,
+        })
+        .eq("import_batch_id", batchId)
+        .eq("row_number", row.rowNumber);
       continue;
     }
 
     try {
-      const payload = buildInsertPayload(target, userId, row.mapped);
-      const insertResult = await insertTargetRow(client, target, payload);
+      const rowTarget = resolveRowTarget(target, row);
+      const payload = buildInsertPayload(rowTarget, userId, {
+        ...row.mapped,
+        import_batch_id: batchId,
+      });
+      const insertResult = await insertTargetRow(client, rowTarget, payload);
 
       if (insertResult.error) {
         const failed = { ...row, status: "failed" as const, errors: [insertResult.error.message] };
@@ -133,6 +156,7 @@ export async function confirmImportRows(
         .update({
           status: "imported",
           target_entity_id: insertResult.data?.id ?? null,
+          target_entity_type: rowTarget,
         })
         .eq("import_batch_id", batchId)
         .eq("row_number", row.rowNumber);
@@ -169,6 +193,80 @@ export async function confirmImportRows(
   return results;
 }
 
+export async function createMissingImportCategories(
+  client: AppSupabaseClient,
+  userId: string,
+  names: string[],
+) {
+  const uniqueNames = Array.from(new Set(names.map((name) => name.trim()).filter(Boolean)));
+  if (uniqueNames.length === 0) return { created: 0, error: null };
+
+  const payload = uniqueNames.map((name) => ({
+    user_id: userId,
+    name,
+    type: "other",
+    is_active: true,
+  }));
+
+  const result = await client.from("categories").insert(payload).select("id");
+  return { created: result.data?.length ?? 0, error: result.error };
+}
+
+export async function undoImportBatch(client: AppSupabaseClient, userId: string, batchId: string) {
+  const rows = await client
+    .from("import_rows")
+    .select("target_entity_id,target_entity_type")
+    .eq("user_id", userId)
+    .eq("import_batch_id", batchId)
+    .eq("status", "imported");
+
+  if (rows.error) throw rows.error;
+
+  const importedRows = rows.data ?? [];
+  let deleted = 0;
+
+  for (const target of ["goals", "planned_purchases"] as const) {
+    const ids = importedRows
+      .filter((row) => row.target_entity_type === target && row.target_entity_id)
+      .map((row) => row.target_entity_id as string);
+
+    if (ids.length === 0) continue;
+
+    const result = await client
+      .from(target)
+      .delete()
+      .eq("user_id", userId)
+      .eq("import_batch_id", batchId)
+      .in("id", ids);
+
+    if (result.error) throw result.error;
+    deleted += ids.length;
+  }
+
+  await client
+    .from("import_rows")
+    .update({ status: "skipped" })
+    .eq("user_id", userId)
+    .eq("import_batch_id", batchId)
+    .eq("status", "imported");
+
+  await client
+    .from("import_batches")
+    .update({ status: "cancelled", notes: "Importação desfeita pelo usuário." })
+    .eq("user_id", userId)
+    .eq("id", batchId);
+
+  return { deleted };
+}
+
+function resolveRowTarget(target: ImportTarget, row: PreviewRow) {
+  if (target === "system_goals_purchases") {
+    if (row.target === "goals" || row.target === "planned_purchases") return row.target;
+    throw new Error("Linha sem destino final definido.");
+  }
+  return target;
+}
+
 async function insertTargetRow(client: AppSupabaseClient, target: ImportTarget, payload: Record<string, unknown>) {
   if (target === "people") return client.from("people").insert(payload).select("id").single();
   if (target === "categories") return client.from("categories").insert(payload).select("id").single();
@@ -177,6 +275,12 @@ async function insertTargetRow(client: AppSupabaseClient, target: ImportTarget, 
   }
   if (target === "income_sources") {
     return client.from("income_sources").insert(payload).select("id").single();
+  }
+  if (target === "planned_purchases") {
+    return client.from("planned_purchases").insert(payload).select("id").single();
+  }
+  if (target === "goals") {
+    return client.from("goals").insert(payload).select("id").single();
   }
   throw new Error("Importação deste módulo ainda não está disponível.");
 }

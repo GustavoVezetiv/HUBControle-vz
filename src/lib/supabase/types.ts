@@ -275,6 +275,7 @@ export type PlannedPurchase = UserOwnedRow & {
   external_url: string | null;
   decision_label: string | null;
   import_source: string | null;
+  import_batch_id: string | null;
   notes: string | null;
 };
 
@@ -282,14 +283,19 @@ export type Goal = UserOwnedRow & {
   category_id: string | null;
   name: string;
   goal_type: string;
-  target_amount: number;
-  current_amount: number;
+  goal_category: string;
+  goal_kind: string;
+  target_amount: number | null;
+  current_amount: number | null;
+  manual_progress_percent: number | null;
   target_date: string | null;
   start_date: string | null;
   category_label: string | null;
   source_label: string | null;
   import_source: string | null;
-  monthly_contribution: number;
+  import_batch_id: string | null;
+  urgency_level: string;
+  monthly_contribution: number | null;
   status: string;
   notes: string | null;
 };
