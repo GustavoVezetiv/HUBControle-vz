@@ -6,13 +6,15 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
-import { buildPreviewRows, rowCounts } from "@/features/imports/import-engine";
-import { parseSpreadsheetFile } from "@/features/imports/parser";
+import { buildPreviewRows, buildSystemGoalsPurchasesPreviewRows, rowCounts } from "@/features/imports/import-engine";
+import { parseSpreadsheetFile, parseSystemGoalsPurchasesFile } from "@/features/imports/parser";
 import {
   confirmImportRows,
+  createMissingImportCategories,
   listImportBatches,
   loadImportReferenceData,
   saveImportPreview,
+  undoImportBatch,
 } from "@/features/imports/queries";
 import {
   activeImportTargets,
@@ -35,10 +37,11 @@ export function ImportsWorkbench() {
   const [batchId, setBatchId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [workingAction, setWorkingAction] = useState<"parse" | "save" | "confirm" | null>(null);
+  const [workingAction, setWorkingAction] = useState<"parse" | "save" | "confirm" | "categories" | "undo" | null>(null);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
 
   const counts = useMemo(() => rowCounts(rows), [rows]);
+  const systemStats = useMemo(() => buildSystemStats(rows), [rows]);
   const config = getImportTargetConfig(target);
   const working = workingAction !== null;
 
@@ -70,11 +73,11 @@ export function ImportsWorkbench() {
     setFeedback(null);
     try {
       const client = createClient();
-      const [rawRows, references] = await Promise.all([
-        parseSpreadsheetFile(file),
-        loadImportReferenceData(client),
-      ]);
-      const preview = buildPreviewRows(target, rawRows, references);
+      const references = await loadImportReferenceData(client);
+      const preview =
+        target === "system_goals_purchases"
+          ? buildSystemGoalsPurchasesPreviewRows(await parseSystemGoalsPurchasesFile(file), references)
+          : buildPreviewRows(target, await parseSpreadsheetFile(file), references);
       setRows(preview);
       setBatchId(null);
       setFeedback({ type: "success", message: `${preview.length} linhas lidas. Revise a prévia antes de confirmar.` });
@@ -84,6 +87,50 @@ export function ImportsWorkbench() {
         type: "error",
         message: "Não foi possível ler o arquivo. Verifique se ele é um CSV ou XLSX válido.",
       });
+    } finally {
+      setWorkingAction(null);
+    }
+  }
+
+  async function handleCreateMissingCategories() {
+    if (!userId || systemStats.missingCategories.length === 0) return;
+    const confirmed = window.confirm(
+      `Criar ${systemStats.missingCategories.length} categorias faltantes?\n\n${systemStats.missingCategories.join(", ")}`,
+    );
+    if (!confirmed) return;
+
+    setWorkingAction("categories");
+    setFeedback(null);
+    try {
+      const result = await createMissingImportCategories(createClient(), userId, systemStats.missingCategories);
+      if (result.error) {
+        console.error("Erro técnico ao criar categorias faltantes:", result.error);
+        setFeedback({ type: "error", message: "Não foi possível criar as categorias faltantes." });
+        return;
+      }
+      setFeedback({ type: "success", message: `${result.created} categorias criadas. Gere a prévia novamente para resolver os vínculos.` });
+    } catch (error) {
+      console.error("Erro técnico ao criar categorias faltantes:", error);
+      setFeedback({ type: "error", message: "Não foi possível criar as categorias faltantes." });
+    } finally {
+      setWorkingAction(null);
+    }
+  }
+
+  async function handleUndo(batch: ImportBatch) {
+    if (!userId) return;
+    const confirmed = window.confirm(`Desfazer a importação ${batch.file_name}? Esta ação remove apenas registros criados por este lote.`);
+    if (!confirmed) return;
+
+    setWorkingAction("undo");
+    setFeedback(null);
+    try {
+      const result = await undoImportBatch(createClient(), userId, batch.id);
+      setFeedback({ type: "success", message: `Importação desfeita. ${result.deleted} registros removidos.` });
+      await loadHistory();
+    } catch (error) {
+      console.error("Erro técnico ao desfazer importação:", error);
+      setFeedback({ type: "error", message: "Não foi possível desfazer esta importação." });
     } finally {
       setWorkingAction(null);
     }
@@ -164,10 +211,41 @@ export function ImportsWorkbench() {
         <StatCard label="Falhas" value={String(counts.failed)} helper="Erro ao gravar." tone="danger" />
       </section>
 
+      {target === "system_goals_purchases" && rows.length > 0 ? (
+        <SectionCard title="Resumo da prévia" description="Conferência obrigatória antes de gravar metas e compras.">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+            <StatCard label="Metas lidas" value={String(systemStats.goals)} helper="Aba Metas_Sistema." tone="info" />
+            <StatCard label="Compras lidas" value={String(systemStats.purchases)} helper="Aba Compras_Sistema." tone="info" />
+            <StatCard label="Novos registros" value={String(systemStats.newRows)} helper="Válidos para importar." tone="success" />
+            <StatCard label="Duplicados" value={String(systemStats.duplicates)} helper="Bloqueados por padrão." tone="warning" />
+            <StatCard label="Com erro" value={String(systemStats.errors)} helper="Não serão importados." tone="danger" />
+            <StatCard label="Categorias pendentes" value={String(systemStats.missingCategories.length)} helper="Podem ficar sem categoria." tone="warning" />
+          </div>
+          <div className="mt-5 grid gap-4 lg:grid-cols-2">
+            <SummaryList title="Resumo por categoria" items={systemStats.byCategory} />
+            <SummaryList title="Resumo por status" items={systemStats.byStatus} />
+          </div>
+          {systemStats.missingCategories.length > 0 ? (
+            <div className="mt-5 rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+              <p className="font-semibold">Categorias não encontradas</p>
+              <p className="mt-1">Estas categorias não serão criadas automaticamente. Você pode importar sem categoria ou criar explicitamente antes de confirmar.</p>
+              <p className="mt-2">{systemStats.missingCategories.join(", ")}</p>
+              <div className="mt-3">
+                <ActionButton type="button" variant="secondary" disabled={working} onClick={() => void handleCreateMissingCategories()}>
+                  {workingAction === "categories" ? "Criando..." : "Criar categorias faltantes"}
+                </ActionButton>
+              </div>
+            </div>
+          ) : null}
+        </SectionCard>
+      ) : null}
+
       <SectionCard title="Como usar" description="Fluxo simples e seguro para o MVP.">
         <ul className="space-y-2 text-sm leading-6 text-ink-600">
           <li>Baixe o modelo, preencha os campos e importe o arquivo.</li>
           <li>Categorias e pessoas referenciadas precisam existir antes da importação.</li>
+          <li>Para Metas e compras, use XLSX com as abas Metas_Sistema e Compras_Sistema.</li>
+          <li>Categorias ausentes aparecem como pendência e não são criadas automaticamente.</li>
           <li>Linhas inválidas não serão importadas.</li>
           <li>Você poderá revisar a prévia antes de confirmar.</li>
         </ul>
@@ -266,8 +344,9 @@ export function ImportsWorkbench() {
                 <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-ink-600">
                   <tr>
                     <th className="px-4 py-3">Linha</th>
+                    <th className="px-4 py-3">Destino</th>
                     <th className="px-4 py-3">Status</th>
-                    <th className="px-4 py-3">Erros</th>
+                    <th className="px-4 py-3">Erros e avisos</th>
                     <th className="px-4 py-3">Dados originais</th>
                     <th className="px-4 py-3">Dados mapeados</th>
                     <th className="px-4 py-3 text-right">Ação</th>
@@ -277,9 +356,12 @@ export function ImportsWorkbench() {
                   {rows.map((row) => (
                     <tr key={row.rowNumber}>
                       <td className="px-4 py-3 text-ink-600">{row.rowNumber}</td>
+                      <td className="px-4 py-3 text-ink-600">{formatTarget(row.target ?? target)}</td>
                       <td className="px-4 py-3"><StatusPill status={row.status} /></td>
-                      <td className="px-4 py-3 text-danger-600">
-                        {row.errors.length ? row.errors.join(" | ") : "-"}
+                      <td className="px-4 py-3">
+                        {row.errors.length ? <p className="text-danger-600">{row.errors.join(" | ")}</p> : null}
+                        {row.warnings?.length ? <p className="mt-1 text-amber-700">{row.warnings.join(" | ")}</p> : null}
+                        {!row.errors.length && !row.warnings?.length ? <span className="text-ink-500">-</span> : null}
                       </td>
                       <td className="max-w-md px-4 py-3 text-ink-600">
                         <pre className="max-h-28 overflow-auto rounded-md bg-slate-50 p-3 text-xs">
@@ -326,6 +408,7 @@ export function ImportsWorkbench() {
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Linhas</th>
                   <th className="px-4 py-3">Erros</th>
+                  <th className="px-4 py-3 text-right">Ação</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-ink-950/10">
@@ -337,6 +420,15 @@ export function ImportsWorkbench() {
                     <td className="px-4 py-3"><StatusPill status={batch.status} /></td>
                     <td className="px-4 py-3 text-ink-600">{batch.valid_rows}/{batch.total_rows}</td>
                     <td className="px-4 py-3 text-ink-600">{batch.invalid_rows}</td>
+                    <td className="px-4 py-3 text-right">
+                      {batch.status === "confirmed" && ["system_goals_purchases", "goals", "planned_purchases"].includes(batch.target_type ?? batch.module) ? (
+                        <ActionButton type="button" variant="danger" disabled={working} onClick={() => void handleUndo(batch)}>
+                          {workingAction === "undo" ? "Desfazendo..." : "Desfazer"}
+                        </ActionButton>
+                      ) : (
+                        <span className="text-ink-400">-</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -368,4 +460,68 @@ function StatusPill({ status }: { status: string }) {
     draft: "Rascunho",
   };
   return <TextBadge tone={tone}>{label[status] ?? status}</TextBadge>;
+}
+
+function formatTarget(target: ImportTarget) {
+  const labels: Record<ImportTarget, string> = {
+    people: "Pessoas",
+    categories: "Categorias",
+    accounts_payable: "Contas",
+    income_sources: "Receitas",
+    credit_cards: "Cartões",
+    credit_card_invoices: "Faturas",
+    credit_card_transactions: "Lançamentos",
+    reimbursements: "Reembolsos",
+    installments: "Parcelamentos",
+    planned_purchases: "Compras",
+    goals: "Metas",
+    system_goals_purchases: "Metas e compras",
+  };
+  return labels[target] ?? target;
+}
+
+function buildSystemStats(rows: PreviewRow[]) {
+  const missingCategories = Array.from(
+    new Set(rows.map((row) => row.missingCategoryName).filter((name): name is string => Boolean(name))),
+  ).sort((a, b) => a.localeCompare(b));
+
+  return {
+    goals: rows.filter((row) => row.target === "goals").length,
+    purchases: rows.filter((row) => row.target === "planned_purchases").length,
+    newRows: rows.filter((row) => row.status === "valid" && !row.duplicate).length,
+    duplicates: rows.filter((row) => row.duplicate).length,
+    errors: rows.filter((row) => row.status === "invalid").length,
+    missingCategories,
+    byCategory: countBy(rows, (row) => String(row.mapped.category_label ?? row.mapped.goal_category ?? "Sem categoria")),
+    byStatus: countBy(rows, (row) => String(row.mapped.status ?? row.status ?? "sem_status")),
+  };
+}
+
+function countBy(rows: PreviewRow[], getKey: (row: PreviewRow) => string) {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const key = getKey(row);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return Array.from(counts.entries()).sort(([a], [b]) => a.localeCompare(b));
+}
+
+function SummaryList({ title, items }: { title: string; items: [string, number][] }) {
+  return (
+    <div className="rounded-md border border-ink-950/10 bg-white p-4">
+      <p className="text-sm font-semibold text-ink-950">{title}</p>
+      {items.length === 0 ? (
+        <p className="mt-2 text-sm text-ink-500">Sem dados.</p>
+      ) : (
+        <ul className="mt-3 space-y-2 text-sm text-ink-600">
+          {items.map(([label, count]) => (
+            <li key={label} className="flex items-center justify-between gap-4">
+              <span>{label}</span>
+              <span className="font-semibold text-ink-950">{count}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
