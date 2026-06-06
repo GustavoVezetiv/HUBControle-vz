@@ -2,6 +2,32 @@
 
 This file is maintained by project-local Codex hooks.
 
+## 2026-06-06T00:38:48.892Z - codex/test8-reimbursements-import-preview
+
+Objective: update project documentation
+
+Files changed:
+- _none_
+
+Impact: documentation or metadata only
+
+Risk: low
+
+Validation: `not run` - no code, config, migration, or script changes detected
+
+Documentation: covered by changed files or not required
+
+Generated real estate intake files:
+- _none_
+
+Skipped from auto-commit because they were dirty before the turn:
+- `scripts/import-planned-purchases-from-xlsx.mjs`
+
+Skipped binary/PDF assets from auto-commit:
+- _none_
+
+Rollback: restore listed files from Git or from local snapshots in `.codex/backups`; after an automatic commit, use `git revert <commit>`.
+
 ## 2026-06-04 - Configure Codex hooks
 
 Objective: configure safe, project-local Codex hooks for backups, validation,
