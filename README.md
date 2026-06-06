@@ -445,6 +445,7 @@ Currently supported import targets:
 - Categories
 - Accounts payable
 - Income sources
+- Metas e compras using an XLSX file with `Metas_Sistema` and `Compras_Sistema`
 
 Future import targets are visible as "Em breve" and cannot be imported yet:
 
@@ -476,7 +477,24 @@ Validation rules:
 - Dates must be valid.
 - Enum-like values are normalized when possible.
 - For accounts payable and income sources, categories and people are optional, but when provided they must already exist.
+- For the Metas e compras XLSX flow, missing categories are shown as pending warnings. They are not created automatically.
 - Duplicates are blocked by practical matching rules per module.
+
+Metas e compras import:
+
+- `Metas_Sistema` maps non-financial goals correctly. `Valor objetivo`, `Valor atual` and `Aporte mensal` are optional.
+- Goal category/type supports Pessoal, Profissional, Curso, Formação and Projetos.
+- Goal kind supports qualitative, financial and numeric goals.
+- `Compras_Sistema` maps planned purchases with description, estimated amount, target date, category, planned payment method, installments, status, risk and notes.
+- The preview shows goals read, purchases read, new records, duplicates, rows with error, missing categories, summary by category and summary by status.
+- Confirmed rows are tracked with `import_batch_id` and `import_source`.
+- Confirmed Metas e compras batches can be undone from import history. The undo only removes records created by that import batch.
+
+Run the migration below before using the updated goals/import flow:
+
+```bash
+supabase/migrations/202606050001_goal_quality_and_import_batches.sql
+```
 
 Known limitations:
 
@@ -484,7 +502,7 @@ Known limitations:
 - Missing references are not auto-created.
 - Import confirmation uses partial success: valid rows can import while failed rows are marked with errors.
 - XLSX/CSV parsing runs in the browser using `xlsx`.
-- Credit card, invoice, transaction, reimbursement, installment, planned purchase and goal imports are intentionally disabled until their templates are stabilized.
+- Credit card, invoice, transaction, reimbursement and installment imports are intentionally disabled until their templates are stabilized.
 - Open Finance, OCR, PDF parsing, card scraping, WhatsApp and AI classification are intentionally out of scope.
 
 ### Planned purchases spreadsheet import

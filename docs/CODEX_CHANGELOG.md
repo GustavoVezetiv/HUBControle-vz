@@ -2,6 +2,43 @@
 
 This file is maintained by project-local Codex hooks.
 
+## 2026-06-06T01:02:50.344Z - codex/test8-reimbursements-import-preview
+
+Objective: update project documentation
+
+Files changed:
+- `README.md`
+
+Impact: documentation or metadata only
+
+Risk: low
+
+Validation: `not run` - no code, config, migration, or script changes detected
+
+Documentation: covered by changed files or not required
+
+Generated real estate intake files:
+- _none_
+
+Skipped from auto-commit because they were dirty before the turn:
+- `eslint.config.mjs`
+- `scripts/import-planned-purchases-from-xlsx.mjs`
+- `src/features/goals/components/goals-crud.tsx`
+- `src/features/goals/queries.ts`
+- `src/features/imports/components/imports-workbench.tsx`
+- `src/features/imports/import-engine.ts`
+- `src/features/imports/parser.ts`
+- `src/features/imports/queries.ts`
+- `src/features/imports/templates.ts`
+- `src/features/imports/types.ts`
+- `src/lib/supabase/types.ts`
+- `supabase/migrations/202606050001_goal_quality_and_import_batches.sql`
+
+Skipped binary/PDF assets from auto-commit:
+- _none_
+
+Rollback: restore listed files from Git or from local snapshots in `.codex/backups`; after an automatic commit, use `git revert <commit>`.
+
 ## 2026-06-06T00:38:48.892Z - codex/test8-reimbursements-import-preview
 
 Objective: update project documentation
