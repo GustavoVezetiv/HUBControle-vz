@@ -1097,9 +1097,14 @@ function LinkedEntryModal({
         }}
       >
         {hasLink ? (
-          <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 md:col-span-2">
-            Este reembolso já possui vínculo. Para evitar duplicidade, o sistema não cria outro lançamento sobre o mesmo reembolso.
-          </p>
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 md:col-span-2">
+            <p>Este reembolso já possui vínculo. Para evitar duplicidade, o sistema não cria outro lançamento sobre o mesmo reembolso.</p>
+            {reimbursement.credit_card_invoice_id ? (
+              <Link className="mt-2 inline-flex font-semibold text-amber-950 underline" href={`/dashboard/invoices/${reimbursement.credit_card_invoice_id}`}>
+                Abrir fatura vinculada
+              </Link>
+            ) : null}
+          </div>
         ) : (
           <p className="rounded-md border border-mint-500/30 bg-mint-50 px-3 py-2 text-sm text-ink-700 md:col-span-2">
             Gerar lançamento vinculado cria uma conta ou lançamento de fatura rastreável a este reembolso.
