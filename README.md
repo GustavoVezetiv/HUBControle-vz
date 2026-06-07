@@ -540,6 +540,16 @@ card transaction from a reimbursement saves `invoice_id`, appears through the
 invoice transaction query, recalculates the invoice total, blocks duplicates and
 blocks invoice/card mismatches.
 
+Local regression check for the reimbursement debt summary:
+
+```bash
+npm run validate:reimbursements-debt-summary
+```
+
+This check does not connect to Supabase. It validates the per-person debt
+summary for open, late, settled and partial reimbursements, plus the summary
+view modes and person filter/clear-filter behavior.
+
 Known limitations:
 
 - Preview rows can be skipped but not edited inline yet.

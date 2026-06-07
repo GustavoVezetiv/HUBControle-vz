@@ -9,6 +9,14 @@ import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
 import {
+  buildPersonDebtSummaries,
+  filterPersonDebtSummaries,
+  getPersonDebtStatusLabel,
+  getPersonDebtStatusTone,
+  isReimbursementLateByDate,
+  type PersonDebtViewMode,
+} from "@/features/reimbursements/debt-summary";
+import {
   createReimbursement,
   deleteReimbursement,
   generateLinkedEntryFromReimbursement,
@@ -75,7 +83,7 @@ export function ReimbursementsCrud() {
   const [bulkCategoryId, setBulkCategoryId] = useState("");
   const [bulkPersonId, setBulkPersonId] = useState("");
   const [allowQuickTableEdit, setAllowQuickTableEdit] = useState(false);
-  const [showAllPeopleSummary, setShowAllPeopleSummary] = useState(false);
+  const [peopleSummaryView, setPeopleSummaryView] = useState<PersonDebtViewMode>("open");
   const [generatedInvoiceLink, setGeneratedInvoiceLink] = useState<{ invoiceId: string; transactionId?: string } | null>(null);
 
   const periodReimbursements = useMemo(() => {
@@ -135,34 +143,11 @@ export function ReimbursementsCrud() {
     return { totalExpected, totalReceived, lateAmount, partialAmount, amountOwed, estimatedPersonalCost };
   }, [accounts, periodReimbursements, transactions]);
 
-  const peopleSummary = useMemo(() => {
-    return people
-      .map((person) => {
-        const personRows = reimbursements.filter((item) => item.person_id === person.id);
-        const received = personRows.reduce((sum, item) => sum + Number(item.received_amount), 0);
-        const open = personRows.reduce((sum, item) => sum + getOpenAmount(item), 0);
-        const late = personRows
-          .filter(isLateReimbursement)
-          .reduce((sum, item) => sum + getOpenAmount(item), 0);
-        const partial = personRows
-          .filter((item) => item.status === "partial")
-          .reduce((sum, item) => sum + getOpenAmount(item), 0);
-        const lastExpectedDate = personRows
-          .map((item) => item.expected_date)
-          .filter((date): date is string => Boolean(date))
-          .sort()
-          .at(-1) ?? null;
-        const status = late > 0 ? "atrasado" : open > 0 ? "em_aberto" : "em_dia";
-
-        return { person, received, open, late, partial, count: personRows.length, lastExpectedDate, status };
-      })
-      .filter((item) => item.count > 0)
-      .sort((a, b) => b.open - a.open || b.late - a.late || a.person.name.localeCompare(b.person.name));
-  }, [people, reimbursements]);
+  const peopleSummary = useMemo(() => buildPersonDebtSummaries(people, reimbursements), [people, reimbursements]);
 
   const visiblePeopleSummary = useMemo(() => {
-    return showAllPeopleSummary ? peopleSummary : peopleSummary.filter((item) => item.open > 0);
-  }, [peopleSummary, showAllPeopleSummary]);
+    return filterPersonDebtSummaries(peopleSummary, peopleSummaryView);
+  }, [peopleSummary, peopleSummaryView]);
 
   const selectedPerson = personFilter === "all" ? null : people.find((person) => person.id === personFilter) ?? null;
 
@@ -528,28 +513,35 @@ export function ReimbursementsCrud() {
         </p>
       </SectionCard>
 
-      <SectionCard title="Saldo total devedor por pessoa" description="Por padrão, mostra apenas pessoas com saldo em aberto maior que zero.">
-        <div className="mb-4 flex justify-end">
-          <label className="inline-flex items-center gap-2 text-sm font-medium text-ink-600">
-            <input
-              type="checkbox"
-              checked={showAllPeopleSummary}
-              onChange={(event) => setShowAllPeopleSummary(event.target.checked)}
-            />
-            Mostrar todos
-          </label>
+      <SectionCard title="Saldo devedor por pessoa" description="Por padrão, mostra apenas pessoas que ainda têm algo em aberto, parcial ou atrasado.">
+        <div className="mb-4 flex flex-wrap gap-2">
+          {[
+            { value: "open", label: "Mostrar em aberto" },
+            { value: "late", label: "Mostrar atrasados" },
+            { value: "all", label: "Mostrar todos com histórico" },
+            { value: "hide_settled", label: "Ocultar quitados" },
+          ].map((option) => (
+            <ActionButton
+              key={option.value}
+              type="button"
+              variant={peopleSummaryView === option.value ? "primary" : "secondary"}
+              onClick={() => setPeopleSummaryView(option.value as PersonDebtViewMode)}
+            >
+              {option.label}
+            </ActionButton>
+          ))}
         </div>
         {peopleSummary.length === 0 ? (
           <EmptyState title="Nenhuma pessoa com reembolso" description="Quando houver reembolsos, o resumo por pessoa aparecerá aqui." />
         ) : visiblePeopleSummary.length === 0 ? (
-          <EmptyState title="Ninguém deve agora" description="Não há pessoas com saldo em aberto." />
+          <EmptyState title="Nenhuma pessoa neste filtro" description="Troque a visualização para ver outros históricos de reembolso." />
         ) : (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {visiblePeopleSummary.map((item) => (
               <button
                 key={item.person.id}
                 type="button"
-                className={`rounded-md border bg-white p-4 text-left transition hover:border-mint-500 hover:shadow-sm ${
+                className={`rounded-md border bg-white p-4 text-left transition hover:border-mint-500 hover:shadow-sm dark:bg-slate-950 ${
                   personFilter === item.person.id ? "border-mint-500 ring-2 ring-mint-500/20" : "border-ink-950/10"
                 }`}
                 onClick={() => setPersonFilter(item.person.id)}
@@ -559,19 +551,20 @@ export function ReimbursementsCrud() {
                   <div>
                     <p className="text-sm font-semibold text-ink-950">{item.person.name}</p>
                     <p className="mt-1 text-sm text-ink-600">
-                      {item.count} reembolso(s)
+                      {item.totalCount} reembolso(s)
                       {item.lastExpectedDate ? ` · última previsão ${formatDate(item.lastExpectedDate)}` : ""}
                     </p>
                   </div>
-                  <TextBadge tone={item.status === "atrasado" ? "danger" : item.status === "em_aberto" ? "warning" : "success"}>
-                    {item.status === "atrasado" ? "Atrasado" : item.status === "em_aberto" ? "Em aberto" : "Em dia"}
-                  </TextBadge>
+                  <TextBadge tone={getPersonDebtStatusTone(item.status)}>{getPersonDebtStatusLabel(item.status)}</TextBadge>
                 </div>
                 <div className="mt-4 grid gap-2 text-sm text-ink-600">
-                  <p>Total em aberto: <strong className="text-ink-950">{formatCurrency(item.open)}</strong></p>
-                  <p>Atrasado: <strong className={item.late > 0 ? "text-red-600" : "text-ink-950"}>{formatCurrency(item.late)}</strong></p>
-                  <p>Parcial: <strong className="text-ink-950">{formatCurrency(item.partial)}</strong></p>
+                  <p>Total esperado: <strong className="text-ink-950">{formatCurrency(item.totalExpected)}</strong></p>
                   <p>Recebido: <strong className="text-ink-950">{formatCurrency(item.received)}</strong></p>
+                  <p>Em aberto: <strong className={item.open > 0 ? "text-amber-700" : "text-ink-950"}>{formatCurrency(item.open)}</strong></p>
+                  <p>Atrasado: <strong className={item.late > 0 ? "text-red-600" : "text-ink-950"}>{formatCurrency(item.late)}</strong></p>
+                  <p className="text-xs text-ink-500">
+                    {item.openCount} aberto(s) · {item.lateCount} atrasado(s) · {item.partialCount} parcial(is)
+                  </p>
                 </div>
               </button>
             ))}
@@ -1829,11 +1822,7 @@ function getOpenAmount(reimbursement: ReimbursementRow) {
 }
 
 function isLateReimbursement(reimbursement: ReimbursementRow) {
-  if (["received", "cancelled", "forgiven"].includes(reimbursement.status)) return false;
-  if (reimbursement.status === "late") return true;
-  if (!reimbursement.expected_date) return false;
-
-  return reimbursement.expected_date < new Date().toISOString().slice(0, 10);
+  return isReimbursementLateByDate(reimbursement);
 }
 
 function formatDateTime(date: Date) {
