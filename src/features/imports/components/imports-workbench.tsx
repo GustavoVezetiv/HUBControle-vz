@@ -265,9 +265,10 @@ export function ImportsWorkbench() {
             <StatCard label="Com erro" value={String(systemStats.errors)} helper="Não serão importados." tone="danger" />
             <StatCard label="Categorias pendentes" value={String(systemStats.missingCategories.length)} helper="Podem ficar sem categoria." tone="warning" />
           </div>
-          <div className="mt-5 grid gap-4 lg:grid-cols-2">
-            <SummaryList title="Resumo por categoria" items={systemStats.byCategory} />
+          <div className="mt-5 grid gap-4 lg:grid-cols-3">
+            <SummaryList title="Resumo por tipo de meta" items={systemStats.byGoalType} />
             <SummaryList title="Resumo por status" items={systemStats.byStatus} />
+            <SummaryList title="Resumo por categoria" items={systemStats.byCategory} />
           </div>
           {systemStats.missingCategories.length > 0 ? (
             <div className="mt-5 rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
@@ -606,7 +607,8 @@ function buildSystemStats(rows: PreviewRow[]) {
     duplicates: rows.filter((row) => row.duplicate).length,
     errors: rows.filter((row) => row.status === "invalid").length,
     missingCategories,
-    byCategory: countBy(rows, (row) => String(row.mapped.category_label ?? row.mapped.goal_category ?? "Sem categoria")),
+    byGoalType: countBy(rows.filter((row) => row.target === "goals"), (row) => String(row.mapped.category_label ?? row.mapped.goal_category ?? "Sem tipo")),
+    byCategory: countBy(rows.filter((row) => row.target === "planned_purchases"), (row) => String(row.mapped.category_label ?? "Sem categoria")),
     byStatus: countBy(rows, (row) => String(row.mapped.status ?? row.status ?? "sem_status")),
   };
 }

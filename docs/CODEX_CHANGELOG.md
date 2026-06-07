@@ -2,6 +2,76 @@
 
 This file is maintained by project-local Codex hooks.
 
+## 2026-06-07T12:57:41.110Z - codex/test8-reimbursements-import-preview
+
+Objective: update database schema
+
+Files changed:
+- `README.md`
+- `scripts/validate-goals-purchases-import-flow.mjs`
+- `src/features/goals/components/goals-crud.tsx`
+- `src/features/goals/queries.ts`
+- `src/features/imports/components/imports-workbench.tsx`
+- `src/features/imports/import-engine.ts`
+- `src/features/imports/queries.ts`
+- `src/features/imports/templates.ts`
+- `src/lib/supabase/types.ts`
+- `supabase/migrations/202606070001_import_created_by_metadata.sql`
+
+Impact: database behavior or available columns may change
+
+Risk: medium; verify database migration order and rollback manually
+
+Validation: `npm run lint` - failed
+
+Documentation: covered by changed files or not required
+
+Generated real estate intake files:
+- _none_
+
+Skipped from auto-commit because they were dirty before the turn:
+- _none_
+
+Skipped binary/PDF assets from auto-commit:
+- _none_
+
+Rollback: restore listed files from Git or from local snapshots in `.codex/backups`; after an automatic commit, use `git revert <commit>`.
+
+## 2026-06-07T12:55:20.945Z - codex/test8-reimbursements-import-preview
+
+Objective: update database schema
+
+Files changed:
+- `README.md`
+- `scripts/validate-goals-purchases-import-flow.mjs`
+- `src/features/goals/components/goals-crud.tsx`
+- `src/features/goals/queries.ts`
+- `src/features/imports/components/imports-workbench.tsx`
+- `src/features/imports/import-engine.ts`
+- `src/features/imports/queries.ts`
+- `src/features/imports/templates.ts`
+- `src/lib/supabase/types.ts`
+- `supabase/migrations/202606070001_import_created_by_metadata.sql`
+
+Impact: database behavior or available columns may change
+
+Risk: medium; verify database migration order and rollback manually
+
+Validation: `npm run lint` - failed
+
+Documentation: covered by changed files or not required
+
+Generated real estate intake files:
+- _none_
+
+Skipped from auto-commit because they were dirty before the turn:
+- _none_
+
+Skipped binary/PDF assets from auto-commit:
+- _none_
+
+Rollback: restore listed files from Git or from local snapshots in `.codex/backups`; after an automatic commit, use `git revert <commit>`.
+
 ## 2026-06-07T09:26:49.134Z - codex/test8-reimbursements-import-preview
 
 Objective: update project documentation

@@ -118,12 +118,9 @@ export function GoalsCrud() {
       setFeedback({ type: "error", message: "Informe o nome da meta." });
       return;
     }
-    if ([values.target_amount, values.current_amount, values.monthly_contribution, values.manual_progress_percent].some((value) => value.trim() && (Number(value) < 0 || Number.isNaN(Number(value))))) {
+    const financialValues = values.goal_kind === "financial" ? [values.target_amount, values.current_amount, values.monthly_contribution] : [];
+    if (financialValues.some((value) => value.trim() && (Number(value) < 0 || Number.isNaN(Number(value))))) {
       setFeedback({ type: "error", message: "Valores devem ser maiores ou iguais a zero." });
-      return;
-    }
-    if (values.manual_progress_percent.trim() && Number(values.manual_progress_percent) > 100) {
-      setFeedback({ type: "error", message: "Progresso manual deve ficar entre 0 e 100%." });
       return;
     }
     if (!userId) return;
@@ -248,7 +245,6 @@ export function GoalsCrud() {
                     </th>
                     <th className="px-4 py-3">Meta</th>
                     <th className="px-4 py-3">Categoria</th>
-                    <th className="px-4 py-3">Atual</th>
                     <th className="px-4 py-3">Progresso</th>
                     <th className="px-4 py-3">Prazo</th>
                     <th className="px-4 py-3">Status</th>
@@ -308,13 +304,6 @@ export function GoalsCrud() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-ink-950">
-                        {allowQuickTableEdit ? (
-                          <QuickEditInput type="number" value={goal.current_amount === null ? "" : String(goal.current_amount)} onCommit={(value) => void handleQuickUpdate(goal, { current_amount: value })} />
-                        ) : (
-                          formatOptionalAmount(goal.current_amount)
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-ink-950">
                         <GoalProgress goal={goal} />
                       </td>
                       <td className="px-4 py-3 text-ink-600">
@@ -358,18 +347,35 @@ export function GoalsCrud() {
 
 function GoalModal({ modal, saving, onClose, onSubmit }: { modal: ModalState; saving: boolean; onClose: () => void; onSubmit: (values: GoalFormValues) => void }) {
   const [values, setValues] = useState<GoalFormValues>(modal?.mode === "edit" ? goalToFormValues(modal.goal) : emptyGoalForm);
+  const isFinancial = values.goal_kind === "financial";
+  const submitValues = isFinancial
+    ? values
+    : {
+      ...values,
+      target_amount: "",
+      current_amount: "",
+      monthly_contribution: "",
+      manual_progress_percent: "",
+    };
   return (
     <Modal title={modal?.mode === "edit" ? "Editar meta" : "Nova meta"} description="Valores são opcionais para metas qualitativas. A urgência é calculada pelo prazo." onClose={onClose}>
-      <form className="grid gap-4 md:grid-cols-2" onSubmit={(event) => { event.preventDefault(); onSubmit(values); }}>
+      <form className="grid gap-4 md:grid-cols-2" onSubmit={(event) => { event.preventDefault(); onSubmit(submitValues); }}>
         <FieldShell label="Nome"><input required className={inputClassName} value={values.name} onChange={(event) => setValues({ ...values, name: event.target.value })} /></FieldShell>
         <FieldShell label="Categoria ou tipo"><select className={inputClassName} value={values.goal_category} onChange={(event) => setValues({ ...values, goal_category: event.target.value, goal_type: event.target.value })}>{goalCategoryOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></FieldShell>
         <FieldShell label="Tipo de meta"><select className={inputClassName} value={values.goal_kind} onChange={(event) => setValues({ ...values, goal_kind: event.target.value })}>{goalKindOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></FieldShell>
-        <FieldShell label="Progresso manual (%)"><input min="0" max="100" step="1" type="number" className={inputClassName} value={values.manual_progress_percent} onChange={(event) => setValues({ ...values, manual_progress_percent: event.target.value })} /></FieldShell>
-        <FieldShell label="Valor objetivo"><input min="0" step="0.01" type="number" className={inputClassName} value={values.target_amount} onChange={(event) => setValues({ ...values, target_amount: event.target.value })} /></FieldShell>
-        <FieldShell label="Valor atual"><input min="0" step="0.01" type="number" className={inputClassName} value={values.current_amount} onChange={(event) => setValues({ ...values, current_amount: event.target.value })} /></FieldShell>
         <FieldShell label="Data inicial"><input type="date" className={inputClassName} value={values.start_date} onChange={(event) => setValues({ ...values, start_date: event.target.value })} /></FieldShell>
         <FieldShell label="Data alvo"><input type="date" className={inputClassName} value={values.target_date} onChange={(event) => setValues({ ...values, target_date: event.target.value })} /></FieldShell>
-        <FieldShell label="Aporte mensal"><input min="0" step="0.01" type="number" className={inputClassName} value={values.monthly_contribution} onChange={(event) => setValues({ ...values, monthly_contribution: event.target.value })} /></FieldShell>
+        {isFinancial ? (
+          <>
+            <FieldShell label="Valor objetivo"><input min="0" step="0.01" type="number" className={inputClassName} value={values.target_amount} onChange={(event) => setValues({ ...values, target_amount: event.target.value })} /></FieldShell>
+            <FieldShell label="Valor atual"><input min="0" step="0.01" type="number" className={inputClassName} value={values.current_amount} onChange={(event) => setValues({ ...values, current_amount: event.target.value })} /></FieldShell>
+            <FieldShell label="Aporte mensal"><input min="0" step="0.01" type="number" className={inputClassName} value={values.monthly_contribution} onChange={(event) => setValues({ ...values, monthly_contribution: event.target.value })} /></FieldShell>
+          </>
+        ) : (
+          <div className="rounded-md border border-ink-950/10 bg-slate-50 p-4 text-sm leading-6 text-ink-600 md:col-span-2">
+            Esta meta será acompanhada por prazo. Valores financeiros ficam ocultos para metas qualitativas ou numéricas.
+          </div>
+        )}
         <FieldShell label="Status"><select className={inputClassName} value={values.status} onChange={(event) => setValues({ ...values, status: event.target.value })}>{goalStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></FieldShell>
         <div className="md:col-span-2"><FieldShell label="Observações"><textarea rows={3} className={inputClassName} value={values.notes} onChange={(event) => setValues({ ...values, notes: event.target.value })} /></FieldShell></div>
         <div className="flex justify-end gap-2 md:col-span-2">
@@ -382,15 +388,15 @@ function GoalModal({ modal, saving, onClose, onSubmit }: { modal: ModalState; sa
 }
 
 function GoalProgress({ goal }: { goal: Goal }) {
-  const progress = calculateProgress(goal);
+  const progress = calculateDeadlineProgress(goal);
   return (
     <div className="min-w-32">
       <div className="flex items-center justify-between gap-3">
         <span className="text-sm font-semibold text-ink-950">{progress}%</span>
-        <span className="text-xs text-ink-500">{formatOptionalAmount(goal.target_amount)}</span>
+        <span className="text-xs text-ink-500">Prazo</span>
       </div>
       <div className="mt-2 h-2 rounded-full bg-slate-200">
-        <div className="h-2 rounded-full bg-mint-500" style={{ width: `${progress}%` }} />
+        <div className={`h-2 rounded-full ${deadlineProgressColor(goal)}`} style={{ width: `${progress}%` }} />
       </div>
     </div>
   );
@@ -407,12 +413,25 @@ function UrgencyBadge({ goal }: { goal: Goal }) {
   return <TextBadge tone={config.tone}>{config.label}</TextBadge>;
 }
 
-function calculateProgress(goal: Goal) {
-  if (goal.manual_progress_percent !== null) return clamp(goal.manual_progress_percent);
-  if (goal.target_amount && goal.target_amount > 0 && goal.current_amount !== null) {
-    return clamp((goal.current_amount / goal.target_amount) * 100);
-  }
-  return 0;
+function calculateDeadlineProgress(goal: Goal) {
+  if (!goal.target_date) return 0;
+  const today = startOfDay(new Date());
+  const target = startOfDay(new Date(`${goal.target_date}T00:00:00`));
+  const start = goal.start_date
+    ? startOfDay(new Date(`${goal.start_date}T00:00:00`))
+    : startOfDay(new Date(goal.created_at));
+  if (target.getTime() <= start.getTime()) return target.getTime() < today.getTime() ? 100 : 0;
+  const elapsed = today.getTime() - start.getTime();
+  const total = target.getTime() - start.getTime();
+  return clamp((elapsed / total) * 100);
+}
+
+function deadlineProgressColor(goal: Goal) {
+  const urgency = calculateUrgency(goal);
+  if (urgency === "urgent") return "bg-danger-500";
+  if (urgency === "attention") return "bg-amber-500";
+  if (urgency === "comfortable") return "bg-mint-500";
+  return "bg-slate-400";
 }
 
 function isFinancialGoal(goal: Goal) {
@@ -430,12 +449,13 @@ function calculateUrgency(goal: Goal) {
   return "comfortable";
 }
 
-function clamp(value: number) {
-  return Math.max(0, Math.min(100, Math.round(value)));
+function startOfDay(date: Date) {
+  date.setHours(0, 0, 0, 0);
+  return date;
 }
 
-function formatOptionalAmount(value: number | null) {
-  return value === null ? "Não informado" : formatCurrency(Number(value));
+function clamp(value: number) {
+  return Math.max(0, Math.min(100, Math.round(value)));
 }
 
 function labelFor(options: { value: string; label: string }[], value: string) {

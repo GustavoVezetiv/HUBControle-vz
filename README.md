@@ -502,18 +502,20 @@ Validation rules:
 
 Metas e compras import:
 
-- `Metas_Sistema` maps non-financial goals correctly. `Valor objetivo`, `Valor atual` and `Aporte mensal` are optional.
-- Goal category/type supports Pessoal, Profissional, Curso, Formação and Projetos.
-- Goal kind supports qualitative, financial and numeric goals.
+- `Metas_Sistema` accepts exactly: `Nome`, `Tipo`, `Data alvo`, `Status`, `Observações`.
+- `Tipo` is the goal category/type and supports Pessoal, Profissional, Curso, Formação and Projetos.
+- Goals imported from `Metas_Sistema` are qualitative by default. Financial fields are not required and are not read from this sheet.
+- Goal deadline progress is calculated from the start date and target date. If `Observações` contains `Início: dd/mm/aaaa`, that date is used as the start date.
 - `Compras_Sistema` maps planned purchases with description, estimated amount, target date, category, planned payment method, installments, status, risk and notes.
-- The preview shows goals read, purchases read, new records, duplicates, rows with error, missing categories, summary by category and summary by status.
-- Confirmed rows are tracked with `import_batch_id` and `import_source`.
+- The preview shows goals read, purchases read, new records, duplicates ignored by default, rows with error, missing categories, summary by goal type, summary by category and summary by status.
+- Confirmed rows are tracked with `import_batch_id`, `import_source`, `created_at` and `created_by`.
 - Confirmed Metas e compras batches can be undone from import history. The undo only removes records created by that import batch.
 
 Run the migration below before using the updated goals/import flow:
 
 ```bash
 supabase/migrations/202606050001_goal_quality_and_import_batches.sql
+supabase/migrations/202606070001_import_created_by_metadata.sql
 ```
 
 Local regression check for the mapping rules:
@@ -524,7 +526,8 @@ npm run validate:goals-purchases-import
 
 This check does not connect to Supabase. It validates that qualitative goals do
 not require financial values, that goal `Tipo` is treated as goal category/type,
-and that missing purchase categories remain pending instead of being created.
+that duplicate goals are skipped by default, and that missing purchase categories
+remain pending instead of being created.
 
 Known limitations:
 

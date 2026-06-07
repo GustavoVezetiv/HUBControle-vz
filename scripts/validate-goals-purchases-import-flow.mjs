@@ -50,7 +50,7 @@ const references = {
     reimbursements: [],
     installments: [],
     planned_purchases: [],
-    goals: [],
+    goals: [{ name: "Meta duplicada", target_date: "2026-12-15", goal_category: "personal" }],
   },
 };
 
@@ -60,8 +60,16 @@ const rows = engine.buildSystemGoalsPurchasesPreviewRows(
       {
         nome: "Aprender ingles",
         tipo: "Curso",
+        data_alvo: "15/12/2026",
         status: "Ativa",
-        observacoes: "Origem: planilha; Progresso original: 35%; Status manual da planilha: Em andamento",
+        observacoes: "Início: 01/06/2026",
+      },
+      {
+        nome: "Meta duplicada",
+        tipo: "Pessoal",
+        data_alvo: "15/12/2026",
+        status: "Ativa",
+        observacoes: "Duplicada para teste",
       },
     ],
     purchases: [
@@ -91,6 +99,7 @@ const rows = engine.buildSystemGoalsPurchasesPreviewRows(
 );
 
 const goal = rows.find((row) => row.target === "goals");
+const duplicateGoal = rows.find((row) => row.mapped.name === "Meta duplicada");
 const purchaseWithMissingCategory = rows.find((row) => row.mapped.title === "Cadeira");
 const goalPayload = engine.buildInsertPayload("goals", "user-1", {
   ...goal.mapped,
@@ -99,9 +108,11 @@ const goalPayload = engine.buildInsertPayload("goals", "user-1", {
 
 const assertions = [
   ["meta qualitativa valida", goal.status === "valid"],
+  ["meta duplicada ignorada por padrao", duplicateGoal.status === "skipped" && duplicateGoal.duplicate === true],
   ["meta sem categoria pendente", goal.missingCategoryName === null],
   ["tipo Curso mapeado para course", goal.mapped.goal_category === "course"],
-  ["progresso manual nao transforma meta em financeira ou numerica", goal.mapped.goal_kind === "qualitative"],
+  ["aba Metas_Sistema nao usa progresso manual", goal.mapped.manual_progress_percent === null],
+  ["meta qualitativa nao vira financeira ou numerica", goal.mapped.goal_kind === "qualitative"],
   [
     "meta qualitativa sem valores financeiros",
     goal.mapped.target_amount === null &&
@@ -109,6 +120,7 @@ const assertions = [
       goal.mapped.monthly_contribution === null,
   ],
   ["payload de meta com import_batch_id", goalPayload.import_batch_id === "batch-1"],
+  ["payload de meta com created_by", goalPayload.created_by === "user-1"],
   ["compra com categoria inexistente fica pendente", purchaseWithMissingCategory.missingCategoryName === "Moveis"],
   ["compra pendente continua valida para importar sem categoria apos confirmacao", purchaseWithMissingCategory.status === "valid"],
 ];
@@ -126,10 +138,12 @@ console.log(
     {
       total: rows.length,
       valid: rows.filter((row) => row.status === "valid").length,
+      skipped: rows.filter((row) => row.status === "skipped").length,
       missingCategory: purchaseWithMissingCategory.missingCategoryName,
       goalKind: goal.mapped.goal_kind,
       goalCategory: goal.mapped.goal_category,
       goalImportBatchId: goalPayload.import_batch_id,
+      goalCreatedBy: goalPayload.created_by,
     },
     null,
     2,

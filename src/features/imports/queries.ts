@@ -22,6 +22,7 @@ export async function listImportRows(client: AppSupabaseClient, userId: string, 
     const mapped = asRecord(row.mapped_data);
     const errors = Array.isArray(row.errors) ? row.errors.map(String) : [];
     const missingCategoryName = typeof mapped.missing_category_name === "string" ? mapped.missing_category_name : null;
+    const duplicate = mapped._import_duplicate === true;
 
     return {
       rowNumber: row.row_number,
@@ -30,8 +31,11 @@ export async function listImportRows(client: AppSupabaseClient, userId: string, 
       mapped,
       status: normalizePreviewStatus(row.status),
       errors,
-      warnings: missingCategoryName ? [`Categoria não encontrada: ${missingCategoryName}. O item pode ser importado sem categoria.`] : [],
-      duplicate: errors.some((error) => error.toLowerCase().includes("duplicidade")),
+      warnings: [
+        duplicate ? "Ignorada por duplicidade. Esta linha não será importada por padrão." : null,
+        missingCategoryName ? `Categoria não encontrada: ${missingCategoryName}. O item pode ser importado sem categoria.` : null,
+      ].filter((message): message is string => Boolean(message)),
+      duplicate,
       missingCategoryName,
     };
   });
@@ -114,8 +118,8 @@ export async function saveImportPreview(
     import_batch_id: batch.data.id,
     row_number: row.rowNumber,
     raw_data: row.raw,
-    parsed_data: row.mapped,
-    mapped_data: row.mapped,
+    parsed_data: { ...row.mapped, _import_duplicate: row.duplicate ?? false },
+    mapped_data: { ...row.mapped, _import_duplicate: row.duplicate ?? false },
     validation_errors: row.errors,
     errors: row.errors,
     status: row.status,
