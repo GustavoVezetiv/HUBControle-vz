@@ -9,6 +9,7 @@
     "import:purchases": "node scripts/import-planned-purchases-from-xlsx.mjs",
     "import:goals-purchases": "node scripts/import-goals-and-purchases-from-xlsx.mjs",
     "validate:goals-purchases-import": "node scripts/validate-goals-purchases-import-flow.mjs",
+    "validate:reimbursement-invoice-link": "node scripts/validate-reimbursement-invoice-link-flow.mjs",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check ."

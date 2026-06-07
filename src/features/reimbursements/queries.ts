@@ -195,7 +195,7 @@ export async function generateLinkedEntryFromReimbursement(
   const recalculateResult = await recalculateInvoiceTotal(client, userId, values.invoice_id);
 
   if (recalculateResult.error) {
-    await rollbackGeneratedTransaction(client, transactionId);
+    await rollbackGeneratedTransaction(client, userId, transactionId);
     return { error: { message: "O lançamento foi criado, mas o total da fatura não foi recalculado. A criação foi desfeita." } };
   }
 
@@ -209,7 +209,7 @@ export async function generateLinkedEntryFromReimbursement(
 
   if (visibilityResult.error || !visibilityResult.data) {
     console.error("Erro técnico ao confirmar visibilidade do lançamento na fatura:", visibilityResult.error);
-    await rollbackGeneratedTransaction(client, transactionId);
+    await rollbackGeneratedTransaction(client, userId, transactionId);
     await recalculateInvoiceTotal(client, userId, values.invoice_id);
     return { error: { message: "O lançamento foi criado, mas não apareceu na consulta da fatura. A criação foi desfeita." } };
   }
@@ -227,7 +227,7 @@ export async function generateLinkedEntryFromReimbursement(
 
   if (updateResult.error) {
     console.error("Erro técnico ao vincular lançamento de fatura ao reembolso:", updateResult.error);
-    await rollbackGeneratedTransaction(client, transactionId);
+    await rollbackGeneratedTransaction(client, userId, transactionId);
     await recalculateInvoiceTotal(client, userId, values.invoice_id);
     return { error: { message: "O lançamento foi criado, mas não foi possível vincular ao reembolso. A criação foi desfeita." } };
   }
@@ -271,8 +271,8 @@ export async function recalculateInvoiceTotal(client: AppSupabaseClient, userId:
   return { totalAmount, error: null };
 }
 
-async function rollbackGeneratedTransaction(client: AppSupabaseClient, transactionId: string) {
-  const rollback = await client.from("credit_card_transactions").delete().eq("id", transactionId);
+async function rollbackGeneratedTransaction(client: AppSupabaseClient, userId: string, transactionId: string) {
+  const rollback = await client.from("credit_card_transactions").delete().eq("user_id", userId).eq("id", transactionId);
   if (rollback.error) {
     console.error("Erro técnico ao desfazer lançamento gerado por reembolso:", rollback.error);
   }

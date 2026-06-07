@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -75,6 +76,7 @@ export function ReimbursementsCrud() {
   const [bulkPersonId, setBulkPersonId] = useState("");
   const [allowQuickTableEdit, setAllowQuickTableEdit] = useState(false);
   const [showAllPeopleSummary, setShowAllPeopleSummary] = useState(false);
+  const [generatedInvoiceLink, setGeneratedInvoiceLink] = useState<{ invoiceId: string; transactionId?: string } | null>(null);
 
   const periodReimbursements = useMemo(() => {
     return reimbursements.filter((reimbursement) =>
@@ -300,6 +302,7 @@ export function ReimbursementsCrud() {
 
     setLinkingId(linkModal.reimbursement.id);
     setFeedback(null);
+    setGeneratedInvoiceLink(null);
 
     try {
       const result = await generateLinkedEntryFromReimbursement(createClient(), userId, linkModal.reimbursement, values);
@@ -309,7 +312,16 @@ export function ReimbursementsCrud() {
         return;
       }
 
-      setFeedback({ type: "success", message: values.target === "account" ? "Conta vinculada gerada." : "Lançamento de fatura vinculado gerado." });
+      if (values.target === "invoice" && result.invoiceId) {
+        setGeneratedInvoiceLink({ invoiceId: result.invoiceId, transactionId: result.transactionId });
+      }
+      setFeedback({
+        type: "success",
+        message:
+          values.target === "account"
+            ? "Conta vinculada gerada."
+            : "Lançamento de fatura vinculado gerado e confirmado na fatura selecionada.",
+      });
       setLinkModal(null);
       await loadData();
     } catch (error) {
@@ -485,6 +497,14 @@ export function ReimbursementsCrud() {
         }
       />
       <CrudFeedback feedback={feedback} />
+      {generatedInvoiceLink ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-mint-500/30 bg-mint-50 px-4 py-3 text-sm text-ink-700">
+          <span>Lançamento vinculado à fatura selecionada.</span>
+          <Link className="font-semibold text-mint-700 hover:text-mint-800" href={`/dashboard/invoices/${generatedInvoiceLink.invoiceId}`}>
+            Abrir fatura
+          </Link>
+        </div>
+      ) : null}
 
       <PeriodFilter value={period} onChange={setPeriod} syncUrl />
 
@@ -1049,14 +1069,16 @@ function LinkedEntryModal({
     amount: defaultAmount,
     transaction_date: defaultDate,
   });
-  const filteredInvoices = invoices.filter((invoice) => !invoiceValues.credit_card_id || invoice.credit_card_id === invoiceValues.credit_card_id);
+  const filteredInvoices = invoiceValues.credit_card_id
+    ? invoices.filter((invoice) => invoice.credit_card_id === invoiceValues.credit_card_id)
+    : [];
 
   return (
     <Modal
       title="Gerar lançamento vinculado"
       onClose={onClose}
       headerAction={
-        <ActionButton type="submit" form="linked-reimbursement-form" disabled={linking}>
+        <ActionButton type="submit" form="linked-reimbursement-form" disabled={linking || hasLink}>
           {linking ? "Gerando..." : "Salvar"}
         </ActionButton>
       }
@@ -1068,7 +1090,6 @@ function LinkedEntryModal({
           event.preventDefault();
 
           if (hasLink) {
-            onSubmit(target === "account" ? { target, ...accountValues } : { target, ...invoiceValues });
             return;
           }
 
@@ -1123,8 +1144,14 @@ function LinkedEntryModal({
               </select>
             </FieldShell>
             <FieldShell label="Fatura">
-              <select required className={inputClassName} value={invoiceValues.invoice_id} onChange={(event) => setInvoiceValues({ ...invoiceValues, invoice_id: event.target.value })}>
-                <option value="">Selecione</option>
+              <select
+                required
+                disabled={!invoiceValues.credit_card_id}
+                className={inputClassName}
+                value={invoiceValues.invoice_id}
+                onChange={(event) => setInvoiceValues({ ...invoiceValues, invoice_id: event.target.value })}
+              >
+                <option value="">{invoiceValues.credit_card_id ? "Selecione" : "Selecione um cartão primeiro"}</option>
                 {filteredInvoices.map((invoice) => (
                   <option key={invoice.id} value={invoice.id}>
                     {formatInvoiceOptionLabel(invoice, cards)}
@@ -1132,6 +1159,11 @@ function LinkedEntryModal({
                 ))}
               </select>
             </FieldShell>
+            {invoiceValues.credit_card_id && filteredInvoices.length === 0 ? (
+              <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 md:col-span-2">
+                Este cartão não possui faturas abertas para vínculo. Crie a fatura antes de gerar o lançamento.
+              </p>
+            ) : null}
             <FieldShell label="Valor">
               <input min="0" step="0.01" type="number" className={inputClassName} value={invoiceValues.amount} onChange={(event) => setInvoiceValues({ ...invoiceValues, amount: event.target.value })} />
             </FieldShell>
@@ -1147,7 +1179,7 @@ function LinkedEntryModal({
         )}
         <div className="flex justify-end gap-2 md:col-span-2">
           <ActionButton type="button" variant="secondary" onClick={onClose}>Cancelar</ActionButton>
-          <ActionButton type="submit" disabled={linking}>{linking ? "Gerando..." : "Gerar"}</ActionButton>
+          <ActionButton type="submit" disabled={linking || hasLink}>{linking ? "Gerando..." : "Gerar"}</ActionButton>
         </div>
       </form>
     </Modal>

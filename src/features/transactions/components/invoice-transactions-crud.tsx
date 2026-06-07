@@ -8,7 +8,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
 import { calculateInvoiceSummary, type InvoiceCard, type InvoiceReimbursementRow, type InvoiceRow } from "@/features/invoices/types";
-import { ActionButton, BooleanBadge, CategoryBadge, CategorySelect, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect } from "@/features/shared/crud-ui";
+import { ActionButton, BooleanBadge, CategoryBadge, CategorySelect, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, TextBadge } from "@/features/shared/crud-ui";
 import { formatCurrency, formatDate } from "@/features/shared/format";
 import { optionLabel, ownershipTypeOptions } from "@/features/shared/options";
 import { getQuickTableEditPreference } from "@/features/shared/quick-edit";
@@ -432,7 +432,10 @@ export function InvoiceTransactionsCrud({ invoiceId }: { invoiceId: string }) {
                       {allowQuickTableEdit && !transaction.reimbursement_id ? (
                         <QuickEditSelect value={String(transaction.is_reimbursable)} options={[{ value: "false", label: "Não" }, { value: "true", label: "Sim" }]} onCommit={(value) => void handleQuickUpdate(transaction, { is_reimbursable: value === "true" })} />
                       ) : (
-                        <BooleanBadge value={transaction.is_reimbursable} />
+                        <div className="flex flex-col items-start gap-1">
+                          <BooleanBadge value={transaction.is_reimbursable} />
+                          {transaction.reimbursement_id ? <TextBadge tone="info">Reembolso vinculado</TextBadge> : null}
+                        </div>
                       )}
                     </td>
                     <td className="px-4 py-3 text-ink-600">

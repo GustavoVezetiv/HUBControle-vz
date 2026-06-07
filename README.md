@@ -529,6 +529,17 @@ not require financial values, that goal `Tipo` is treated as goal category/type,
 that duplicate goals are skipped by default, and that missing purchase categories
 remain pending instead of being created.
 
+Local regression check for reimbursement-generated invoice transactions:
+
+```bash
+npm run validate:reimbursement-invoice-link
+```
+
+This check does not connect to Supabase. It validates that generating a credit
+card transaction from a reimbursement saves `invoice_id`, appears through the
+invoice transaction query, recalculates the invoice total, blocks duplicates and
+blocks invoice/card mismatches.
+
 Known limitations:
 
 - Preview rows can be skipped but not edited inline yet.
