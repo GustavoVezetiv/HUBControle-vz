@@ -34,6 +34,9 @@ export type Profile = {
   interface_density: string;
   category_badge_style: string;
   content_width: string;
+  animation_level: string;
+  card_effect: string;
+  border_style: string;
   animations_enabled: boolean;
   interactive_cards_enabled: boolean;
   card_glow_enabled: boolean;
@@ -113,6 +116,11 @@ export type IncomeSource = UserOwnedRow & {
   expected_date: string | null;
   is_recurring: boolean;
   recurrence_rule: Json | null;
+  recurrence_frequency: string | null;
+  recurrence_start_date: string | null;
+  recurrence_end_date: string | null;
+  recurrence_parent_id: string | null;
+  recurrence_generated_until: string | null;
   status: string;
   received_at: string | null;
   received_date: string | null;

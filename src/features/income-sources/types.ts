@@ -11,6 +11,11 @@ export type IncomeSourceFormValues = {
   type: string;
   confidence: string;
   status: string;
+  is_recurring: boolean;
+  recurrence_frequency: "monthly";
+  recurrence_start_date: string;
+  recurrence_end_date: string;
+  recurrence_occurrences: string;
   notes: string;
 };
 
@@ -29,6 +34,11 @@ export const emptyIncomeForm: IncomeSourceFormValues = {
   type: "real_income",
   confidence: "medium",
   status: "expected",
+  is_recurring: false,
+  recurrence_frequency: "monthly",
+  recurrence_start_date: "",
+  recurrence_end_date: "",
+  recurrence_occurrences: "0",
   notes: "",
 };
 
@@ -44,6 +54,11 @@ export function incomeToFormValues(income: IncomeSourceRow): IncomeSourceFormVal
     type: income.source_type,
     confidence: income.confidence,
     status: income.status,
+    is_recurring: income.is_recurring,
+    recurrence_frequency: "monthly",
+    recurrence_start_date: income.recurrence_start_date ?? income.expected_date ?? "",
+    recurrence_end_date: income.recurrence_end_date ?? "",
+    recurrence_occurrences: "0",
     notes: income.notes ?? "",
   };
 }

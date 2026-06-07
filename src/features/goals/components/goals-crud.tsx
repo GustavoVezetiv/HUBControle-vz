@@ -74,11 +74,15 @@ export function GoalsCrud() {
 
   const summary = useMemo(() => {
     const active = goals.filter((goal) => goal.status === "active");
+    const financial = active.filter((goal) => isFinancialGoal(goal));
     return {
       activeCount: active.length,
-      targetTotal: active.reduce((sum, goal) => sum + Number(goal.target_amount ?? 0), 0),
-      currentTotal: active.reduce((sum, goal) => sum + Number(goal.current_amount ?? 0), 0),
-      monthlyTotal: active.reduce((sum, goal) => sum + Number(goal.monthly_contribution ?? 0), 0),
+      qualitativeCount: active.filter((goal) => goal.goal_kind === "qualitative").length,
+      withTargetDateCount: active.filter((goal) => Boolean(goal.target_date)).length,
+      financialCount: financial.length,
+      targetTotal: financial.reduce((sum, goal) => sum + Number(goal.target_amount ?? 0), 0),
+      currentTotal: financial.reduce((sum, goal) => sum + Number(goal.current_amount ?? 0), 0),
+      monthlyTotal: financial.reduce((sum, goal) => sum + Number(goal.monthly_contribution ?? 0), 0),
     };
   }, [goals]);
 
@@ -214,9 +218,11 @@ export function GoalsCrud() {
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Metas ativas" value={String(summary.activeCount)} helper="Em acompanhamento." tone="info" />
-        <StatCard label="Objetivo financeiro" value={formatCurrency(summary.targetTotal)} helper="Só quando informado." tone="warning" />
-        <StatCard label="Progresso financeiro" value={formatCurrency(summary.currentTotal)} helper="Só quando informado." tone="success" />
-        <StatCard label="Aporte mensal" value={formatCurrency(summary.monthlyTotal)} helper="Opcional." tone="neutral" />
+        <StatCard label="Qualitativas" value={String(summary.qualitativeCount)} helper="Sem valor financeiro obrigatório." tone="neutral" />
+        <StatCard label="Com prazo" value={String(summary.withTargetDateCount)} helper="Usadas para calcular urgência." tone="warning" />
+        {summary.financialCount > 0 ? (
+          <StatCard label="Valores financeiros" value={formatCurrency(summary.targetTotal)} helper="Somente metas financeiras ou mensuráveis com valor." tone="success" />
+        ) : null}
       </section>
 
       <SectionCard title="Metas cadastradas">
@@ -407,6 +413,10 @@ function calculateProgress(goal: Goal) {
     return clamp((goal.current_amount / goal.target_amount) * 100);
   }
   return 0;
+}
+
+function isFinancialGoal(goal: Goal) {
+  return goal.goal_kind === "financial";
 }
 
 function calculateUrgency(goal: Goal) {

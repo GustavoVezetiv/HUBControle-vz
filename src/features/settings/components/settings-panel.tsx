@@ -8,12 +8,14 @@ import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
 import { getProfile, upsertProfile } from "@/features/settings/queries";
 import {
+  animationLevelOptions,
+  borderStyleOptions,
+  cardEffectOptions,
   categoryBadgeStyleOptions,
   contentWidthOptions,
   currencyOptions,
   interfaceDensityOptions,
   profileToFormValues,
-  surfaceRadiusOptions,
   timezoneOptions,
   visualStyleOptions,
   type ProfileRow,
@@ -155,26 +157,19 @@ export function SettingsPanel() {
                   <p className="mt-2 text-xs text-ink-600">{contentWidthOptions.find((option) => option.value === values.content_width)?.description}</p>
                 </FieldShell>
                 <FieldShell label="Animações">
-                  <select className={inputClassName} value={String(values.animations_enabled)} onChange={(event) => setValues({ ...values, animations_enabled: event.target.value === "true" })}>
-                    <option value="true">Ativadas</option>
-                    <option value="false">Desativadas</option>
+                  <select className={inputClassName} value={values.animation_level} onChange={(event) => setValues({ ...values, animation_level: event.target.value as SettingsFormValues["animation_level"] })}>
+                    {animationLevelOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                  <p className="mt-2 text-xs text-ink-600">{animationLevelOptions.find((option) => option.value === values.animation_level)?.description}</p>
+                </FieldShell>
+                <FieldShell label="Efeito dos cards">
+                  <select className={inputClassName} value={values.card_effect} onChange={(event) => setValues({ ...values, card_effect: event.target.value as SettingsFormValues["card_effect"] })}>
+                    {cardEffectOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                   </select>
                 </FieldShell>
-                <FieldShell label="Cards interativos">
-                  <select className={inputClassName} value={String(values.interactive_cards_enabled)} onChange={(event) => setValues({ ...values, interactive_cards_enabled: event.target.value === "true" })}>
-                    <option value="true">Ativados</option>
-                    <option value="false">Desativados</option>
-                  </select>
-                </FieldShell>
-                <FieldShell label="Brilho nos cards">
-                  <select className={inputClassName} value={String(values.card_glow_enabled)} onChange={(event) => setValues({ ...values, card_glow_enabled: event.target.value === "true" })}>
-                    <option value="false">Desativado</option>
-                    <option value="true">Ativado</option>
-                  </select>
-                </FieldShell>
-                <FieldShell label="Bordas arredondadas">
-                  <select className={inputClassName} value={values.surface_radius} onChange={(event) => setValues({ ...values, surface_radius: event.target.value as SettingsFormValues["surface_radius"] })}>
-                    {surfaceRadiusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                <FieldShell label="Bordas">
+                  <select className={inputClassName} value={values.border_style} onChange={(event) => setValues({ ...values, border_style: event.target.value as SettingsFormValues["border_style"], surface_radius: event.target.value as SettingsFormValues["surface_radius"] })}>
+                    {borderStyleOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                   </select>
                 </FieldShell>
               </div>
@@ -203,7 +198,9 @@ function VisualPreview({ values }: { values: SettingsFormValues }) {
   const densityLabel = interfaceDensityOptions.find((option) => option.value === values.interface_density)?.label ?? "Confortável";
   const badgeLabel = categoryBadgeStyleOptions.find((option) => option.value === values.category_badge_style)?.label ?? "Sólido";
   const widthLabel = contentWidthOptions.find((option) => option.value === values.content_width)?.label ?? "Padrão";
-  const radiusLabel = surfaceRadiusOptions.find((option) => option.value === values.surface_radius)?.label ?? "Média";
+  const animationLabel = animationLevelOptions.find((option) => option.value === values.animation_level)?.label ?? "Suaves";
+  const cardEffectLabel = cardEffectOptions.find((option) => option.value === values.card_effect)?.label ?? "Normal";
+  const borderLabel = borderStyleOptions.find((option) => option.value === values.border_style)?.label ?? "Médias";
 
   return (
     <div
@@ -212,16 +209,19 @@ function VisualPreview({ values }: { values: SettingsFormValues }) {
       data-density={values.interface_density}
       data-category-badge-style={values.category_badge_style}
       data-content-width={values.content_width}
-      data-animations={values.animations_enabled ? "on" : "off"}
-      data-interactive-cards={values.interactive_cards_enabled ? "on" : "off"}
-      data-card-glow={values.card_glow_enabled ? "on" : "off"}
-      data-surface-radius={values.surface_radius}
+      data-animation-level={values.animation_level}
+      data-animations={values.animation_level === "off" ? "off" : "on"}
+      data-card-effect={values.card_effect}
+      data-interactive-cards={values.card_effect === "normal" ? "off" : "on"}
+      data-card-glow={values.card_effect === "soft_glow" || values.card_effect === "strong_glow" ? "on" : "off"}
+      data-border-style={values.border_style}
+      data-surface-radius={values.border_style}
     >
       <div className="hub-card rounded-lg border border-ink-950/10 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-ink-950">Prévia</p>
-            <p className="mt-1 text-xs text-ink-600">{visualLabel} · {densityLabel} · {badgeLabel} · {widthLabel} · {radiusLabel}</p>
+            <p className="mt-1 text-xs text-ink-600">{visualLabel} · {densityLabel} · {badgeLabel} · {widthLabel} · {animationLabel} · {cardEffectLabel} · {borderLabel}</p>
           </div>
           <span
             className="hub-category-badge inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold"
@@ -232,6 +232,31 @@ function VisualPreview({ values }: { values: SettingsFormValues }) {
           >
             Categoria
           </span>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <div className="hub-card rounded-lg border border-ink-950/10 bg-white p-3 shadow-sm">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-600">Card</p>
+            <p className="mt-2 text-lg font-semibold text-ink-950">R$ 1.240</p>
+            <p className="mt-1 text-xs text-ink-600">Hover, brilho e borda.</p>
+          </div>
+          <div className="rounded-md border border-ink-950/10 bg-white p-3">
+            <button type="button" className="hub-action hub-action-primary rounded-md bg-slate-950 px-3 py-2 text-sm font-semibold text-white">Botão</button>
+            <span className="hub-status-badge ml-2 inline-flex rounded-full bg-amberRisk-100 px-2.5 py-1 text-xs font-semibold text-amberRisk-500">Urgente</span>
+          </div>
+          <div className="overflow-hidden rounded-md border border-ink-950/10 bg-white">
+            <table className="min-w-full text-left text-xs">
+              <tbody>
+                <tr className="border-b border-ink-950/10">
+                  <td className="px-3 py-2 text-ink-600">Tabela</td>
+                  <td className="px-3 py-2 font-semibold text-ink-950">Legível</td>
+                </tr>
+                <tr>
+                  <td className="px-3 py-2 text-ink-600">Status</td>
+                  <td className="px-3 py-2"><span className="hub-status-badge rounded-full bg-mint-100 px-2 py-1 text-mint-600">Ok</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>

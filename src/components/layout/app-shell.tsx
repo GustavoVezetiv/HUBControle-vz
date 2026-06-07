@@ -9,10 +9,9 @@ type AppShellProps = {
   density?: string;
   categoryBadgeStyle?: string;
   contentWidth?: string;
-  animationsEnabled?: boolean;
-  interactiveCardsEnabled?: boolean;
-  cardGlowEnabled?: boolean;
-  surfaceRadius?: string;
+  animationLevel?: string;
+  cardEffect?: string;
+  borderStyle?: string;
 };
 
 export function AppShell({
@@ -22,10 +21,9 @@ export function AppShell({
   density = "comfortable",
   categoryBadgeStyle = "solid",
   contentWidth = "standard",
-  animationsEnabled = true,
-  interactiveCardsEnabled = true,
-  cardGlowEnabled = false,
-  surfaceRadius = "medium",
+  animationLevel = "soft",
+  cardEffect = "normal",
+  borderStyle = "medium",
 }: AppShellProps) {
   const contentWidthClass =
     contentWidth === "compact"
@@ -43,10 +41,13 @@ export function AppShell({
       data-density={density}
       data-category-badge-style={categoryBadgeStyle}
       data-content-width={contentWidth}
-      data-animations={animationsEnabled ? "on" : "off"}
-      data-interactive-cards={interactiveCardsEnabled ? "on" : "off"}
-      data-card-glow={cardGlowEnabled ? "on" : "off"}
-      data-surface-radius={surfaceRadius}
+      data-animation-level={animationLevel}
+      data-animations={animationLevel === "off" ? "off" : "on"}
+      data-card-effect={cardEffect}
+      data-interactive-cards={cardEffect === "normal" ? "off" : "on"}
+      data-card-glow={cardEffect === "soft_glow" || cardEffect === "strong_glow" ? "on" : "off"}
+      data-border-style={borderStyle}
+      data-surface-radius={borderStyle}
     >
       <Sidebar items={navigationItems} />
       <div className="min-w-0 flex-1">

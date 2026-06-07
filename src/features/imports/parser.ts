@@ -46,5 +46,11 @@ function sheetToRows(sheet: XLSX.WorkSheet | undefined): RawImportRow[] {
 }
 
 function normalizeHeader(value: string) {
-  return value.trim().toLowerCase();
+  return value
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
 }

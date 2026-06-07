@@ -37,6 +37,7 @@ import type { FeedbackState } from "@/features/shared/types";
 import {
   createIncomeSource,
   deleteIncomeSource,
+  generateRecurringIncomeSources,
   listIncomeSources,
   listIncomeSupportData,
   updateIncomeSource,
@@ -71,6 +72,7 @@ export function IncomeSourcesCrud() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deletingSelected, setDeletingSelected] = useState(false);
+  const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [modal, setModal] = useState<ModalState>(null);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -222,6 +224,22 @@ export function IncomeSourcesCrud() {
       return;
     }
 
+    if (values.is_recurring && !values.recurrence_start_date) {
+      setFeedback({ type: "error", message: "Informe a data inicial da recorrência." });
+      return;
+    }
+
+    if (values.is_recurring && values.recurrence_end_date && values.recurrence_end_date < values.recurrence_start_date) {
+      setFeedback({ type: "error", message: "A data final da recorrência não pode ser anterior à data inicial." });
+      return;
+    }
+
+    const recurrenceOccurrences = Number(values.recurrence_occurrences || 0);
+    if (values.is_recurring && (!Number.isFinite(recurrenceOccurrences) || recurrenceOccurrences < 0 || recurrenceOccurrences > 24)) {
+      setFeedback({ type: "error", message: "A quantidade de próximas ocorrências deve ficar entre 0 e 24." });
+      return;
+    }
+
     if (!userId) {
       setFeedback({ type: "error", message: "Sessão não encontrada. Entre novamente." });
       return;
@@ -238,18 +256,75 @@ export function IncomeSourcesCrud() {
           : await createIncomeSource(client, userId, values);
 
       if (result.error) {
+        console.error("Erro técnico ao salvar receita:", result.error);
+        setFeedback({ type: "error", message: "Não foi possível salvar a receita." });
+        return;
+      }
+
+      let generatedMessage = "";
+      if (values.is_recurring && recurrenceOccurrences > 0) {
+        const generated = await generateRecurringIncomeSources(client, userId, result.data, recurrenceOccurrences);
+
+        if (generated.error) {
+          console.error("Erro técnico ao gerar receitas recorrentes após salvar:", generated.error);
+          setFeedback({ type: "error", message: generated.error.message });
+          return;
+        }
+
+        generatedMessage = ` ${generated.created} ocorrência(s) criada(s), ${generated.skipped} já existia(m).`;
+      }
+
+      setFeedback({
+        type: "success",
+        message: `${modal?.mode === "edit" ? "Receita atualizada." : "Receita criada."}${generatedMessage}`,
+      });
+      setModal(null);
+      await loadIncomeSources();
+    } catch (error) {
+      console.error("Erro técnico ao salvar receita:", error);
+      setFeedback({ type: "error", message: "Não foi possível salvar a receita." });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleGenerateRecurring(income: IncomeSourceRow) {
+    if (!userId) {
+      setFeedback({ type: "error", message: "Sessão não encontrada. Entre novamente." });
+      return;
+    }
+
+    const rawOccurrences = window.prompt("Quantas próximas receitas gerar? Máximo 24.", "6");
+    if (rawOccurrences === null) return;
+
+    const occurrences = Number(rawOccurrences);
+    if (!Number.isFinite(occurrences) || occurrences < 1 || occurrences > 24) {
+      setFeedback({ type: "error", message: "Informe uma quantidade entre 1 e 24." });
+      return;
+    }
+
+    setGeneratingId(income.id);
+    setFeedback(null);
+
+    try {
+      const result = await generateRecurringIncomeSources(createClient(), userId, income, occurrences);
+
+      if (result.error) {
+        console.error("Erro técnico ao gerar receitas recorrentes:", result.error);
         setFeedback({ type: "error", message: result.error.message });
         return;
       }
 
       setFeedback({
         type: "success",
-        message: modal?.mode === "edit" ? "Receita atualizada." : "Receita criada.",
+        message: `${result.created} receita(s) criada(s). ${result.skipped} já existia(m).`,
       });
-      setModal(null);
       await loadIncomeSources();
+    } catch (error) {
+      console.error("Erro técnico ao gerar receitas recorrentes:", error);
+      setFeedback({ type: "error", message: "Não foi possível gerar as próximas receitas." });
     } finally {
-      setSaving(false);
+      setGeneratingId(null);
     }
   }
 
@@ -468,7 +543,9 @@ export function IncomeSourcesCrud() {
             people={people}
             onEdit={(income) => setModal({ mode: "edit", income })}
             onDelete={(income) => void handleDelete(income)}
+            onGenerateRecurring={(income) => void handleGenerateRecurring(income)}
             onQuickUpdate={(income, patch) => void handleQuickUpdate(income, patch)}
+            generatingId={generatingId}
             allowQuickTableEdit={allowQuickTableEdit}
             selectedIds={selectedIds}
             onSelectionChange={setSelectedIds}
@@ -497,7 +574,9 @@ function IncomeTable({
   people,
   onEdit,
   onDelete,
+  onGenerateRecurring,
   onQuickUpdate,
+  generatingId,
   allowQuickTableEdit,
   selectedIds,
   onSelectionChange,
@@ -507,7 +586,9 @@ function IncomeTable({
   people: IncomePerson[];
   onEdit: (income: IncomeSourceRow) => void;
   onDelete: (income: IncomeSourceRow) => void;
+  onGenerateRecurring: (income: IncomeSourceRow) => void;
   onQuickUpdate: (income: IncomeSourceRow, patch: Partial<IncomeSourceFormValues>) => void;
+  generatingId: string | null;
   allowQuickTableEdit: boolean;
   selectedIds: Set<string>;
   onSelectionChange: (ids: Set<string>) => void;
@@ -583,7 +664,12 @@ function IncomeTable({
                 ) : (
                   <TitleButton onClick={() => onEdit(income)}>{income.name}</TitleButton>
                 )}
-                <p className="text-xs text-ink-600">{income.description ?? "-"}</p>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <p className="text-xs text-ink-600">{income.description ?? "-"}</p>
+                  {income.is_recurring ? (
+                    <TextBadge tone="info">{income.recurrence_parent_id ? "Ocorrência" : "Recorrente"}</TextBadge>
+                  ) : null}
+                </div>
               </td>
               <td className="px-4 py-3 font-medium text-ink-950">
                 {allowQuickTableEdit ? (
@@ -615,6 +701,15 @@ function IncomeTable({
               </td>
               <td className="px-4 py-3">
                 <div className="flex justify-end gap-2">
+                  {income.is_recurring && !income.recurrence_parent_id ? (
+                    <ActionButton
+                      variant="secondary"
+                      disabled={generatingId === income.id}
+                      onClick={() => onGenerateRecurring(income)}
+                    >
+                      {generatingId === income.id ? "Gerando..." : "Gerar próximas receitas"}
+                    </ActionButton>
+                  ) : null}
                   <ActionButton variant="secondary" onClick={() => onEdit(income)}>Editar</ActionButton>
                   <ActionButton variant="danger" onClick={() => onDelete(income)}>Excluir</ActionButton>
                 </div>
@@ -699,6 +794,59 @@ function IncomeModal({
           <FieldShell label="Descrição">
             <textarea value={values.description} onChange={(event) => setValues({ ...values, description: event.target.value })} className={inputClassName} rows={3} />
           </FieldShell>
+        </div>
+        <div className="space-y-3 rounded-md border border-ink-950/10 bg-slate-50 p-4 md:col-span-2">
+          <label className="inline-flex items-center gap-2 text-sm font-semibold text-ink-950">
+            <input
+              type="checkbox"
+              checked={values.is_recurring}
+              onChange={(event) => setValues({ ...values, is_recurring: event.target.checked })}
+            />
+            Receita recorrente?
+          </label>
+          <p className="text-xs leading-5 text-ink-600">
+            A recorrência apenas configura a receita. As próximas receitas só são criadas quando você usa a ação Gerar próximas receitas.
+          </p>
+          {values.is_recurring ? (
+            <div className="grid gap-3 md:grid-cols-4">
+              <FieldShell label="Frequência">
+                <select
+                  className={inputClassName}
+                  value={values.recurrence_frequency}
+                  onChange={(event) => setValues({ ...values, recurrence_frequency: event.target.value as "monthly" })}
+                >
+                  <option value="monthly">Mensal</option>
+                </select>
+              </FieldShell>
+              <FieldShell label="Data inicial">
+                <input
+                  type="date"
+                  className={inputClassName}
+                  value={values.recurrence_start_date}
+                  onChange={(event) => setValues({ ...values, recurrence_start_date: event.target.value })}
+                />
+              </FieldShell>
+              <FieldShell label="Data final opcional">
+                <input
+                  type="date"
+                  className={inputClassName}
+                  value={values.recurrence_end_date}
+                  onChange={(event) => setValues({ ...values, recurrence_end_date: event.target.value })}
+                />
+              </FieldShell>
+              <FieldShell label="Ocorrências a gerar">
+                <input
+                  type="number"
+                  min="0"
+                  max="24"
+                  className={inputClassName}
+                  value={values.recurrence_occurrences}
+                  onChange={(event) => setValues({ ...values, recurrence_occurrences: event.target.value })}
+                />
+                <p className="mt-1 text-xs text-ink-600">Use 0 para salvar sem gerar agora. Limite de 24 por ação.</p>
+              </FieldShell>
+            </div>
+          ) : null}
         </div>
         <div className="md:col-span-2">
           <FieldShell label="Notas">
