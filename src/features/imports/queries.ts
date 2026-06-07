@@ -2,10 +2,39 @@ import { buildInsertPayload } from "@/features/imports/import-engine";
 import { isActiveImportTarget } from "@/features/imports/templates";
 import type { ImportTarget, PreviewRow, ReferenceData } from "@/features/imports/types";
 import type { AppSupabaseClient } from "@/features/shared/types";
-import type { ImportBatch, ImportRow } from "@/lib/supabase/types";
+import type { ImportBatch, ImportRow, Json } from "@/lib/supabase/types";
 
 export async function listImportBatches(client: AppSupabaseClient) {
   return client.from("import_batches").select("*").order("created_at", { ascending: false }).limit(20);
+}
+
+export async function listImportRows(client: AppSupabaseClient, userId: string, batchId: string): Promise<PreviewRow[]> {
+  const result = await client
+    .from("import_rows")
+    .select("row_number,raw_data,mapped_data,errors,status,target_entity_type")
+    .eq("user_id", userId)
+    .eq("import_batch_id", batchId)
+    .order("row_number", { ascending: true });
+
+  if (result.error) throw result.error;
+
+  return (result.data ?? []).map((row) => {
+    const mapped = asRecord(row.mapped_data);
+    const errors = Array.isArray(row.errors) ? row.errors.map(String) : [];
+    const missingCategoryName = typeof mapped.missing_category_name === "string" ? mapped.missing_category_name : null;
+
+    return {
+      rowNumber: row.row_number,
+      target: normalizeImportTarget(row.target_entity_type),
+      raw: asStringRecord(row.raw_data),
+      mapped,
+      status: normalizePreviewStatus(row.status),
+      errors,
+      warnings: missingCategoryName ? [`Categoria não encontrada: ${missingCategoryName}. O item pode ser importado sem categoria.`] : [],
+      duplicate: errors.some((error) => error.toLowerCase().includes("duplicidade")),
+      missingCategoryName,
+    };
+  });
 }
 
 export async function loadImportReferenceData(client: AppSupabaseClient): Promise<ReferenceData> {
@@ -201,7 +230,19 @@ export async function createMissingImportCategories(
   const uniqueNames = Array.from(new Set(names.map((name) => name.trim()).filter(Boolean)));
   if (uniqueNames.length === 0) return { created: 0, error: null };
 
-  const payload = uniqueNames.map((name) => ({
+  const existing = await client
+    .from("categories")
+    .select("name")
+    .eq("user_id", userId)
+    .in("name", uniqueNames);
+
+  if (existing.error) return { created: 0, error: existing.error };
+
+  const existingNames = new Set((existing.data ?? []).map((item) => item.name.toLowerCase()));
+  const namesToCreate = uniqueNames.filter((name) => !existingNames.has(name.toLowerCase()));
+  if (namesToCreate.length === 0) return { created: 0, error: null };
+
+  const payload = namesToCreate.map((name) => ({
     user_id: userId,
     name,
     type: "other",
@@ -283,4 +324,41 @@ async function insertTargetRow(client: AppSupabaseClient, target: ImportTarget, 
     return client.from("goals").insert(payload).select("id").single();
   }
   throw new Error("Importação deste módulo ainda não está disponível.");
+}
+
+function asRecord(value: unknown): Record<string, Json> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, Json>;
+  }
+  return {};
+}
+
+function asStringRecord(value: unknown): Record<string, string> {
+  const record = asRecord(value);
+  return Object.fromEntries(Object.entries(record).map(([key, item]) => [key, String(item ?? "")]));
+}
+
+function normalizeImportTarget(value: string | null): ImportTarget | undefined {
+  const targets: ImportTarget[] = [
+    "people",
+    "categories",
+    "accounts_payable",
+    "income_sources",
+    "credit_cards",
+    "credit_card_invoices",
+    "credit_card_transactions",
+    "reimbursements",
+    "installments",
+    "planned_purchases",
+    "goals",
+    "system_goals_purchases",
+  ];
+  return targets.includes(value as ImportTarget) ? (value as ImportTarget) : undefined;
+}
+
+function normalizePreviewStatus(value: string): PreviewRow["status"] {
+  if (["valid", "invalid", "skipped", "imported", "failed"].includes(value)) {
+    return value as PreviewRow["status"];
+  }
+  return "invalid";
 }

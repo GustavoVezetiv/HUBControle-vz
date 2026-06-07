@@ -73,15 +73,19 @@ Implemented in the foundation phase:
 - Payment plans and payment plan items
 - Simple deterministic payment decision simulator
 - CSV template downloads for the MVP import targets
-- CSV/XLSX import preview, validation, skip and confirmation flow for people, categories, accounts payable and income sources
+- CSV/XLSX import preview, validation, skip and confirmation flow for people, categories, accounts payable, income sources, and the system goals/purchases workbook
 - Dashboard summaries using real account, income, invoice, transaction, reimbursement, installment and payment plan data
 - User-owned personal goals in `/dashboard/goals`
 - Decision-focused dashboard sections for pay now, can wait, next invoice pressure and monthly risk
 - Monthly cash-flow view with real income separated from reimbursements and third-party money
 - Reimbursement visibility by responsible person and linked source
+- Total reimbursement debt balance by person, with late rows highlighted by expected date
+- Controlled monthly recurring income generation
 - CRUD for planned purchases and wishes
 - CRUD for notes
 - Functional user settings backed by `profiles`
+- Advanced visual preferences for style, density, badges, animation level, card effects, borders and content width
+- Dashboard system suggestions calculated from existing data without external AI
 
 Not implemented yet:
 
@@ -275,6 +279,22 @@ supabase/migrations/202605290001_add_goal_notes.sql
 
 Run it after the payment plan item type migration. It adds `goals.notes`, used by
 the personal goals CRUD.
+
+The income recurrence migration lives at:
+
+```bash
+supabase/migrations/202606060001_income_sources_recurrence_fields.sql
+```
+
+Run it after the existing income source migrations. It adds controlled monthly recurrence fields to `income_sources`, including parent tracking and generated-until metadata. The app only creates future recurring income rows after an explicit user action, with a limit of 24 occurrences per action.
+
+The advanced visual preferences migration lives at:
+
+```bash
+supabase/migrations/202606060002_profile_advanced_visual_preferences.sql
+```
+
+Run it after the existing profile visual preference migrations. It adds `animation_level`, `card_effect` and `border_style`, and expands the safe check constraints for the current visual settings UI.
 
 ## Authentication
 
@@ -496,6 +516,16 @@ Run the migration below before using the updated goals/import flow:
 supabase/migrations/202606050001_goal_quality_and_import_batches.sql
 ```
 
+Local regression check for the mapping rules:
+
+```bash
+npm run validate:goals-purchases-import
+```
+
+This check does not connect to Supabase. It validates that qualitative goals do
+not require financial values, that goal `Tipo` is treated as goal category/type,
+and that missing purchase categories remain pending instead of being created.
+
 Known limitations:
 
 - Preview rows can be skipped but not edited inline yet.
@@ -673,11 +703,24 @@ npm run build
 6. Test with two different users to confirm data isolation.
 7. Only then add real private financial data.
 
+## Visual Settings Testing
+
+1. Open `/dashboard/settings`.
+2. Switch between light and dark theme from the topbar.
+3. Change each option in `Aparência do Hub`.
+4. Check the preview card, button, badge and table before saving.
+5. Save settings and reload `/dashboard`.
+6. Confirm cards, tables, buttons, modals and badges remain readable.
+7. Test animation presets from `Desligadas` through `Chamativas`; no financial data should change.
+8. Test card effects, border styles, density and content width on table-heavy pages such as Accounts, Income and Reimbursements.
+
+The dashboard suggestions section is deterministic. It reads existing accounts, reimbursements, goals, purchases and expected income for the selected period, but it does not write or modify records.
+
 ## Limitações Conhecidas do Beta
 
-- Recurrence is intentionally simple and limited to controlled future account generation.
+- Recurrence is intentionally simple and limited to controlled future generation for accounts, reimbursements and income sources.
 - Advanced reporting and advanced filters are not part of this beta pass.
-- Imports are enabled only for people, categories, accounts payable and income sources.
+- Imports are enabled for people, categories, accounts payable, income sources, and the `Metas e compras` XLSX workbook.
 - Import preview rows can be skipped but not edited inline yet.
 - Missing import references are not auto-created.
 - No Open Finance integration.

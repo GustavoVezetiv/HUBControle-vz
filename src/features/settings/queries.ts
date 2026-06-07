@@ -19,10 +19,13 @@ export async function upsertProfile(client: AppSupabaseClient, userId: string, v
     interface_density: values.interface_density,
     category_badge_style: values.category_badge_style,
     content_width: values.content_width,
-    animations_enabled: values.animations_enabled,
-    interactive_cards_enabled: values.interactive_cards_enabled,
-    card_glow_enabled: values.card_glow_enabled,
-    surface_radius: values.surface_radius,
+    animation_level: values.animation_level,
+    card_effect: values.card_effect,
+    border_style: values.border_style,
+    animations_enabled: values.animation_level !== "off",
+    interactive_cards_enabled: values.card_effect !== "normal",
+    card_glow_enabled: values.card_effect === "soft_glow" || values.card_effect === "strong_glow",
+    surface_radius: values.border_style,
   };
 
   return client.from("profiles").upsert(payload).select("*").single();

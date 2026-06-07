@@ -105,17 +105,20 @@ select {
   --hub-badge-border: transparent;
 }
 
-.hub-shell[data-visual-style="minimal"] {
+.hub-shell[data-visual-style="minimal"],
+.hub-shell[data-visual-style="modern"] {
   --hub-card-bg: rgba(255, 255, 255, 0.92);
   --hub-card-border: rgba(15, 23, 42, 0.08);
-  --hub-card-shadow: none;
+  --hub-card-shadow: 0 10px 26px rgba(15, 23, 42, 0.07);
   --hub-card-radius: 0.375rem;
   background: #f8fafc;
 }
 
-:root.dark .hub-shell[data-visual-style="minimal"] {
+:root.dark .hub-shell[data-visual-style="minimal"],
+:root.dark .hub-shell[data-visual-style="modern"] {
   --hub-card-bg: rgba(15, 23, 42, 0.92);
   --hub-card-border: rgba(148, 163, 184, 0.14);
+  --hub-card-shadow: 0 18px 38px rgba(0, 0, 0, 0.24);
   background: #090f16;
 }
 
@@ -187,6 +190,18 @@ select {
   --hub-table-cell-x: 0.75rem;
 }
 
+.hub-shell[data-density="standard"] {
+  --hub-card-padding: 1.125rem;
+  --hub-table-cell-y: 0.625rem;
+  --hub-table-cell-x: 0.875rem;
+}
+
+.hub-shell[data-density="comfortable"] {
+  --hub-card-padding: 1.25rem;
+  --hub-table-cell-y: 0.75rem;
+  --hub-table-cell-x: 1rem;
+}
+
 .hub-card {
   background: var(--hub-card-bg);
   border-color: var(--hub-card-border);
@@ -195,6 +210,9 @@ select {
   padding: var(--hub-card-padding);
 }
 
+.hub-shell[data-animation-level="off"] *,
+.hub-shell[data-animation-level="off"] *::before,
+.hub-shell[data-animation-level="off"] *::after,
 .hub-shell[data-animations="off"] *,
 .hub-shell[data-animations="off"] *::before,
 .hub-shell[data-animations="off"] *::after {
@@ -204,19 +222,57 @@ select {
   animation-iteration-count: 1 !important;
 }
 
-.hub-shell[data-interactive-cards="on"] .hub-card,
-.hub-shell[data-interactive-cards="on"] a[href] .hub-card {
+.hub-shell[data-animation-level="soft"] .hub-card,
+.hub-shell[data-animation-level="soft"] .hub-action,
+.hub-shell[data-animation-level="soft"] .hub-category-badge,
+.hub-shell[data-animation-level="soft"] .hub-status-badge {
   transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
 }
 
-.hub-shell[data-interactive-cards="on"] a[href] .hub-card:hover,
-.hub-shell[data-interactive-cards="on"] .hub-card:hover {
-  border-color: rgba(24, 185, 143, 0.32);
-  transform: translateY(-1px);
+.hub-shell[data-animation-level="modern"] .hub-card,
+.hub-shell[data-animation-level="modern"] .hub-action,
+.hub-shell[data-animation-level="modern"] .hub-category-badge,
+.hub-shell[data-animation-level="modern"] .hub-status-badge,
+.hub-shell[data-animation-level="modern"] .hub-modal {
+  transition: border-color 220ms ease, box-shadow 220ms ease, transform 220ms ease, background-color 220ms ease;
 }
 
-.hub-shell[data-interactive-cards="off"] .hub-card {
-  transform: none !important;
+.hub-shell[data-animation-level="flashy"] .hub-card,
+.hub-shell[data-animation-level="flashy"] .hub-action,
+.hub-shell[data-animation-level="flashy"] .hub-category-badge,
+.hub-shell[data-animation-level="flashy"] .hub-status-badge,
+.hub-shell[data-animation-level="flashy"] .hub-modal {
+  transition: border-color 260ms cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 260ms cubic-bezier(0.2, 0.8, 0.2, 1), transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.hub-shell[data-card-effect="lifted_hover"] a[href] .hub-card:hover,
+.hub-shell[data-card-effect="lifted_hover"] .hub-card:hover,
+.hub-shell[data-card-effect="soft_glow"] a[href] .hub-card:hover,
+.hub-shell[data-card-effect="soft_glow"] .hub-card:hover,
+.hub-shell[data-card-effect="strong_glow"] a[href] .hub-card:hover,
+.hub-shell[data-card-effect="strong_glow"] .hub-card:hover {
+  border-color: rgba(24, 185, 143, 0.34);
+  transform: translateY(-2px);
+}
+
+.hub-shell[data-card-effect="normal"] .hub-card {
+  transform: none;
+}
+
+.hub-shell[data-card-effect="soft_glow"] {
+  --hub-card-shadow: 0 18px 48px rgba(24, 185, 143, 0.13), 0 2px 10px rgba(15, 23, 42, 0.08);
+}
+
+.hub-shell[data-card-effect="strong_glow"] {
+  --hub-card-shadow: 0 22px 56px rgba(24, 185, 143, 0.22), 0 4px 16px rgba(15, 23, 42, 0.12);
+}
+
+:root.dark .hub-shell[data-card-effect="soft_glow"] {
+  --hub-card-shadow: 0 18px 48px rgba(45, 212, 191, 0.14), 0 8px 22px rgba(0, 0, 0, 0.26);
+}
+
+:root.dark .hub-shell[data-card-effect="strong_glow"] {
+  --hub-card-shadow: 0 22px 56px rgba(45, 212, 191, 0.22), 0 10px 28px rgba(0, 0, 0, 0.34);
 }
 
 .hub-shell[data-visual-style="glass"] .hub-card {
@@ -235,20 +291,22 @@ select {
   padding-bottom: var(--hub-table-cell-y);
 }
 
-.hub-shell[data-card-glow="on"] {
-  --hub-card-shadow: 0 18px 48px rgba(24, 185, 143, 0.16), 0 2px 10px rgba(15, 23, 42, 0.08);
-}
-
-.hub-shell[data-surface-radius="soft"] {
+.hub-shell[data-border-style="subtle"],
+.hub-shell[data-surface-radius="soft"],
+.hub-shell[data-surface-radius="subtle"] {
   --hub-card-radius: 0.5rem;
+  --hub-card-border: rgba(15, 23, 42, 0.08);
 }
 
+.hub-shell[data-border-style="medium"],
 .hub-shell[data-surface-radius="medium"] {
   --hub-card-radius: 0.75rem;
 }
 
+.hub-shell[data-border-style="rounded"],
 .hub-shell[data-surface-radius="rounded"] {
   --hub-card-radius: 1rem;
+  --hub-card-border: rgba(24, 185, 143, 0.2);
 }
 
 .hub-category-badge {
@@ -267,12 +325,6 @@ select {
   --hub-badge-bg: transparent;
   --hub-badge-color: color-mix(in srgb, var(--category-color, #334155) 70%, #0f172a);
   --hub-badge-border: color-mix(in srgb, var(--category-color, #64748b) 58%, white);
-}
-
-.hub-shell[data-category-badge-style="creative_pill"] {
-  --hub-badge-bg: linear-gradient(135deg, color-mix(in srgb, var(--category-color, #18b98f) 88%, white), #ffffff);
-  --hub-badge-color: #0f172a;
-  --hub-badge-border: color-mix(in srgb, var(--category-color, #18b98f) 48%, white);
 }
 
 :root.dark .bg-white,
@@ -372,6 +424,35 @@ select {
   background-color: rgba(127, 29, 29, 0.42) !important;
   border-color: rgba(248, 113, 113, 0.32) !important;
   color: #fca5a5 !important;
+}
+
+:root.dark .text-white {
+  color: #f8fafc !important;
+}
+
+.hub-shell[data-animation-level="modern"] .hub-action:hover,
+.hub-shell[data-animation-level="flashy"] .hub-action:hover {
+  transform: translateY(-1px);
+}
+
+.hub-shell[data-animation-level="flashy"] .hub-status-badge,
+.hub-shell[data-animation-level="flashy"] .hub-category-badge {
+  box-shadow: 0 0 0 3px rgba(24, 185, 143, 0.1);
+}
+
+.hub-shell[data-animation-level="flashy"] .text-danger-600,
+.hub-shell[data-animation-level="flashy"] .text-amberRisk-500 {
+  animation: hub-urgency-pulse 1800ms ease-in-out infinite;
+}
+
+@keyframes hub-urgency-pulse {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.18);
+  }
 }
 
 :root.dark [role="listbox"] {

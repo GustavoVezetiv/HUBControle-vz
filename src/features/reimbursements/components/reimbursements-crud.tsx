@@ -136,20 +136,27 @@ export function ReimbursementsCrud() {
   const peopleSummary = useMemo(() => {
     return people
       .map((person) => {
-        const personRows = periodReimbursements.filter((item) => item.person_id === person.id);
-        const openRows = personRows.filter((item) => ["expected", "partial", "late"].includes(item.status));
-        const expected = openRows.reduce((sum, item) => sum + Number(item.expected_amount), 0);
+        const personRows = reimbursements.filter((item) => item.person_id === person.id);
         const received = personRows.reduce((sum, item) => sum + Number(item.received_amount), 0);
-        const open = openRows.reduce((sum, item) => sum + Number(item.expected_amount) - Number(item.received_amount), 0);
+        const open = personRows.reduce((sum, item) => sum + getOpenAmount(item), 0);
         const late = personRows
-          .filter((item) => item.status === "late")
-          .reduce((sum, item) => sum + Number(item.expected_amount) - Number(item.received_amount), 0);
+          .filter(isLateReimbursement)
+          .reduce((sum, item) => sum + getOpenAmount(item), 0);
+        const partial = personRows
+          .filter((item) => item.status === "partial")
+          .reduce((sum, item) => sum + getOpenAmount(item), 0);
+        const lastExpectedDate = personRows
+          .map((item) => item.expected_date)
+          .filter((date): date is string => Boolean(date))
+          .sort()
+          .at(-1) ?? null;
+        const status = late > 0 ? "atrasado" : open > 0 ? "em_aberto" : "em_dia";
 
-        return { person, expected, received, open, late, count: personRows.length };
+        return { person, received, open, late, partial, count: personRows.length, lastExpectedDate, status };
       })
       .filter((item) => item.count > 0)
-      .sort((a, b) => b.open - a.open);
-  }, [people, periodReimbursements]);
+      .sort((a, b) => b.open - a.open || b.late - a.late || a.person.name.localeCompare(b.person.name));
+  }, [people, reimbursements]);
 
   const visiblePeopleSummary = useMemo(() => {
     return showAllPeopleSummary ? peopleSummary : peopleSummary.filter((item) => item.open > 0);
@@ -501,7 +508,7 @@ export function ReimbursementsCrud() {
         </p>
       </SectionCard>
 
-      <SectionCard title="Quem deve agora" description="Por padrão, mostra apenas pessoas com valor em aberto.">
+      <SectionCard title="Saldo total devedor por pessoa" description="Por padrão, mostra apenas pessoas com saldo em aberto maior que zero.">
         <div className="mb-4 flex justify-end">
           <label className="inline-flex items-center gap-2 text-sm font-medium text-ink-600">
             <input
@@ -509,13 +516,13 @@ export function ReimbursementsCrud() {
               checked={showAllPeopleSummary}
               onChange={(event) => setShowAllPeopleSummary(event.target.checked)}
             />
-            Mostrar pessoas sem saldo em aberto
+            Mostrar todos
           </label>
         </div>
         {peopleSummary.length === 0 ? (
           <EmptyState title="Nenhuma pessoa com reembolso" description="Quando houver reembolsos, o resumo por pessoa aparecerá aqui." />
         ) : visiblePeopleSummary.length === 0 ? (
-          <EmptyState title="Ninguém deve agora" description="Não há pessoas com valor em aberto no período filtrado." />
+          <EmptyState title="Ninguém deve agora" description="Não há pessoas com saldo em aberto." />
         ) : (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {visiblePeopleSummary.map((item) => (
@@ -531,16 +538,20 @@ export function ReimbursementsCrud() {
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold text-ink-950">{item.person.name}</p>
-                    <p className="mt-1 text-sm text-ink-600">{item.count} reembolso(s)</p>
+                    <p className="mt-1 text-sm text-ink-600">
+                      {item.count} reembolso(s)
+                      {item.lastExpectedDate ? ` · última previsão ${formatDate(item.lastExpectedDate)}` : ""}
+                    </p>
                   </div>
-                  <TextBadge tone={item.late > 0 ? "danger" : item.open > 0 ? "warning" : "success"}>
-                    {item.late > 0 ? "Atrasado" : item.open > 0 ? "Aberto" : "Recebido"}
+                  <TextBadge tone={item.status === "atrasado" ? "danger" : item.status === "em_aberto" ? "warning" : "success"}>
+                    {item.status === "atrasado" ? "Atrasado" : item.status === "em_aberto" ? "Em aberto" : "Em dia"}
                   </TextBadge>
                 </div>
                 <div className="mt-4 grid gap-2 text-sm text-ink-600">
-                  <p>Esperado: <strong className="text-ink-950">{formatCurrency(item.expected)}</strong></p>
+                  <p>Total em aberto: <strong className="text-ink-950">{formatCurrency(item.open)}</strong></p>
+                  <p>Atrasado: <strong className={item.late > 0 ? "text-red-600" : "text-ink-950"}>{formatCurrency(item.late)}</strong></p>
+                  <p>Parcial: <strong className="text-ink-950">{formatCurrency(item.partial)}</strong></p>
                   <p>Recebido: <strong className="text-ink-950">{formatCurrency(item.received)}</strong></p>
-                  <p>Em aberto: <strong className="text-ink-950">{formatCurrency(item.open)}</strong></p>
                 </div>
               </button>
             ))}
@@ -689,7 +700,10 @@ export function ReimbursementsCrud() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-ink-950/10">
-                {filteredReimbursements.map((reimbursement) => (
+                {filteredReimbursements.map((reimbursement) => {
+                  const isLate = isLateReimbursement(reimbursement);
+
+                  return (
                   <tr
                     key={reimbursement.id}
                     onClick={(event) => {
@@ -699,7 +713,7 @@ export function ReimbursementsCrud() {
                       else next.add(reimbursement.id);
                       setSelectedIds(next);
                     }}
-                    className="cursor-default"
+                    className={`cursor-default ${isLate ? "bg-amberRisk-100/40" : ""}`}
                   >
                     <td className="px-4 py-3">
                       <input
@@ -737,10 +751,17 @@ export function ReimbursementsCrud() {
                     <td className="px-4 py-3 text-ink-600">
                       {allowQuickTableEdit ? (
                         <QuickEditInput type="date" value={reimbursement.expected_date ?? ""} onCommit={(value) => void handleQuickUpdate(reimbursement, { expected_date: value })} />
-                      ) : formatDate(reimbursement.expected_date)}
+                      ) : (
+                        <span className={isLate ? "font-semibold text-amberRisk-500" : ""}>
+                          {formatDate(reimbursement.expected_date)}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-ink-600">
-                      <QuickEditSelect value={reimbursement.status} options={reimbursementStatusOptions} onCommit={(value) => void handleStatusUpdate(reimbursement, value)} />
+                      <div className="flex flex-wrap items-center gap-2">
+                        <QuickEditSelect value={reimbursement.status} options={reimbursementStatusOptions} onCommit={(value) => void handleStatusUpdate(reimbursement, value)} />
+                        {isLate && reimbursement.status !== "late" ? <TextBadge tone="danger">Atrasado pela data</TextBadge> : null}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       {allowQuickTableEdit ? (
@@ -788,7 +809,8 @@ export function ReimbursementsCrud() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

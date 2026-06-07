@@ -23,6 +23,7 @@ import type {
   IncomeSource,
   Installment,
   ImportBatch,
+  Goal,
   Note,
   PaymentPlan,
   PaymentPlanItem,
@@ -36,6 +37,13 @@ export const metadata = {
 
 type DashboardPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
+
+type DashboardSuggestion = {
+  title: string;
+  description: string;
+  href: string;
+  tone: "info" | "warning" | "danger" | "success";
 };
 
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
@@ -56,6 +64,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     reimbursementsResult,
     installmentsResult,
     purchasesResult,
+    goalsResult,
     notesResult,
     activePlanResult,
     importsResult,
@@ -68,6 +77,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     supabase.from("reimbursements").select("*"),
     supabase.from("installments").select("*"),
     supabase.from("planned_purchases").select("*"),
+    supabase.from("goals").select("*"),
     supabase.from("notes").select("*").order("updated_at", { ascending: false }).limit(5),
     supabase.from("payment_plans").select("*").eq("status", "active").order("reference_month", { ascending: false }).limit(1),
     supabase.from("import_batches").select("*").order("created_at", { ascending: false }).limit(1),
@@ -86,6 +96,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     reimbursementsResult.error ||
     installmentsResult.error ||
     purchasesResult.error ||
+    goalsResult.error ||
     notesResult.error ||
     activePlanResult.error ||
     importsResult.error ||
@@ -101,6 +112,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           reimbursementsResult.error?.message ??
           installmentsResult.error?.message ??
           purchasesResult.error?.message ??
+          goalsResult.error?.message ??
           notesResult.error?.message ??
           activePlanResult.error?.message ??
           importsResult.error?.message ??
@@ -118,6 +130,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const reimbursements = reimbursementsResult.data ?? [];
   const installments = installmentsResult.data ?? [];
   const plannedPurchases = purchasesResult.data ?? [];
+  const goals = goalsResult.data ?? [];
   const notes = notesResult.data ?? [];
   const lastImport = importsResult.data?.[0] ?? null;
   const activePlanItems = activePlanItemsResult.data ?? [];
@@ -139,6 +152,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const periodPlannedPurchases = plannedPurchases.filter((purchase) =>
     isDateInPeriod(purchase.target_date, period),
   );
+  const periodGoals = goals.filter((goal) => isDateInPeriod(goal.target_date, period));
 
   const summary = buildDashboardSummary(
     periodAccounts,
@@ -163,6 +177,13 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     activePlan,
     activePlanItems,
   });
+  const smartSuggestions = buildDashboardSuggestions({
+    accounts: periodAccounts,
+    reimbursements: periodReimbursements,
+    goals: periodGoals,
+    purchases: periodPlannedPurchases,
+    incomeSources: periodIncomeSources,
+  });
 
   return (
     <div className="space-y-6">
@@ -177,6 +198,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         syncUrl
         description="Escolha o período usado nos cards, listas e resumo financeiro do dashboard."
       />
+
+      <SmartSuggestions suggestions={smartSuggestions} />
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <StatCard
@@ -466,6 +489,54 @@ function DecisionList({
   );
 }
 
+function SmartSuggestions({ suggestions }: { suggestions: DashboardSuggestion[] }) {
+  if (suggestions.length === 0) {
+    return (
+      <SectionCard title="Sugestões do sistema" description="Sinais calculados com os dados do período.">
+        <EmptyState title="Nenhuma sugestão crítica" description="Quando houver risco, atraso ou oportunidade de decisão, o Hub mostra aqui." />
+      </SectionCard>
+    );
+  }
+
+  return (
+    <SectionCard title="Sugestões do sistema" description="Sinais calculados sem IA externa e sem alterar dados.">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {suggestions.map((suggestion) => (
+          <Link
+            key={`${suggestion.href}-${suggestion.title}`}
+            href={suggestion.href}
+            className="hub-card block rounded-lg border border-ink-950/10 bg-white p-4 shadow-sm"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-ink-950">{suggestion.title}</p>
+                <p className="mt-1 text-sm leading-6 text-ink-600">{suggestion.description}</p>
+              </div>
+              <span className={`hub-status-badge shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${getSuggestionToneClass(suggestion.tone)}`}>
+                {getSuggestionToneLabel(suggestion.tone)}
+              </span>
+            </div>
+          </Link>
+        ))}
+      </div>
+    </SectionCard>
+  );
+}
+
+function getSuggestionToneClass(tone: DashboardSuggestion["tone"]) {
+  if (tone === "danger") return "bg-danger-100 text-danger-600";
+  if (tone === "warning") return "bg-amberRisk-100 text-amberRisk-500";
+  if (tone === "success") return "bg-mint-100 text-mint-600";
+  return "bg-slate-100 text-ink-600";
+}
+
+function getSuggestionToneLabel(tone: DashboardSuggestion["tone"]) {
+  if (tone === "danger") return "Crítico";
+  if (tone === "warning") return "Atenção";
+  if (tone === "success") return "Ok";
+  return "Info";
+}
+
 function buildPeriodQuery(period: PeriodValue) {
   const params = new URLSearchParams();
   params.set("period", period.preset);
@@ -479,6 +550,93 @@ function buildPeriodQuery(period: PeriodValue) {
   }
 
   return params.toString();
+}
+
+function buildDashboardSuggestions({
+  accounts,
+  reimbursements,
+  goals,
+  purchases,
+  incomeSources,
+}: {
+  accounts: AccountPayable[];
+  reimbursements: Reimbursement[];
+  goals: Goal[];
+  purchases: PlannedPurchase[];
+  incomeSources: IncomeSource[];
+}): DashboardSuggestion[] {
+  const today = todayISO();
+  const next14Days = addDaysISO(today, 14);
+  const suggestions: DashboardSuggestion[] = [];
+  const overdueAccounts = accounts.filter((account) => account.status === "overdue" || (account.status === "pending" && account.due_date < today));
+  const openReimbursements = reimbursements.filter((item) => ["expected", "partial", "late"].includes(item.status));
+  const lateReimbursements = openReimbursements.filter((item) => item.expected_date && item.expected_date < today);
+  const nearGoals = goals.filter((goal) => goal.target_date && goal.target_date >= today && goal.target_date <= next14Days && !["completed", "cancelled", "canceled"].includes(goal.status));
+  const highRiskPurchases = purchases.filter((purchase) => ["high", "critical"].includes(purchase.risk_level) && !["purchased", "canceled", "cancelled"].includes(purchase.decision_status));
+  const waitPurchases = purchases.filter((purchase) => ["wait", "waiting", "promotion", "review"].includes(purchase.decision_status));
+  const expectedIncome = incomeSources.filter((income) => income.status === "expected");
+
+  if (overdueAccounts.length > 0) {
+    suggestions.push({
+      title: `${overdueAccounts.length} conta(s) atrasada(s)`,
+      description: `${formatCurrency(overdueAccounts.reduce((sum, item) => sum + Number(item.amount), 0))} exigem decisão antes de novas compras.`,
+      href: "/dashboard/accounts?status=overdue",
+      tone: "danger",
+    });
+  }
+
+  if (openReimbursements.length > 0) {
+    suggestions.push({
+      title: "Reembolsos em aberto",
+      description: `${formatCurrency(openReimbursements.reduce((sum, item) => sum + Math.max(Number(item.expected_amount) - Number(item.received_amount), 0), 0))} ainda são dinheiro vinculado.`,
+      href: "/dashboard/reimbursements?status=expected",
+      tone: lateReimbursements.length > 0 ? "danger" : "warning",
+    });
+  }
+
+  if (nearGoals.length > 0) {
+    suggestions.push({
+      title: "Metas próximas do prazo",
+      description: `${nearGoals.length} meta(s) vencem nos próximos 14 dias. Revise prioridade e progresso.`,
+      href: "/dashboard/goals",
+      tone: "warning",
+    });
+  }
+
+  if (highRiskPurchases.length > 0) {
+    suggestions.push({
+      title: "Compras de alto risco",
+      description: `${formatCurrency(highRiskPurchases.reduce((sum, item) => sum + Number(item.estimated_amount), 0))} em compras marcadas como alto risco.`,
+      href: "/dashboard/purchases",
+      tone: "danger",
+    });
+  }
+
+  if (waitPurchases.length > 0) {
+    suggestions.push({
+      title: "Compras que podem aguardar",
+      description: `${waitPurchases.length} item(ns) já sinalizam espera, revisão ou promoção.`,
+      href: "/dashboard/purchases",
+      tone: "info",
+    });
+  }
+
+  if (expectedIncome.length > 0) {
+    suggestions.push({
+      title: "Receitas previstas",
+      description: `${formatCurrency(expectedIncome.reduce((sum, item) => sum + Number(item.amount), 0))} previsto no período. Reembolsos continuam separados de renda livre.`,
+      href: "/dashboard/income?status=expected",
+      tone: "success",
+    });
+  }
+
+  return suggestions.slice(0, 6);
+}
+
+function addDaysISO(date: string, days: number) {
+  const next = new Date(`${date}T00:00:00`);
+  next.setDate(next.getDate() + days);
+  return next.toISOString().slice(0, 10);
 }
 
 function DashboardError({ message }: { message: string }) {

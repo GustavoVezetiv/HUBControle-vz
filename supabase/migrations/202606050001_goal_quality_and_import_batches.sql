@@ -13,6 +13,27 @@ alter table public.goals
 alter table public.planned_purchases
   add column if not exists import_batch_id uuid references public.import_batches(id) on delete set null;
 
+update public.goals
+set goal_type = case goal_type
+  when 'emergency_reserve' then 'personal'
+  when 'debt_reduction' then 'personal'
+  when 'planned_purchase' then 'project'
+  when 'savings' then 'personal'
+  when 'other' then 'personal'
+  else goal_type
+end
+where goal_type in ('emergency_reserve', 'debt_reduction', 'planned_purchase', 'savings', 'other');
+
+alter table public.goals
+  drop constraint if exists goals_goal_type_check;
+
+alter table public.goals
+  alter column goal_type set default 'personal';
+
+alter table public.goals
+  add constraint goals_goal_type_check
+    check (goal_type in ('personal', 'professional', 'course', 'education', 'project'));
+
 alter table public.goals
   drop constraint if exists goals_goal_category_check,
   add constraint goals_goal_category_check

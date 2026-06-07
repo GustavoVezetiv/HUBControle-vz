@@ -457,26 +457,27 @@ function mapRow(
   requireField(errors, name, "Nome");
   const extracted = extractGoalNotes(raw.observacoes);
   const goalCategory = normalizeGoalCategory(raw.tipo);
+  const targetDate = optionalDate(raw.data_alvo, errors, "Data alvo") ?? parseDate(text(extracted.final_original ?? ""));
+  const startDate = optionalDate(raw.data_inicio, errors, "Data inicial") ?? parseDate(text(extracted.inicio ?? ""));
   const targetAmount = optionalMoney(raw.valor_objetivo || raw.valor_alvo, errors, "Valor objetivo");
   const currentAmount = optionalMoney(raw.valor_atual, errors, "Valor atual");
   const monthlyContribution = optionalMoney(raw.aporte_mensal || raw.contribuicao_mensal, errors, "Aporte mensal");
   const manualProgress = optionalPercent(raw.progresso_manual || extracted.progresso_original || undefined, errors, "Progresso manual");
-  const category = resolveCategoryInfo(raw.tipo, references, warnings, options.softMissingCategory);
   return {
     name,
     goal_type: goalCategory,
     goal_category: goalCategory,
-    goal_kind: inferGoalKind(targetAmount, currentAmount, monthlyContribution, manualProgress),
+    goal_kind: normalizeGoalKind(raw.tipo_de_meta) ?? inferGoalKind(targetAmount, currentAmount, monthlyContribution),
     target_amount: targetAmount,
     current_amount: currentAmount,
     manual_progress_percent: manualProgress,
-    target_date: optionalDate(raw.data_alvo || extracted.final_original || undefined, errors, "Data alvo"),
-    start_date: optionalDate(extracted.inicio || undefined, errors, "Início"),
+    target_date: targetDate,
+    start_date: startDate,
     monthly_contribution: monthlyContribution,
     status: normalizeGoalStatus(raw.status || extracted.status_manual_da_planilha || undefined),
-    category_id: category.id,
-    category_label: category.name ?? text(raw.tipo),
-    missing_category_name: category.missingName,
+    category_id: null,
+    category_label: goalCategoryLabel(goalCategory),
+    missing_category_name: null,
     source_label: extracted.origem ?? null,
     import_source: "compras_metas_para_sistema.xlsx:Metas_Sistema",
     notes: buildGoalNotes(raw.observacoes, extracted),
@@ -492,7 +493,10 @@ function buildDuplicateKey(target: ImportTarget, mapped: Mapped) {
   if (target === "credit_card_invoices") return `${mapped.credit_card_id}|${mapped.reference_month}`;
   if (target === "credit_card_transactions") return `${mapped.invoice_id}|${mapped.transaction_date}|${lower(mapped.description)}|${mapped.amount}`;
   if (target === "reimbursements") return `${mapped.person_id}|${lower(mapped.description)}|${mapped.expected_amount}|${mapped.expected_date}`;
-  if (target === "planned_purchases") return `${lower(mapped.title)}|${lower(mapped.external_url)}|${lower(mapped.category_label)}`;
+  if (target === "planned_purchases") {
+    if (mapped.external_url) return `link:${lower(mapped.external_url)}`;
+    return `name:${lower(mapped.title)}|category:${lower(mapped.category_label ?? mapped.category_id)}`;
+  }
   if (target === "goals") return `${lower(mapped.name)}|${mapped.target_date ?? ""}|${lower(mapped.goal_category ?? mapped.category_label)}`;
   return "";
 }
@@ -684,15 +688,40 @@ function normalizeGoalCategory(value: string | undefined) {
   return goalCategories.includes(resolved) ? resolved : "personal";
 }
 
+function goalCategoryLabel(value: string) {
+  const labels: Record<string, string> = {
+    personal: "Pessoal",
+    professional: "Profissional",
+    course: "Curso",
+    education: "Formação",
+    project: "Projetos",
+  };
+  return labels[value] ?? "Pessoal";
+}
+
 function inferGoalKind(
   targetAmount: number | null,
   currentAmount: number | null,
   monthlyContribution: number | null,
-  manualProgress: number | null,
 ) {
   if (targetAmount !== null || currentAmount !== null || monthlyContribution !== null) return "financial";
-  if (manualProgress !== null) return "numeric";
   return "qualitative";
+}
+
+function normalizeGoalKind(value: string | undefined) {
+  const normalized = slug(value);
+  const aliases: Record<string, string> = {
+    qualitativa: "qualitative",
+    qualitativo: "qualitative",
+    qualitative: "qualitative",
+    financeira: "financial",
+    financeiro: "financial",
+    financial: "financial",
+    numerica: "numeric",
+    numerico: "numeric",
+    numeric: "numeric",
+  };
+  return aliases[normalized] ?? null;
 }
 
 function normalizeGoalStatus(value: string | undefined) {

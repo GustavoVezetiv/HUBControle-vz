@@ -12,6 +12,7 @@ import {
   confirmImportRows,
   createMissingImportCategories,
   listImportBatches,
+  listImportRows,
   loadImportReferenceData,
   saveImportPreview,
   undoImportBatch,
@@ -37,13 +38,18 @@ export function ImportsWorkbench() {
   const [batchId, setBatchId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [workingAction, setWorkingAction] = useState<"parse" | "save" | "confirm" | "categories" | "undo" | null>(null);
+  const [workingAction, setWorkingAction] = useState<"parse" | "save" | "confirm" | "categories" | "undo" | "review" | null>(null);
+  const [allowMissingCategories, setAllowMissingCategories] = useState(false);
+  const [showCategoryCreationPreview, setShowCategoryCreationPreview] = useState(false);
+  const [confirmCategoryCreation, setConfirmCategoryCreation] = useState(false);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
 
   const counts = useMemo(() => rowCounts(rows), [rows]);
   const systemStats = useMemo(() => buildSystemStats(rows), [rows]);
   const config = getImportTargetConfig(target);
   const working = workingAction !== null;
+  const requiresMissingCategoryConfirmation =
+    target === "system_goals_purchases" && systemStats.missingCategories.length > 0 && !allowMissingCategories;
 
   async function loadHistory() {
     const client = createClient();
@@ -80,6 +86,9 @@ export function ImportsWorkbench() {
           : buildPreviewRows(target, await parseSpreadsheetFile(file), references);
       setRows(preview);
       setBatchId(null);
+      setAllowMissingCategories(false);
+      setShowCategoryCreationPreview(false);
+      setConfirmCategoryCreation(false);
       setFeedback({ type: "success", message: `${preview.length} linhas lidas. Revise a prévia antes de confirmar.` });
     } catch (error) {
       console.error("Erro técnico ao processar arquivo de importação:", error);
@@ -94,10 +103,10 @@ export function ImportsWorkbench() {
 
   async function handleCreateMissingCategories() {
     if (!userId || systemStats.missingCategories.length === 0) return;
-    const confirmed = window.confirm(
-      `Criar ${systemStats.missingCategories.length} categorias faltantes?\n\n${systemStats.missingCategories.join(", ")}`,
-    );
-    if (!confirmed) return;
+    if (!confirmCategoryCreation) {
+      setFeedback({ type: "error", message: "Revise a prévia e confirme explicitamente antes de criar categorias." });
+      return;
+    }
 
     setWorkingAction("categories");
     setFeedback(null);
@@ -109,6 +118,9 @@ export function ImportsWorkbench() {
         return;
       }
       setFeedback({ type: "success", message: `${result.created} categorias criadas. Gere a prévia novamente para resolver os vínculos.` });
+      setAllowMissingCategories(false);
+      setShowCategoryCreationPreview(false);
+      setConfirmCategoryCreation(false);
     } catch (error) {
       console.error("Erro técnico ao criar categorias faltantes:", error);
       setFeedback({ type: "error", message: "Não foi possível criar as categorias faltantes." });
@@ -131,6 +143,27 @@ export function ImportsWorkbench() {
     } catch (error) {
       console.error("Erro técnico ao desfazer importação:", error);
       setFeedback({ type: "error", message: "Não foi possível desfazer esta importação." });
+    } finally {
+      setWorkingAction(null);
+    }
+  }
+
+  async function handleReview(batch: ImportBatch) {
+    if (!userId) return;
+    setWorkingAction("review");
+    setFeedback(null);
+    try {
+      const loadedRows = await listImportRows(createClient(), userId, batch.id);
+      setTarget((batch.target_type ?? batch.module) as ImportTarget);
+      setRows(loadedRows);
+      setBatchId(batch.id);
+      setAllowMissingCategories(false);
+      setShowCategoryCreationPreview(false);
+      setConfirmCategoryCreation(false);
+      setFeedback({ type: "success", message: `Lote carregado para revisão: ${loadedRows.length} linhas.` });
+    } catch (error) {
+      console.error("Erro técnico ao revisar lote de importação:", error);
+      setFeedback({ type: "error", message: "Não foi possível carregar as linhas deste lote." });
     } finally {
       setWorkingAction(null);
     }
@@ -166,12 +199,23 @@ export function ImportsWorkbench() {
       setFeedback({ type: "error", message: "Salve a prévia antes de confirmar." });
       return;
     }
+    if (requiresMissingCategoryConfirmation) {
+      setFeedback({
+        type: "error",
+        message: "Confirme explicitamente que deseja importar linhas sem categoria antes de continuar.",
+      });
+      return;
+    }
     setWorkingAction("confirm");
     setFeedback(null);
     try {
       const updatedRows = await confirmImportRows(createClient(), userId, batchId, target, rows);
       setRows(updatedRows);
-      setFeedback({ type: "success", message: "Importação confirmada. Linhas inválidas ou ignoradas não foram inseridas." });
+      const updatedCounts = rowCounts(updatedRows);
+      setFeedback({
+        type: "success",
+        message: `Importação confirmada. ${updatedCounts.imported} linhas importadas, ${updatedCounts.failed} falharam e ${updatedCounts.skipped} foram ignoradas.`,
+      });
       await loadHistory();
     } catch (error) {
       console.error("Erro técnico ao confirmar importação:", error);
@@ -231,11 +275,75 @@ export function ImportsWorkbench() {
               <p className="mt-1">Estas categorias não serão criadas automaticamente. Você pode importar sem categoria ou criar explicitamente antes de confirmar.</p>
               <p className="mt-2">{systemStats.missingCategories.join(", ")}</p>
               <div className="mt-3">
-                <ActionButton type="button" variant="secondary" disabled={working} onClick={() => void handleCreateMissingCategories()}>
-                  {workingAction === "categories" ? "Criando..." : "Criar categorias faltantes"}
+                <ActionButton
+                  type="button"
+                  variant="secondary"
+                  disabled={working}
+                  onClick={() => {
+                    setShowCategoryCreationPreview(true);
+                    setConfirmCategoryCreation(false);
+                  }}
+                >
+                  Prévia de criação de categorias
                 </ActionButton>
               </div>
+              {showCategoryCreationPreview ? (
+                <div className="mt-4 rounded-md border border-amber-300 bg-white p-3 text-ink-800">
+                  <p className="font-semibold text-ink-950">Prévia das categorias que serão criadas</p>
+                  <p className="mt-1 text-xs text-ink-600">
+                    Todas serão criadas como categorias do seu usuário, com tipo other. Nenhum dado financeiro será alterado.
+                  </p>
+                  <div className="mt-3 overflow-x-auto">
+                    <table className="min-w-full text-left text-xs">
+                      <thead className="bg-slate-50 text-ink-600">
+                        <tr>
+                          <th className="px-3 py-2">Nome</th>
+                          <th className="px-3 py-2">Tipo</th>
+                          <th className="px-3 py-2">Ação</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {systemStats.missingCategories.map((name) => (
+                          <tr key={name} className="border-t border-ink-950/10">
+                            <td className="px-3 py-2 font-semibold text-ink-950">{name}</td>
+                            <td className="px-3 py-2">other</td>
+                            <td className="px-3 py-2">Criar categoria</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <label className="mt-3 flex items-start gap-3 text-sm text-ink-700">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={confirmCategoryCreation}
+                      onChange={(event) => setConfirmCategoryCreation(event.target.checked)}
+                    />
+                    <span>Confirmo que revisei a prévia e quero criar estas categorias faltantes.</span>
+                  </label>
+                  <div className="mt-3">
+                    <ActionButton type="button" variant="secondary" disabled={working || !confirmCategoryCreation} onClick={() => void handleCreateMissingCategories()}>
+                      {workingAction === "categories" ? "Criando..." : "Confirmar criação de categorias"}
+                    </ActionButton>
+                  </div>
+                </div>
+              ) : null}
             </div>
+          ) : null}
+          {systemStats.missingCategories.length > 0 ? (
+            <label className="mt-4 flex items-start gap-3 rounded-md border border-amber-300 bg-white p-4 text-sm text-ink-700">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={allowMissingCategories}
+                onChange={(event) => setAllowMissingCategories(event.target.checked)}
+              />
+              <span>
+                Confirmo que revisei as categorias pendentes e quero permitir a importação dessas linhas sem categoria.
+                Categorias não serão criadas automaticamente.
+              </span>
+            </label>
           ) : null}
         </SectionCard>
       ) : null}
@@ -295,6 +403,9 @@ export function ImportsWorkbench() {
                 setTarget(event.target.value as ImportTarget);
                 setRows([]);
                 setBatchId(null);
+                setAllowMissingCategories(false);
+                setShowCategoryCreationPreview(false);
+                setConfirmCategoryCreation(false);
               }}
             >
               {activeImportTargets.map((item) => (
@@ -335,7 +446,7 @@ export function ImportsWorkbench() {
               <ActionButton type="button" variant="secondary" onClick={() => void handleSavePreview()} disabled={working || !file}>
                 {workingAction === "save" ? "Salvando..." : "Salvar prévia"}
               </ActionButton>
-              <ActionButton type="button" onClick={() => void handleConfirm()} disabled={working || !batchId}>
+              <ActionButton type="button" onClick={() => void handleConfirm()} disabled={working || !batchId || requiresMissingCategoryConfirmation}>
                 {workingAction === "confirm" ? "Importando..." : "Confirmar importação"}
               </ActionButton>
             </div>
@@ -421,13 +532,16 @@ export function ImportsWorkbench() {
                     <td className="px-4 py-3 text-ink-600">{batch.valid_rows}/{batch.total_rows}</td>
                     <td className="px-4 py-3 text-ink-600">{batch.invalid_rows}</td>
                     <td className="px-4 py-3 text-right">
-                      {batch.status === "confirmed" && ["system_goals_purchases", "goals", "planned_purchases"].includes(batch.target_type ?? batch.module) ? (
-                        <ActionButton type="button" variant="danger" disabled={working} onClick={() => void handleUndo(batch)}>
-                          {workingAction === "undo" ? "Desfazendo..." : "Desfazer"}
+                      <div className="flex justify-end gap-2">
+                        <ActionButton type="button" variant="secondary" disabled={working} onClick={() => void handleReview(batch)}>
+                          {workingAction === "review" ? "Carregando..." : "Revisar"}
                         </ActionButton>
-                      ) : (
-                        <span className="text-ink-400">-</span>
-                      )}
+                        {batch.status === "confirmed" && ["system_goals_purchases", "goals", "planned_purchases"].includes(batch.target_type ?? batch.module) ? (
+                          <ActionButton type="button" variant="danger" disabled={working} onClick={() => void handleUndo(batch)}>
+                            {workingAction === "undo" ? "Desfazendo..." : "Desfazer"}
+                          </ActionButton>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 ))}
