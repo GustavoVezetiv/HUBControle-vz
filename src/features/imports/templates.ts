@@ -56,7 +56,7 @@ export const activeImportTargets: ImportTargetConfig[] = [
     description: "XLSX com as abas Metas_Sistema e Compras_Sistema.",
     headers: [
       "Use XLSX com duas abas:",
-      "Metas_Sistema: Nome,Tipo,Valor objetivo,Valor atual,Data alvo,Aporte mensal,Status,Observações",
+      "Metas_Sistema: Nome,Tipo,Data alvo,Status,Observações",
       "Compras_Sistema: Nome,Descrição,Valor estimado,Data alvo,Categoria,Forma planejada,Parcelas,Status,Risco,Notas",
     ],
   },
@@ -134,7 +134,7 @@ export function buildTemplateCsv(target: ImportTarget) {
   if (target === "system_goals_purchases") {
     return [
       "Este alvo usa XLSX com duas abas.",
-      "Aba Metas_Sistema: Nome,Tipo,Valor objetivo,Valor atual,Data alvo,Aporte mensal,Status,Observações",
+      "Aba Metas_Sistema: Nome,Tipo,Data alvo,Status,Observações",
       "Aba Compras_Sistema: Nome,Descrição,Valor estimado,Data alvo,Categoria,Forma planejada,Parcelas,Status,Risco,Notas",
       "",
     ].join("\n");

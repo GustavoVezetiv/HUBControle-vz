@@ -69,18 +69,19 @@ export async function deleteGoal(client: AppSupabaseClient, id: string) {
 }
 
 function toPayload(userId: string | undefined, values: GoalFormValues): Partial<Goal> {
+  const isFinancial = values.goal_kind === "financial";
   return {
     ...(userId ? { user_id: userId } : {}),
     name: values.name.trim(),
     goal_type: values.goal_category,
     goal_category: values.goal_category,
     goal_kind: values.goal_kind,
-    target_amount: optionalNumber(values.target_amount),
-    current_amount: optionalNumber(values.current_amount),
-    manual_progress_percent: optionalNumber(values.manual_progress_percent),
+    target_amount: isFinancial ? optionalNumber(values.target_amount) : null,
+    current_amount: isFinancial ? optionalNumber(values.current_amount) : null,
+    manual_progress_percent: null,
     start_date: values.start_date || null,
     target_date: values.target_date || null,
-    monthly_contribution: optionalNumber(values.monthly_contribution),
+    monthly_contribution: isFinancial ? optionalNumber(values.monthly_contribution) : null,
     urgency_level: calculateUrgency(values.target_date),
     status: values.status,
     notes: values.notes.trim() || null,

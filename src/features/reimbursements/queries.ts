@@ -4,6 +4,7 @@ import type {
   ReimbursementRow,
 } from "@/features/reimbursements/types";
 import type { AppSupabaseClient } from "@/features/shared/types";
+import type { CreditCardTransaction } from "@/lib/supabase/types";
 
 export type GenerateRecurringReimbursementsResult = {
   created: number;
@@ -129,6 +130,42 @@ export async function generateLinkedEntryFromReimbursement(
     return { error: { message: "Informe cartão, fatura, descrição, valor e data válidos." } };
   }
 
+  const invoiceValidation = await client
+    .from("credit_card_invoices")
+    .select("id,credit_card_id")
+    .eq("user_id", userId)
+    .eq("id", values.invoice_id)
+    .single();
+
+  if (invoiceValidation.error || !invoiceValidation.data) {
+    console.error("Erro técnico ao validar fatura do reembolso:", invoiceValidation.error);
+    return { error: { message: "Fatura selecionada não foi encontrada." } };
+  }
+
+  if (invoiceValidation.data.credit_card_id !== values.credit_card_id) {
+    return { error: { message: "A fatura selecionada não pertence ao cartão informado." } };
+  }
+
+  const existingLinkedTransaction = await client
+    .from("credit_card_transactions")
+    .select("id,invoice_id")
+    .eq("user_id", userId)
+    .eq("reimbursement_id", reimbursement.id)
+    .maybeSingle();
+
+  if (existingLinkedTransaction.error) {
+    console.error("Erro técnico ao verificar lançamento já vinculado ao reembolso:", existingLinkedTransaction.error);
+    return { error: { message: "Não foi possível verificar se este reembolso já possui lançamento vinculado." } };
+  }
+
+  if (existingLinkedTransaction.data) {
+    return {
+      error: {
+        message: "Este reembolso já possui lançamento de fatura vinculado. Abra o lançamento existente antes de gerar outro.",
+      },
+    };
+  }
+
   const insertResult = await client
     .from("credit_card_transactions")
     .insert({
@@ -146,7 +183,7 @@ export async function generateLinkedEntryFromReimbursement(
       reimbursement_id: reimbursement.id,
       notes: "Lançamento gerado a partir de reembolso.",
     })
-    .select("id")
+    .select("*")
     .single();
 
   if (insertResult.error) {
@@ -154,43 +191,91 @@ export async function generateLinkedEntryFromReimbursement(
     return { error: { message: "Não foi possível gerar o lançamento na fatura." } };
   }
 
-  const invoiceResult = await client
-    .from("credit_card_invoices")
-    .select("total_amount")
-    .eq("id", values.invoice_id)
-    .single();
+  const transactionId = insertResult.data.id;
+  const recalculateResult = await recalculateInvoiceTotal(client, userId, values.invoice_id);
 
-  if (invoiceResult.error) {
-    console.error("Erro técnico ao consultar fatura do reembolso:", invoiceResult.error);
-    return { error: { message: "O lançamento foi criado, mas o total da fatura não foi atualizado." } };
+  if (recalculateResult.error) {
+    await rollbackGeneratedTransaction(client, userId, transactionId);
+    return { error: { message: "O lançamento foi criado, mas o total da fatura não foi recalculado. A criação foi desfeita." } };
   }
 
-  const invoiceUpdateResult = await client
-    .from("credit_card_invoices")
-    .update({ total_amount: Number(invoiceResult.data.total_amount || 0) + amount })
-    .eq("id", values.invoice_id);
+  const visibilityResult = await client
+    .from("credit_card_transactions")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("id", transactionId)
+    .eq("invoice_id", values.invoice_id)
+    .maybeSingle();
 
-  if (invoiceUpdateResult.error) {
-    console.error("Erro técnico ao atualizar total da fatura do reembolso:", invoiceUpdateResult.error);
-    return { error: { message: "O lançamento foi criado, mas o total da fatura não foi atualizado." } };
+  if (visibilityResult.error || !visibilityResult.data) {
+    console.error("Erro técnico ao confirmar visibilidade do lançamento na fatura:", visibilityResult.error);
+    await rollbackGeneratedTransaction(client, userId, transactionId);
+    await recalculateInvoiceTotal(client, userId, values.invoice_id);
+    return { error: { message: "O lançamento foi criado, mas não apareceu na consulta da fatura. A criação foi desfeita." } };
   }
 
   const updateResult = await client
     .from("reimbursements")
     .update({
-      credit_card_transaction_id: insertResult.data.id,
+      credit_card_transaction_id: transactionId,
       credit_card_invoice_id: values.invoice_id,
       source_type: "credit_card_transaction",
-      source_id: insertResult.data.id,
+      source_id: transactionId,
     })
+    .eq("user_id", userId)
     .eq("id", reimbursement.id);
 
   if (updateResult.error) {
     console.error("Erro técnico ao vincular lançamento de fatura ao reembolso:", updateResult.error);
-    return { error: { message: "O lançamento foi criado, mas não foi possível vincular ao reembolso." } };
+    await rollbackGeneratedTransaction(client, userId, transactionId);
+    await recalculateInvoiceTotal(client, userId, values.invoice_id);
+    return { error: { message: "O lançamento foi criado, mas não foi possível vincular ao reembolso. A criação foi desfeita." } };
   }
 
-  return { error: null };
+  return {
+    error: null,
+    transactionId,
+    invoiceId: values.invoice_id,
+    invoiceTotal: recalculateResult.totalAmount,
+  };
+}
+
+export async function recalculateInvoiceTotal(client: AppSupabaseClient, userId: string, invoiceId: string) {
+  const transactionsResult = await client
+    .from("credit_card_transactions")
+    .select("amount")
+    .eq("user_id", userId)
+    .eq("invoice_id", invoiceId);
+
+  if (transactionsResult.error) {
+    console.error("Erro técnico ao buscar lançamentos para recalcular fatura:", transactionsResult.error);
+    return { totalAmount: 0, error: transactionsResult.error };
+  }
+
+  const totalAmount = (transactionsResult.data ?? []).reduce(
+    (sum, transaction: Pick<CreditCardTransaction, "amount">) => sum + Number(transaction.amount || 0),
+    0,
+  );
+
+  const updateResult = await client
+    .from("credit_card_invoices")
+    .update({ total_amount: totalAmount })
+    .eq("user_id", userId)
+    .eq("id", invoiceId);
+
+  if (updateResult.error) {
+    console.error("Erro técnico ao atualizar total recalculado da fatura:", updateResult.error);
+    return { totalAmount, error: updateResult.error };
+  }
+
+  return { totalAmount, error: null };
+}
+
+async function rollbackGeneratedTransaction(client: AppSupabaseClient, userId: string, transactionId: string) {
+  const rollback = await client.from("credit_card_transactions").delete().eq("user_id", userId).eq("id", transactionId);
+  if (rollback.error) {
+    console.error("Erro técnico ao desfazer lançamento gerado por reembolso:", rollback.error);
+  }
 }
 
 export async function generateRecurringReimbursements(

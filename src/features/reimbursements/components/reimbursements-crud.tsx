@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -7,6 +8,14 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
+import {
+  buildPersonDebtSummaries,
+  filterPersonDebtSummaries,
+  getPersonDebtStatusLabel,
+  getPersonDebtStatusTone,
+  isReimbursementLateByDate,
+  type PersonDebtViewMode,
+} from "@/features/reimbursements/debt-summary";
 import {
   createReimbursement,
   deleteReimbursement,
@@ -74,7 +83,8 @@ export function ReimbursementsCrud() {
   const [bulkCategoryId, setBulkCategoryId] = useState("");
   const [bulkPersonId, setBulkPersonId] = useState("");
   const [allowQuickTableEdit, setAllowQuickTableEdit] = useState(false);
-  const [showAllPeopleSummary, setShowAllPeopleSummary] = useState(false);
+  const [peopleSummaryView, setPeopleSummaryView] = useState<PersonDebtViewMode>("open");
+  const [generatedInvoiceLink, setGeneratedInvoiceLink] = useState<{ invoiceId: string; transactionId?: string } | null>(null);
 
   const periodReimbursements = useMemo(() => {
     return reimbursements.filter((reimbursement) =>
@@ -133,34 +143,11 @@ export function ReimbursementsCrud() {
     return { totalExpected, totalReceived, lateAmount, partialAmount, amountOwed, estimatedPersonalCost };
   }, [accounts, periodReimbursements, transactions]);
 
-  const peopleSummary = useMemo(() => {
-    return people
-      .map((person) => {
-        const personRows = reimbursements.filter((item) => item.person_id === person.id);
-        const received = personRows.reduce((sum, item) => sum + Number(item.received_amount), 0);
-        const open = personRows.reduce((sum, item) => sum + getOpenAmount(item), 0);
-        const late = personRows
-          .filter(isLateReimbursement)
-          .reduce((sum, item) => sum + getOpenAmount(item), 0);
-        const partial = personRows
-          .filter((item) => item.status === "partial")
-          .reduce((sum, item) => sum + getOpenAmount(item), 0);
-        const lastExpectedDate = personRows
-          .map((item) => item.expected_date)
-          .filter((date): date is string => Boolean(date))
-          .sort()
-          .at(-1) ?? null;
-        const status = late > 0 ? "atrasado" : open > 0 ? "em_aberto" : "em_dia";
-
-        return { person, received, open, late, partial, count: personRows.length, lastExpectedDate, status };
-      })
-      .filter((item) => item.count > 0)
-      .sort((a, b) => b.open - a.open || b.late - a.late || a.person.name.localeCompare(b.person.name));
-  }, [people, reimbursements]);
+  const peopleSummary = useMemo(() => buildPersonDebtSummaries(people, reimbursements), [people, reimbursements]);
 
   const visiblePeopleSummary = useMemo(() => {
-    return showAllPeopleSummary ? peopleSummary : peopleSummary.filter((item) => item.open > 0);
-  }, [peopleSummary, showAllPeopleSummary]);
+    return filterPersonDebtSummaries(peopleSummary, peopleSummaryView);
+  }, [peopleSummary, peopleSummaryView]);
 
   const selectedPerson = personFilter === "all" ? null : people.find((person) => person.id === personFilter) ?? null;
 
@@ -300,6 +287,7 @@ export function ReimbursementsCrud() {
 
     setLinkingId(linkModal.reimbursement.id);
     setFeedback(null);
+    setGeneratedInvoiceLink(null);
 
     try {
       const result = await generateLinkedEntryFromReimbursement(createClient(), userId, linkModal.reimbursement, values);
@@ -309,7 +297,16 @@ export function ReimbursementsCrud() {
         return;
       }
 
-      setFeedback({ type: "success", message: values.target === "account" ? "Conta vinculada gerada." : "Lançamento de fatura vinculado gerado." });
+      if (values.target === "invoice" && result.invoiceId) {
+        setGeneratedInvoiceLink({ invoiceId: result.invoiceId, transactionId: result.transactionId });
+      }
+      setFeedback({
+        type: "success",
+        message:
+          values.target === "account"
+            ? "Conta vinculada gerada."
+            : "Lançamento de fatura vinculado gerado e confirmado na fatura selecionada.",
+      });
       setLinkModal(null);
       await loadData();
     } catch (error) {
@@ -485,6 +482,14 @@ export function ReimbursementsCrud() {
         }
       />
       <CrudFeedback feedback={feedback} />
+      {generatedInvoiceLink ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-mint-500/30 bg-mint-50 px-4 py-3 text-sm text-ink-700">
+          <span>Lançamento vinculado à fatura selecionada.</span>
+          <Link className="font-semibold text-mint-700 hover:text-mint-800" href={`/dashboard/invoices/${generatedInvoiceLink.invoiceId}`}>
+            Abrir fatura
+          </Link>
+        </div>
+      ) : null}
 
       <PeriodFilter value={period} onChange={setPeriod} syncUrl />
 
@@ -508,28 +513,35 @@ export function ReimbursementsCrud() {
         </p>
       </SectionCard>
 
-      <SectionCard title="Saldo total devedor por pessoa" description="Por padrão, mostra apenas pessoas com saldo em aberto maior que zero.">
-        <div className="mb-4 flex justify-end">
-          <label className="inline-flex items-center gap-2 text-sm font-medium text-ink-600">
-            <input
-              type="checkbox"
-              checked={showAllPeopleSummary}
-              onChange={(event) => setShowAllPeopleSummary(event.target.checked)}
-            />
-            Mostrar todos
-          </label>
+      <SectionCard title="Saldo devedor por pessoa" description="Por padrão, mostra apenas pessoas que ainda têm algo em aberto, parcial ou atrasado.">
+        <div className="mb-4 flex flex-wrap gap-2">
+          {[
+            { value: "open", label: "Mostrar em aberto" },
+            { value: "late", label: "Mostrar atrasados" },
+            { value: "all", label: "Mostrar todos com histórico" },
+            { value: "hide_settled", label: "Ocultar quitados" },
+          ].map((option) => (
+            <ActionButton
+              key={option.value}
+              type="button"
+              variant={peopleSummaryView === option.value ? "primary" : "secondary"}
+              onClick={() => setPeopleSummaryView(option.value as PersonDebtViewMode)}
+            >
+              {option.label}
+            </ActionButton>
+          ))}
         </div>
         {peopleSummary.length === 0 ? (
           <EmptyState title="Nenhuma pessoa com reembolso" description="Quando houver reembolsos, o resumo por pessoa aparecerá aqui." />
         ) : visiblePeopleSummary.length === 0 ? (
-          <EmptyState title="Ninguém deve agora" description="Não há pessoas com saldo em aberto." />
+          <EmptyState title="Nenhuma pessoa neste filtro" description="Troque a visualização para ver outros históricos de reembolso." />
         ) : (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {visiblePeopleSummary.map((item) => (
               <button
                 key={item.person.id}
                 type="button"
-                className={`rounded-md border bg-white p-4 text-left transition hover:border-mint-500 hover:shadow-sm ${
+                className={`rounded-md border bg-white p-4 text-left transition hover:border-mint-500 hover:shadow-sm dark:bg-slate-950 ${
                   personFilter === item.person.id ? "border-mint-500 ring-2 ring-mint-500/20" : "border-ink-950/10"
                 }`}
                 onClick={() => setPersonFilter(item.person.id)}
@@ -539,19 +551,20 @@ export function ReimbursementsCrud() {
                   <div>
                     <p className="text-sm font-semibold text-ink-950">{item.person.name}</p>
                     <p className="mt-1 text-sm text-ink-600">
-                      {item.count} reembolso(s)
+                      {item.totalCount} reembolso(s)
                       {item.lastExpectedDate ? ` · última previsão ${formatDate(item.lastExpectedDate)}` : ""}
                     </p>
                   </div>
-                  <TextBadge tone={item.status === "atrasado" ? "danger" : item.status === "em_aberto" ? "warning" : "success"}>
-                    {item.status === "atrasado" ? "Atrasado" : item.status === "em_aberto" ? "Em aberto" : "Em dia"}
-                  </TextBadge>
+                  <TextBadge tone={getPersonDebtStatusTone(item.status)}>{getPersonDebtStatusLabel(item.status)}</TextBadge>
                 </div>
                 <div className="mt-4 grid gap-2 text-sm text-ink-600">
-                  <p>Total em aberto: <strong className="text-ink-950">{formatCurrency(item.open)}</strong></p>
-                  <p>Atrasado: <strong className={item.late > 0 ? "text-red-600" : "text-ink-950"}>{formatCurrency(item.late)}</strong></p>
-                  <p>Parcial: <strong className="text-ink-950">{formatCurrency(item.partial)}</strong></p>
+                  <p>Total esperado: <strong className="text-ink-950">{formatCurrency(item.totalExpected)}</strong></p>
                   <p>Recebido: <strong className="text-ink-950">{formatCurrency(item.received)}</strong></p>
+                  <p>Em aberto: <strong className={item.open > 0 ? "text-amber-700" : "text-ink-950"}>{formatCurrency(item.open)}</strong></p>
+                  <p>Atrasado: <strong className={item.late > 0 ? "text-red-600" : "text-ink-950"}>{formatCurrency(item.late)}</strong></p>
+                  <p className="text-xs text-ink-500">
+                    {item.openCount} aberto(s) · {item.lateCount} atrasado(s) · {item.partialCount} parcial(is)
+                  </p>
                 </div>
               </button>
             ))}
@@ -1049,14 +1062,16 @@ function LinkedEntryModal({
     amount: defaultAmount,
     transaction_date: defaultDate,
   });
-  const filteredInvoices = invoices.filter((invoice) => !invoiceValues.credit_card_id || invoice.credit_card_id === invoiceValues.credit_card_id);
+  const filteredInvoices = invoiceValues.credit_card_id
+    ? invoices.filter((invoice) => invoice.credit_card_id === invoiceValues.credit_card_id)
+    : [];
 
   return (
     <Modal
       title="Gerar lançamento vinculado"
       onClose={onClose}
       headerAction={
-        <ActionButton type="submit" form="linked-reimbursement-form" disabled={linking}>
+        <ActionButton type="submit" form="linked-reimbursement-form" disabled={linking || hasLink}>
           {linking ? "Gerando..." : "Salvar"}
         </ActionButton>
       }
@@ -1068,7 +1083,6 @@ function LinkedEntryModal({
           event.preventDefault();
 
           if (hasLink) {
-            onSubmit(target === "account" ? { target, ...accountValues } : { target, ...invoiceValues });
             return;
           }
 
@@ -1076,9 +1090,14 @@ function LinkedEntryModal({
         }}
       >
         {hasLink ? (
-          <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 md:col-span-2">
-            Este reembolso já possui vínculo. Para evitar duplicidade, o sistema não cria outro lançamento sobre o mesmo reembolso.
-          </p>
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 md:col-span-2">
+            <p>Este reembolso já possui vínculo. Para evitar duplicidade, o sistema não cria outro lançamento sobre o mesmo reembolso.</p>
+            {reimbursement.credit_card_invoice_id ? (
+              <Link className="mt-2 inline-flex font-semibold text-amber-950 underline" href={`/dashboard/invoices/${reimbursement.credit_card_invoice_id}`}>
+                Abrir fatura vinculada
+              </Link>
+            ) : null}
+          </div>
         ) : (
           <p className="rounded-md border border-mint-500/30 bg-mint-50 px-3 py-2 text-sm text-ink-700 md:col-span-2">
             Gerar lançamento vinculado cria uma conta ou lançamento de fatura rastreável a este reembolso.
@@ -1123,8 +1142,14 @@ function LinkedEntryModal({
               </select>
             </FieldShell>
             <FieldShell label="Fatura">
-              <select required className={inputClassName} value={invoiceValues.invoice_id} onChange={(event) => setInvoiceValues({ ...invoiceValues, invoice_id: event.target.value })}>
-                <option value="">Selecione</option>
+              <select
+                required
+                disabled={!invoiceValues.credit_card_id}
+                className={inputClassName}
+                value={invoiceValues.invoice_id}
+                onChange={(event) => setInvoiceValues({ ...invoiceValues, invoice_id: event.target.value })}
+              >
+                <option value="">{invoiceValues.credit_card_id ? "Selecione" : "Selecione um cartão primeiro"}</option>
                 {filteredInvoices.map((invoice) => (
                   <option key={invoice.id} value={invoice.id}>
                     {formatInvoiceOptionLabel(invoice, cards)}
@@ -1132,6 +1157,11 @@ function LinkedEntryModal({
                 ))}
               </select>
             </FieldShell>
+            {invoiceValues.credit_card_id && filteredInvoices.length === 0 ? (
+              <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 md:col-span-2">
+                Este cartão não possui faturas abertas para vínculo. Crie a fatura antes de gerar o lançamento.
+              </p>
+            ) : null}
             <FieldShell label="Valor">
               <input min="0" step="0.01" type="number" className={inputClassName} value={invoiceValues.amount} onChange={(event) => setInvoiceValues({ ...invoiceValues, amount: event.target.value })} />
             </FieldShell>
@@ -1147,7 +1177,7 @@ function LinkedEntryModal({
         )}
         <div className="flex justify-end gap-2 md:col-span-2">
           <ActionButton type="button" variant="secondary" onClick={onClose}>Cancelar</ActionButton>
-          <ActionButton type="submit" disabled={linking}>{linking ? "Gerando..." : "Gerar"}</ActionButton>
+          <ActionButton type="submit" disabled={linking || hasLink}>{linking ? "Gerando..." : "Gerar"}</ActionButton>
         </div>
       </form>
     </Modal>
@@ -1792,11 +1822,7 @@ function getOpenAmount(reimbursement: ReimbursementRow) {
 }
 
 function isLateReimbursement(reimbursement: ReimbursementRow) {
-  if (["received", "cancelled", "forgiven"].includes(reimbursement.status)) return false;
-  if (reimbursement.status === "late") return true;
-  if (!reimbursement.expected_date) return false;
-
-  return reimbursement.expected_date < new Date().toISOString().slice(0, 10);
+  return isReimbursementLateByDate(reimbursement);
 }
 
 function formatDateTime(date: Date) {

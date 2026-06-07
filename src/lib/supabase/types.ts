@@ -284,6 +284,7 @@ export type PlannedPurchase = UserOwnedRow & {
   decision_label: string | null;
   import_source: string | null;
   import_batch_id: string | null;
+  created_by: string | null;
   notes: string | null;
 };
 
@@ -302,6 +303,7 @@ export type Goal = UserOwnedRow & {
   source_label: string | null;
   import_source: string | null;
   import_batch_id: string | null;
+  created_by: string | null;
   urgency_level: string;
   monthly_contribution: number | null;
   status: string;

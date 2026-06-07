@@ -216,6 +216,7 @@ export function buildInsertPayload(target: ImportTarget, userId: string, mapped:
       decision_label: mapped.decision_label ?? null,
       import_source: mapped.import_source ?? null,
       import_batch_id: mapped.import_batch_id ?? null,
+      created_by: userId,
       notes: mapped.notes ?? null,
     };
   }
@@ -237,6 +238,7 @@ export function buildInsertPayload(target: ImportTarget, userId: string, mapped:
     source_label: mapped.source_label ?? null,
     import_source: mapped.import_source ?? null,
     import_batch_id: mapped.import_batch_id ?? null,
+    created_by: userId,
     status: mapped.status ?? "active",
     notes: mapped.notes ?? null,
   };
@@ -261,16 +263,18 @@ function validateRow(
   let duplicate = false;
   if (duplicateKey) {
     if (seen.has(duplicateKey) || existsDuplicate(target, mapped, references)) {
-      errors.push("Duplicidade detectada. A linha não será importada por padrão.");
       duplicate = true;
     }
     seen.add(duplicateKey);
+  }
+  if (duplicate) {
+    warnings.push("Ignorada por duplicidade. Esta linha não será importada por padrão.");
   }
   return {
     rowNumber,
     raw,
     mapped,
-    status: errors.length ? "invalid" : "valid",
+    status: errors.length ? "invalid" : duplicate ? "skipped" : "valid",
     errors,
     warnings,
     duplicate,
@@ -449,7 +453,7 @@ function mapRow(
       status: normalizePurchaseStatus(raw.status),
       risk_level: normalizeEnum(raw.risco, riskLevels, "medium"),
       external_url: externalUrl,
-      import_source: "compras_metas_para_sistema.xlsx:Compras_Sistema",
+      import_source: "Compras_Sistema",
       notes: nullable(raw.notas || raw.observacoes),
     };
   }
@@ -457,29 +461,25 @@ function mapRow(
   requireField(errors, name, "Nome");
   const extracted = extractGoalNotes(raw.observacoes);
   const goalCategory = normalizeGoalCategory(raw.tipo);
-  const targetDate = optionalDate(raw.data_alvo, errors, "Data alvo") ?? parseDate(text(extracted.final_original ?? ""));
-  const startDate = optionalDate(raw.data_inicio, errors, "Data inicial") ?? parseDate(text(extracted.inicio ?? ""));
-  const targetAmount = optionalMoney(raw.valor_objetivo || raw.valor_alvo, errors, "Valor objetivo");
-  const currentAmount = optionalMoney(raw.valor_atual, errors, "Valor atual");
-  const monthlyContribution = optionalMoney(raw.aporte_mensal || raw.contribuicao_mensal, errors, "Aporte mensal");
-  const manualProgress = optionalPercent(raw.progresso_manual || extracted.progresso_original || undefined, errors, "Progresso manual");
+  const targetDate = optionalDate(raw.data_alvo, errors, "Data alvo");
+  const startDate = parseDate(text(extracted.inicio ?? ""));
   return {
     name,
     goal_type: goalCategory,
     goal_category: goalCategory,
-    goal_kind: normalizeGoalKind(raw.tipo_de_meta) ?? inferGoalKind(targetAmount, currentAmount, monthlyContribution),
-    target_amount: targetAmount,
-    current_amount: currentAmount,
-    manual_progress_percent: manualProgress,
+    goal_kind: "qualitative",
+    target_amount: null,
+    current_amount: null,
+    manual_progress_percent: null,
     target_date: targetDate,
     start_date: startDate,
-    monthly_contribution: monthlyContribution,
+    monthly_contribution: null,
     status: normalizeGoalStatus(raw.status || extracted.status_manual_da_planilha || undefined),
     category_id: null,
     category_label: goalCategoryLabel(goalCategory),
     missing_category_name: null,
     source_label: extracted.origem ?? null,
-    import_source: "compras_metas_para_sistema.xlsx:Metas_Sistema",
+    import_source: "Metas_Sistema",
     notes: buildGoalNotes(raw.observacoes, extracted),
   };
 }
@@ -585,7 +585,7 @@ function resolveInvoice(value: string | undefined, cardName: string | undefined,
 }
 
 function requireField(errors: string[], value: string, label: string) {
-  if (!value) errors.push(`${label} é obrigatório.`);
+  if (!value) errors.push(validationError(label, "(vazio)", "campo obrigatório", `Preencha ${label}`));
 }
 
 function text(value: string | undefined) {
@@ -699,31 +699,6 @@ function goalCategoryLabel(value: string) {
   return labels[value] ?? "Pessoal";
 }
 
-function inferGoalKind(
-  targetAmount: number | null,
-  currentAmount: number | null,
-  monthlyContribution: number | null,
-) {
-  if (targetAmount !== null || currentAmount !== null || monthlyContribution !== null) return "financial";
-  return "qualitative";
-}
-
-function normalizeGoalKind(value: string | undefined) {
-  const normalized = slug(value);
-  const aliases: Record<string, string> = {
-    qualitativa: "qualitative",
-    qualitativo: "qualitative",
-    qualitative: "qualitative",
-    financeira: "financial",
-    financeiro: "financial",
-    financial: "financial",
-    numerica: "numeric",
-    numerico: "numeric",
-    numeric: "numeric",
-  };
-  return aliases[normalized] ?? null;
-}
-
 function normalizeGoalStatus(value: string | undefined) {
   const normalized = normalizeEnum(value, goalStatuses, "active");
   if (normalized === "done" || normalized === "finished") return "completed";
@@ -780,7 +755,7 @@ function optionalMoney(value: string | undefined, errors: string[], label: strin
   const normalized = raw.replace(/\./g, "").replace(",", ".");
   const parsed = Number(normalized);
   if (!Number.isFinite(parsed) || parsed < 0) {
-    errors.push(`${label} deve ser numérico e maior ou igual a zero.`);
+    errors.push(validationError(label, raw, "número maior ou igual a zero", "123,45"));
     return null;
   }
   return parsed;
@@ -791,19 +766,7 @@ function optionalInteger(value: string | undefined, errors: string[], label: str
   if (!raw) return null;
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || parsed < 0) {
-    errors.push(`${label} deve ser um número inteiro válido.`);
-    return null;
-  }
-  return parsed;
-}
-
-function optionalPercent(value: string | undefined, errors: string[], label: string) {
-  const raw = text(value).replace("%", "");
-  if (!raw) return null;
-  const normalized = raw.replace(/\./g, "").replace(",", ".");
-  const parsed = Number(normalized);
-  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) {
-    errors.push(`${label} deve ser um percentual entre 0 e 100.`);
+    errors.push(validationError(label, raw, "número inteiro maior ou igual a zero", "3"));
     return null;
   }
   return parsed;
@@ -819,7 +782,7 @@ function optionalDate(value: string | undefined, errors: string[], label: string
   const raw = text(value);
   if (!raw) return null;
   const normalized = parseDate(raw);
-  if (!normalized) errors.push(`${label} deve ser uma data válida.`);
+  if (!normalized) errors.push(validationError(label, raw, "data no formato dd/mm/aaaa ou aaaa-mm-dd", "15/12/2026"));
   return normalized;
 }
 
@@ -905,4 +868,8 @@ function buildGoalNotes(original: string | undefined, extracted: ReturnType<type
   ].filter(Boolean);
   const combined = [...lines, ...extractedLines].join("\n");
   return combined || null;
+}
+
+function validationError(label: string, received: string, expected: string, example: string) {
+  return `Campo: ${label}. Valor recebido: ${received || "(vazio)"}. Formato esperado: ${expected}. Exemplo correto: ${example}.`;
 }
