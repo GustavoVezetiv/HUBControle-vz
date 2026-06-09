@@ -93,6 +93,7 @@ export const reimbursementStatusOptions: SelectOption[] = [
   { value: "partial", label: "Parcial" },
   { value: "received", label: "Recebido" },
   { value: "late", label: "Atrasado" },
+  { value: "renegotiated", label: "Renegociado" },
   { value: "cancelled", label: "Cancelado" },
   { value: "forgiven", label: "Perdoado" },
 ];

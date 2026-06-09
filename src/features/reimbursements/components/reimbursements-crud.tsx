@@ -17,12 +17,13 @@ import {
   type PersonDebtViewMode,
 } from "@/features/reimbursements/debt-summary";
 import {
+  archiveReimbursement,
   createReimbursement,
-  deleteReimbursement,
   generateLinkedEntryFromReimbursement,
   generateRecurringReimbursements,
   listReimbursements,
   listReimbursementSupportData,
+  renegotiateReimbursements,
   updateReimbursement,
 } from "@/features/reimbursements/queries";
 import {
@@ -36,6 +37,7 @@ import {
   type ReimbursementIncome,
   type ReimbursementInvoice,
   type ReimbursementPerson,
+  type ReimbursementRenegotiationValues,
   type ReimbursementRow,
   type ReimbursementTransaction,
 } from "@/features/reimbursements/types";
@@ -50,6 +52,7 @@ import { createClient } from "@/lib/supabase/client";
 
 type ModalState = { mode: "create"; reimbursement: null } | { mode: "edit"; reimbursement: ReimbursementRow } | null;
 type LinkModalState = { reimbursement: ReimbursementRow } | null;
+type RenegotiationModalState = { reimbursements: ReimbursementRow[]; person: ReimbursementPerson | null } | null;
 
 export function ReimbursementsCrud() {
   const searchParams = useSearchParams();
@@ -75,6 +78,7 @@ export function ReimbursementsCrud() {
   const [linkingId, setLinkingId] = useState<string | null>(null);
   const [modal, setModal] = useState<ModalState>(null);
   const [linkModal, setLinkModal] = useState<LinkModalState>(null);
+  const [renegotiationModal, setRenegotiationModal] = useState<RenegotiationModalState>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -318,11 +322,12 @@ export function ReimbursementsCrud() {
   }
 
   async function handleDelete(reimbursement: ReimbursementRow) {
-    if (!window.confirm("Excluir este reembolso?")) return;
-    const { error } = await deleteReimbursement(createClient(), reimbursement.id);
+    if (!userId) return;
+    if (!window.confirm("Arquivar este reembolso?")) return;
+    const { error } = await archiveReimbursement(createClient(), reimbursement.id, userId);
     if (error) setFeedback({ type: "error", message: error.message });
     else {
-      setFeedback({ type: "success", message: "Reembolso excluído." });
+      setFeedback({ type: "success", message: "Reembolso arquivado." });
       await loadData();
     }
   }
@@ -439,7 +444,8 @@ export function ReimbursementsCrud() {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
 
-    if (!window.confirm(`Tem certeza que deseja excluir ${ids.length} itens? Esta ação não pode ser desfeita.`)) {
+    if (!userId) return;
+    if (!window.confirm(`Arquivar ${ids.length} reembolso(s) selecionado(s)?`)) {
       return;
     }
 
@@ -448,23 +454,88 @@ export function ReimbursementsCrud() {
 
     try {
       const client = createClient();
-      const results = await Promise.all(ids.map((id) => deleteReimbursement(client, id)));
+      const results = await Promise.all(ids.map((id) => archiveReimbursement(client, id, userId)));
       const failed = results.find((result) => result.error);
 
       if (failed?.error) {
         console.error("Erro técnico ao excluir reembolsos selecionados:", failed.error);
-        setFeedback({ type: "error", message: "Não foi possível excluir todos os itens selecionados." });
+        setFeedback({ type: "error", message: "Não foi possível arquivar todos os itens selecionados." });
         return;
       }
 
       setSelectedIds(new Set());
-      setFeedback({ type: "success", message: `${ids.length} reembolso(s) excluído(s).` });
+      setFeedback({ type: "success", message: `${ids.length} reembolso(s) arquivado(s).` });
       await loadData();
     } catch (error) {
-      console.error("Erro técnico ao excluir reembolsos selecionados:", error);
-      setFeedback({ type: "error", message: "Não foi possível excluir os itens selecionados." });
+      console.error("Erro técnico ao arquivar reembolsos selecionados:", error);
+      setFeedback({ type: "error", message: "Não foi possível arquivar os itens selecionados." });
     } finally {
       setDeletingSelected(false);
+    }
+  }
+
+  function handleOpenRenegotiation() {
+    const selected = reimbursements.filter((item) => selectedIds.has(item.id));
+    if (selected.length === 0) {
+      setFeedback({ type: "error", message: "Selecione ao menos um reembolso para renegociar." });
+      return;
+    }
+
+    const personIds = new Set(selected.map((item) => item.person_id));
+    if (personIds.size > 1) {
+      setFeedback({ type: "error", message: "Selecione apenas reembolsos da mesma pessoa para renegociar." });
+      return;
+    }
+
+    const invalid = selected.find(
+      (item) =>
+        !["expected", "partial", "late"].includes(item.status) ||
+        getOpenAmount(item) <= 0 ||
+        item.renegotiated_into_id ||
+        item.status === "renegotiated",
+    );
+    if (invalid) {
+      setFeedback({ type: "error", message: "Só é possível renegociar reembolsos em aberto, parciais ou atrasados que ainda não foram renegociados." });
+      return;
+    }
+
+    setRenegotiationModal({
+      reimbursements: selected,
+      person: people.find((person) => person.id === selected[0].person_id) ?? null,
+    });
+  }
+
+  async function handleRenegotiationSubmit(values: ReimbursementRenegotiationValues) {
+    if (!userId || !renegotiationModal) {
+      setFeedback({ type: "error", message: "Sessão não encontrada." });
+      return;
+    }
+
+    setSaving(true);
+    setFeedback(null);
+
+    try {
+      const result = await renegotiateReimbursements(
+        createClient(),
+        userId,
+        renegotiationModal.reimbursements,
+        values,
+      );
+
+      if (result.error) {
+        setFeedback({ type: "error", message: result.error.message });
+        return;
+      }
+
+      setFeedback({ type: "success", message: `Renegociação criada para ${result.count} título(s).` });
+      setRenegotiationModal(null);
+      setSelectedIds(new Set());
+      await loadData();
+    } catch (error) {
+      console.error("Erro técnico ao renegociar reembolsos:", error);
+      setFeedback({ type: "error", message: "Não foi possível criar a renegociação dos reembolsos selecionados." });
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -513,7 +584,7 @@ export function ReimbursementsCrud() {
         </p>
       </SectionCard>
 
-      <SectionCard title="Saldo devedor por pessoa" description="Por padrão, mostra apenas pessoas com valores em aberto no mês atual, atrasos ou recebimentos parciais.">
+      <SectionCard title="Saldo devedor por pessoa" description="Por padrão, mostra apenas pessoas com valores em aberto no mês atual, atrasos, parcelas parciais ou títulos previstos para este mês.">
         <div className="mb-4 flex flex-wrap gap-2">
           {[
             { value: "open_month", label: "Em aberto no mês" },
@@ -542,7 +613,7 @@ export function ReimbursementsCrud() {
               <button
                 key={item.person.id}
                 type="button"
-                className={`rounded-xl border bg-white p-4 text-left shadow-sm transition hover:border-mint-500 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 ${
+                className={`hub-card flex h-full flex-col rounded-xl border p-4 text-left transition hover:border-mint-500 hover:shadow-md ${
                   personFilter === item.person.id ? "border-mint-500 ring-2 ring-mint-500/20" : "border-ink-950/10"
                 }`}
                 onClick={() => setPersonFilter(item.person.id)}
@@ -552,8 +623,7 @@ export function ReimbursementsCrud() {
                   <div>
                     <p className="text-sm font-semibold text-ink-950 dark:text-slate-100">{item.person.name}</p>
                     <p className="mt-1 text-sm text-ink-600 dark:text-slate-300">
-                      {item.totalCount} reembolso(s)
-                      {item.nextExpectedDate ? ` · próxima previsão ${formatDate(item.nextExpectedDate)}` : ""}
+                      Status geral do saldo desta pessoa.
                     </p>
                   </div>
                   <TextBadge tone={getPersonDebtStatusTone(item.status)}>{getPersonDebtStatusLabel(item.status)}</TextBadge>
@@ -563,6 +633,8 @@ export function ReimbursementsCrud() {
                   <p>Recebido: <strong className="text-ink-950 dark:text-slate-100">{formatCurrency(item.received)}</strong></p>
                   <p>Em aberto: <strong className={item.open > 0 ? "text-amber-700 dark:text-amber-300" : "text-ink-950 dark:text-slate-100"}>{formatCurrency(item.open)}</strong></p>
                   <p>Atrasado: <strong className={item.late > 0 ? "text-red-600 dark:text-red-300" : "text-ink-950 dark:text-slate-100"}>{formatCurrency(item.late)}</strong></p>
+                  <p>Quantidade de títulos: <strong className="text-ink-950 dark:text-slate-100">{item.totalCount}</strong></p>
+                  <p>Próxima data prevista: <strong className="text-ink-950 dark:text-slate-100">{item.nextExpectedDate ? formatDate(item.nextExpectedDate) : "-"}</strong></p>
                   <p className="text-xs text-ink-500 dark:text-slate-400">
                     {item.totalCount} titulo(s) · {item.openCount} aberto(s) · {item.lateCount} atrasado(s)
                   </p>
@@ -679,6 +751,14 @@ export function ReimbursementsCrud() {
             >
               Marcar recebido
             </ActionButton>
+            <ActionButton
+              type="button"
+              variant="secondary"
+              disabled={bulkUpdating || deletingSelected}
+              onClick={handleOpenRenegotiation}
+            >
+              Renegociar selecionados
+            </ActionButton>
           </BulkActionsBar>
           <RowSelectionHint />
           <div className="overflow-x-auto">
@@ -775,6 +855,8 @@ export function ReimbursementsCrud() {
                       <div className="flex flex-wrap items-center gap-2">
                         <QuickEditSelect value={reimbursement.status} options={reimbursementStatusOptions} onCommit={(value) => void handleStatusUpdate(reimbursement, value)} />
                         {isLate && reimbursement.status !== "late" ? <TextBadge tone="danger">Atrasado pela data</TextBadge> : null}
+                        {reimbursement.renegotiated_into_id ? <TextBadge tone="neutral">Renegociado</TextBadge> : null}
+                        {reimbursement.renegotiation_source_ids.length > 0 ? <TextBadge tone="info">Originado de renegociação</TextBadge> : null}
                       </div>
                     </td>
                     <td className="px-4 py-3">
@@ -789,9 +871,16 @@ export function ReimbursementsCrud() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <TextBadge tone={getLinkedTone(reimbursement)}>
-                        {getLinkedLabel(reimbursement, transactions, accounts, income)}
-                      </TextBadge>
+                      <div className="flex flex-col gap-1">
+                        <TextBadge tone={getLinkedTone(reimbursement)}>
+                          {getLinkedLabel(reimbursement, transactions, accounts, income)}
+                        </TextBadge>
+                        {reimbursement.renegotiated_at ? (
+                          <span className="text-xs text-ink-500">
+                            Renegociado em {formatDate(reimbursement.renegotiated_at.slice(0, 10))}
+                          </span>
+                        ) : null}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       {reimbursement.is_recurring ? (
@@ -819,7 +908,7 @@ export function ReimbursementsCrud() {
                           {linkingId === reimbursement.id ? "Gerando..." : "Gerar lançamento vinculado"}
                         </ActionButton>
                         <ActionButton variant="secondary" onClick={() => setModal({ mode: "edit", reimbursement })}>Editar</ActionButton>
-                        <ActionButton variant="danger" onClick={() => void handleDelete(reimbursement)}>Excluir</ActionButton>
+                        <ActionButton variant="danger" onClick={() => void handleDelete(reimbursement)}>Arquivar</ActionButton>
                       </div>
                     </td>
                   </tr>
@@ -853,6 +942,14 @@ export function ReimbursementsCrud() {
           reimbursement={linkModal.reimbursement}
           onClose={() => setLinkModal(null)}
           onSubmit={(values) => void handleGenerateLinked(values)}
+        />
+      ) : null}
+      {renegotiationModal ? (
+        <RenegotiationModal
+          modal={renegotiationModal}
+          saving={saving}
+          onClose={() => setRenegotiationModal(null)}
+          onSubmit={(values) => void handleRenegotiationSubmit(values)}
         />
       ) : null}
       {reportOpen ? (
@@ -1179,6 +1276,95 @@ function LinkedEntryModal({
         <div className="flex justify-end gap-2 md:col-span-2">
           <ActionButton type="button" variant="secondary" onClick={onClose}>Cancelar</ActionButton>
           <ActionButton type="submit" disabled={linking || hasLink}>{linking ? "Gerando..." : "Gerar"}</ActionButton>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function RenegotiationModal({
+  modal,
+  saving,
+  onClose,
+  onSubmit,
+}: {
+  modal: Exclude<RenegotiationModalState, null>;
+  saving: boolean;
+  onClose: () => void;
+  onSubmit: (values: ReimbursementRenegotiationValues) => void;
+}) {
+  const totalExpected = modal.reimbursements.reduce((sum, item) => sum + Number(item.expected_amount || 0), 0);
+  const totalReceived = modal.reimbursements.reduce((sum, item) => sum + Number(item.received_amount || 0), 0);
+  const totalOpen = modal.reimbursements.reduce((sum, item) => sum + getOpenAmount(item), 0);
+  const [values, setValues] = useState<ReimbursementRenegotiationValues>({
+    expected_date: new Date().toISOString().slice(0, 10),
+    description: `Renegociação de ${modal.reimbursements.length} título(s)`,
+    notes: "",
+  });
+
+  return (
+    <Modal
+      title="Renegociar reembolsos selecionados"
+      onClose={onClose}
+      headerAction={
+        <ActionButton type="submit" form="renegotiation-form" disabled={saving}>
+          {saving ? "Renegociando..." : "Salvar"}
+        </ActionButton>
+      }
+    >
+      <form
+        id="renegotiation-form"
+        className="grid gap-4 md:grid-cols-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit(values);
+        }}
+      >
+        <div className="rounded-md border border-ink-950/10 bg-slate-50 px-4 py-3 text-sm text-ink-700 md:col-span-2">
+          <p><strong>Pessoa:</strong> {modal.person?.name ?? "Pessoa selecionada"}</p>
+          <p><strong>Títulos selecionados:</strong> {modal.reimbursements.length}</p>
+          <p><strong>Valor total esperado:</strong> {formatCurrency(totalExpected)}</p>
+          <p><strong>Valor já recebido:</strong> {formatCurrency(totalReceived)}</p>
+          <p><strong>Valor em aberto:</strong> {formatCurrency(totalOpen)}</p>
+        </div>
+        <FieldShell label="Pessoa">
+          <input className={inputClassName} value={modal.person?.name ?? "-"} readOnly />
+        </FieldShell>
+        <FieldShell label="Nova data prevista">
+          <input
+            required
+            type="date"
+            className={inputClassName}
+            value={values.expected_date}
+            onChange={(event) => setValues({ ...values, expected_date: event.target.value })}
+          />
+        </FieldShell>
+        <div className="md:col-span-2">
+          <FieldShell label="Descrição">
+            <input
+              required
+              className={inputClassName}
+              value={values.description}
+              onChange={(event) => setValues({ ...values, description: event.target.value })}
+            />
+          </FieldShell>
+        </div>
+        <div className="md:col-span-2">
+          <FieldShell label="Observações">
+            <textarea
+              rows={4}
+              className={inputClassName}
+              value={values.notes}
+              onChange={(event) => setValues({ ...values, notes: event.target.value })}
+            />
+          </FieldShell>
+        </div>
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 md:col-span-2">
+          Os títulos antigos não serão apagados. Eles serão marcados como renegociados e sairão do saldo ativo.
+        </div>
+        <div className="flex justify-end gap-2 md:col-span-2">
+          <ActionButton type="button" variant="secondary" onClick={onClose}>Cancelar</ActionButton>
+          <ActionButton type="submit" disabled={saving}>{saving ? "Renegociando..." : "Criar título consolidado"}</ActionButton>
         </div>
       </form>
     </Modal>
@@ -1818,7 +2004,7 @@ function getPersonGroupStatusLabel(rows: ReimbursementRow[]) {
 }
 
 function getOpenAmount(reimbursement: ReimbursementRow) {
-  if (["received", "cancelled", "forgiven"].includes(reimbursement.status)) return 0;
+  if (["received", "cancelled", "forgiven", "renegotiated"].includes(reimbursement.status)) return 0;
   return Math.max(Number(reimbursement.expected_amount) - Number(reimbursement.received_amount), 0);
 }
 

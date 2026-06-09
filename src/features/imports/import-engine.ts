@@ -1,5 +1,5 @@
 import { isActiveImportTarget } from "@/features/imports/templates";
-import type { ImportTarget, PreviewRow, RawImportRow, ReferenceData, SystemImportRows } from "@/features/imports/types";
+import type { ImportDateFormat, ImportTarget, PreviewRow, RawImportRow, ReferenceData, SystemImportRows } from "@/features/imports/types";
 import type { Json } from "@/lib/supabase/types";
 
 type Mapped = Record<string, Json>;
@@ -16,7 +16,22 @@ const goalCategories = ["personal", "professional", "course", "education", "proj
 const goalStatuses = ["active", "paused", "completed", "canceled"];
 const purchaseStatuses = ["considering", "approved", "delayed", "canceled", "purchased", "review", "waiting", "promotion"];
 
-export function buildPreviewRows(target: ImportTarget, rawRows: RawImportRow[], references: ReferenceData) {
+type ImportBuildOptions = {
+  dateFormat?: ImportDateFormat;
+  softMissingCategory?: boolean;
+};
+
+const importContext: { dateFormat: ImportDateFormat; rowNumber: number } = {
+  dateFormat: "br",
+  rowNumber: 0,
+};
+
+export function buildPreviewRows(
+  target: ImportTarget,
+  rawRows: RawImportRow[],
+  references: ReferenceData,
+  options: ImportBuildOptions = {},
+) {
   if (!isActiveImportTarget(target)) {
     return rawRows.map((raw, index) => ({
       rowNumber: index + 2,
@@ -28,17 +43,21 @@ export function buildPreviewRows(target: ImportTarget, rawRows: RawImportRow[], 
   }
 
   const seen = new Set<string>();
-  return rawRows.map((raw, index) => validateRow(target, raw, index + 2, references, seen));
+  return rawRows.map((raw, index) => validateRow(target, raw, index + 2, references, seen, options));
 }
 
-export function buildSystemGoalsPurchasesPreviewRows(rows: SystemImportRows, references: ReferenceData) {
+export function buildSystemGoalsPurchasesPreviewRows(
+  rows: SystemImportRows,
+  references: ReferenceData,
+  options: ImportBuildOptions = {},
+) {
   const seenGoals = new Set<string>();
   const seenPurchases = new Set<string>();
   const goalRows = rows.goals.map((raw, index) =>
-    validateRow("goals", raw, index + 2, references, seenGoals, { softMissingCategory: true }),
+    validateRow("goals", raw, index + 2, references, seenGoals, { ...options, softMissingCategory: true }),
   );
   const purchaseRows = rows.purchases.map((raw, index) =>
-    validateRow("planned_purchases", raw, index + 2, references, seenPurchases, { softMissingCategory: true }),
+    validateRow("planned_purchases", raw, index + 2, references, seenPurchases, { ...options, softMissingCategory: true }),
   );
 
   return [
@@ -254,8 +273,10 @@ function validateRow(
   rowNumber: number,
   references: ReferenceData,
   seen: Set<string>,
-  options: { softMissingCategory?: boolean } = {},
+  options: ImportBuildOptions = {},
 ): PreviewRow {
+  importContext.dateFormat = options.dateFormat ?? "br";
+  importContext.rowNumber = rowNumber;
   const errors: string[] = [];
   const warnings: string[] = [];
   const mapped = mapRow(target, raw, references, errors, warnings, options);
@@ -288,7 +309,7 @@ function mapRow(
   references: ReferenceData,
   errors: string[],
   warnings: string[] = [],
-  options: { softMissingCategory?: boolean } = {},
+  options: ImportBuildOptions = {},
 ): Mapped {
   if (target === "people") {
     const name = text(raw.nome);
@@ -773,16 +794,27 @@ function optionalInteger(value: string | undefined, errors: string[], label: str
 }
 
 function date(value: string | undefined, errors: string[], label: string) {
+  const raw = text(value);
   const parsed = optionalDate(value, errors, label);
-  if (!parsed) errors.push(`${label} é obrigatório.`);
+  if (!parsed && !raw) errors.push(`${label} é obrigatório.`);
   return parsed ?? "";
 }
 
 function optionalDate(value: string | undefined, errors: string[], label: string) {
   const raw = text(value);
   if (!raw) return null;
-  const normalized = parseDate(raw);
-  if (!normalized) errors.push(validationError(label, raw, "data no formato dd/mm/aaaa ou aaaa-mm-dd", "15/12/2026"));
+  const normalized = parseDate(raw, importContext.dateFormat);
+  if (!normalized) {
+    errors.push(
+      dateValidationError(
+        importContext.rowNumber,
+        label,
+        raw,
+        expectedDateFormatLabel(importContext.dateFormat),
+        expectedDateExample(importContext.dateFormat),
+      ),
+    );
+  }
   return normalized;
 }
 
@@ -792,13 +824,39 @@ function month(value: string | undefined, errors: string[], label: string) {
   return parsed ? `${parsed}-01` : "";
 }
 
-function parseDate(value: string) {
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-  const slash = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (slash) return `${slash[3]}-${slash[2].padStart(2, "0")}-${slash[1].padStart(2, "0")}`;
+function parseDate(value: string, dateFormat: ImportDateFormat = "br") {
+  const normalized = value.trim();
+  if (dateFormat === "iso") return parseIsoDate(normalized);
+  if (dateFormat === "br") return parseBrazilianDate(normalized);
+  return parseBrazilianDate(normalized) ?? parseIsoDate(normalized);
+}
+
+function parseIsoDate(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const year = Number(value.slice(0, 4));
+  const month = Number(value.slice(5, 7));
+  const day = Number(value.slice(8, 10));
+  return isValidDateParts(year, month, day) ? value : null;
+}
+
+function parseBrazilianDate(value: string) {
+  const slash = value.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if (slash) {
+    const day = Number(slash[1]);
+    const month = Number(slash[2]);
+    const year = Number(slash[3]);
+    if (!isValidDateParts(year, month, day)) return null;
+    return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  }
   const monthOnly = parseMonth(value);
   if (monthOnly) return `${monthOnly}-01`;
   return null;
+}
+
+function isValidDateParts(year: number, month: number, day: number) {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 }
 
 function parseMonth(value: string) {
@@ -872,4 +930,24 @@ function buildGoalNotes(original: string | undefined, extracted: ReturnType<type
 
 function validationError(label: string, received: string, expected: string, example: string) {
   return `Campo: ${label}. Valor recebido: ${received || "(vazio)"}. Formato esperado: ${expected}. Exemplo correto: ${example}.`;
+}
+
+function dateValidationError(
+  rowNumber: number,
+  label: string,
+  received: string,
+  expectedFormat: string,
+  example: string,
+) {
+  return `Linha ${rowNumber}, campo ${label}: valor "${received || "(vazio)"}". Esperado formato ${expectedFormat}. Exemplo correto: ${example}.`;
+}
+
+function expectedDateFormatLabel(dateFormat: ImportDateFormat) {
+  if (dateFormat === "iso") return "aaaa-mm-dd";
+  if (dateFormat === "auto") return "dd/mm/aaaa, dd-mm-aaaa ou aaaa-mm-dd";
+  return "dd/mm/aaaa";
+}
+
+function expectedDateExample(dateFormat: ImportDateFormat) {
+  return dateFormat === "iso" ? "2025-12-24" : "24/12/2025";
 }

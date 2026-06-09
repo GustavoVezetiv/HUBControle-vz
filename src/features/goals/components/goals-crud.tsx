@@ -25,8 +25,8 @@ import { formatCurrency, formatDate } from "@/features/shared/format";
 import { getQuickTableEditPreference } from "@/features/shared/quick-edit";
 import type { FeedbackState } from "@/features/shared/types";
 import {
+  archiveGoal,
   createGoal,
-  deleteGoal,
   emptyGoalForm,
   goalToFormValues,
   listGoalCategories,
@@ -150,15 +150,16 @@ export function GoalsCrud() {
   }
 
   async function handleDelete(goal: Goal) {
-    const confirmed = window.confirm(`Excluir "${goal.name}"?`);
+    if (!userId) return;
+    const confirmed = window.confirm(`Arquivar "${goal.name}"?`);
     if (!confirmed) return;
-    const { error } = await deleteGoal(createClient(), goal.id);
+    const { error } = await archiveGoal(createClient(), goal.id, userId);
     if (error) {
-      console.error("Erro técnico ao excluir meta:", error);
-      setFeedback({ type: "error", message: "Não foi possível excluir a meta." });
+      console.error("Erro técnico ao arquivar meta:", error);
+      setFeedback({ type: "error", message: "Não foi possível arquivar a meta." });
       return;
     }
-    setFeedback({ type: "success", message: "Meta excluída." });
+    setFeedback({ type: "success", message: "Meta arquivada." });
     await loadData();
   }
 
@@ -183,20 +184,21 @@ export function GoalsCrud() {
 
   async function handleBulkDelete() {
     if (selectedIds.size === 0) return;
-    const confirmed = window.confirm(`Excluir ${selectedIds.size} metas selecionadas?`);
+    if (!userId) return;
+    const confirmed = window.confirm(`Arquivar ${selectedIds.size} metas selecionadas?`);
     if (!confirmed) return;
     setDeletingSelected(true);
     try {
       const client = createClient();
-      const results = await Promise.all(Array.from(selectedIds).map((id) => deleteGoal(client, id)));
+      const results = await Promise.all(Array.from(selectedIds).map((id) => archiveGoal(client, id, userId)));
       const error = results.find((result) => result.error)?.error;
       if (error) {
-        console.error("Erro técnico ao excluir metas em lote:", error);
-        setFeedback({ type: "error", message: "Não foi possível excluir todas as metas." });
+        console.error("Erro técnico ao arquivar metas em lote:", error);
+        setFeedback({ type: "error", message: "Não foi possível arquivar todas as metas." });
         return;
       }
       setSelectedIds(new Set());
-      setFeedback({ type: "success", message: "Metas excluídas." });
+      setFeedback({ type: "success", message: "Metas arquivadas." });
       await loadData();
     } finally {
       setDeletingSelected(false);
@@ -328,7 +330,7 @@ export function GoalsCrud() {
                       <td className="px-4 py-3">
                         <div className="flex justify-end gap-2">
                           <ActionButton variant="secondary" onClick={() => setModal({ mode: "edit", goal })}>Editar</ActionButton>
-                          <ActionButton variant="danger" onClick={() => void handleDelete(goal)}>Excluir</ActionButton>
+                          <ActionButton variant="danger" onClick={() => void handleDelete(goal)}>Arquivar</ActionButton>
                         </div>
                       </td>
                     </tr>

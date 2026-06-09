@@ -14,6 +14,8 @@ export type ImportTarget =
   | "goals"
   | "system_goals_purchases";
 
+export type ImportDateFormat = "br" | "iso" | "auto";
+
 export type RawImportRow = Record<string, string>;
 
 export type PreviewStatus = "valid" | "invalid" | "skipped" | "imported" | "failed";

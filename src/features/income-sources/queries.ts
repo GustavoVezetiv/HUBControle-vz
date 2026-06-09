@@ -4,6 +4,7 @@ import type {
 } from "@/features/income-sources/types";
 import { inflowKindFromType } from "@/features/income-sources/types";
 import type { AppSupabaseClient } from "@/features/shared/types";
+import { archiveRecord, restoreArchivedRecord } from "@/features/shared/archive";
 
 export type GenerateRecurringIncomeSourcesResult = {
   created: number;
@@ -12,7 +13,7 @@ export type GenerateRecurringIncomeSourcesResult = {
 };
 
 export async function listIncomeSources(client: AppSupabaseClient) {
-  return client.from("income_sources").select("*").order("expected_date", { ascending: true });
+  return client.from("income_sources").select("*").is("archived_at", null).order("expected_date", { ascending: true });
 }
 
 export async function createIncomeSource(
@@ -36,8 +37,12 @@ export async function updateIncomeSource(
     .single();
 }
 
-export async function deleteIncomeSource(client: AppSupabaseClient, id: string) {
-  return client.from("income_sources").delete().eq("id", id);
+export async function archiveIncomeSource(client: AppSupabaseClient, id: string, userId: string, reason?: string) {
+  return archiveRecord(client, "income_sources", id, userId, reason);
+}
+
+export async function restoreIncomeSource(client: AppSupabaseClient, id: string, userId: string) {
+  return restoreArchivedRecord(client, "income_sources", id, userId);
 }
 
 export async function generateRecurringIncomeSources(

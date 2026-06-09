@@ -319,12 +319,16 @@ export function BulkActionsBar({
   deleting,
   onClear,
   onDelete,
+  deleteLabel = "Arquivar selecionados",
+  deletingLabel = "Arquivando...",
   children,
 }: {
   selectedCount: number;
   deleting: boolean;
   onClear: () => void;
   onDelete: () => void;
+  deleteLabel?: string;
+  deletingLabel?: string;
   children?: React.ReactNode;
 }) {
   if (selectedCount === 0) {
@@ -342,7 +346,7 @@ export function BulkActionsBar({
           Limpar seleção
         </ActionButton>
         <ActionButton type="button" variant="danger" onClick={onDelete} disabled={deleting}>
-          {deleting ? "Excluindo..." : "Excluir selecionados"}
+          {deleting ? deletingLabel : deleteLabel}
         </ActionButton>
       </div>
     </div>

@@ -35,8 +35,8 @@ import { isAnyDateInPeriod, parsePeriodSearchParams } from "@/features/shared/pe
 import { getQuickTableEditPreference } from "@/features/shared/quick-edit";
 import type { FeedbackState } from "@/features/shared/types";
 import {
+  archiveIncomeSource,
   createIncomeSource,
-  deleteIncomeSource,
   generateRecurringIncomeSources,
   listIncomeSources,
   listIncomeSupportData,
@@ -329,18 +329,19 @@ export function IncomeSourcesCrud() {
   }
 
   async function handleDelete(income: IncomeSourceRow) {
-    if (!window.confirm(`Excluir ${income.name}?`)) {
+    if (!userId) return;
+    if (!window.confirm(`Arquivar ${income.name}?`)) {
       return;
     }
 
-    const { error } = await deleteIncomeSource(createClient(), income.id);
+    const { error } = await archiveIncomeSource(createClient(), income.id, userId);
 
     if (error) {
       setFeedback({ type: "error", message: error.message });
       return;
     }
 
-    setFeedback({ type: "success", message: "Receita excluída." });
+    setFeedback({ type: "success", message: "Receita arquivada." });
     await loadIncomeSources();
   }
 
@@ -370,7 +371,8 @@ export function IncomeSourcesCrud() {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
 
-    if (!window.confirm(`Tem certeza que deseja excluir ${ids.length} itens? Esta ação não pode ser desfeita.`)) {
+    if (!userId) return;
+    if (!window.confirm(`Arquivar ${ids.length} receita(s) selecionada(s)?`)) {
       return;
     }
 
@@ -379,21 +381,21 @@ export function IncomeSourcesCrud() {
 
     try {
       const client = createClient();
-      const results = await Promise.all(ids.map((id) => deleteIncomeSource(client, id)));
+      const results = await Promise.all(ids.map((id) => archiveIncomeSource(client, id, userId)));
       const failed = results.find((result) => result.error);
 
       if (failed?.error) {
-        console.error("Erro técnico ao excluir receitas selecionadas:", failed.error);
-        setFeedback({ type: "error", message: "Não foi possível excluir todos os itens selecionados." });
+        console.error("Erro técnico ao arquivar receitas selecionadas:", failed.error);
+        setFeedback({ type: "error", message: "Não foi possível arquivar todos os itens selecionados." });
         return;
       }
 
       setSelectedIds(new Set());
-      setFeedback({ type: "success", message: `${ids.length} entrada(s) excluída(s).` });
+      setFeedback({ type: "success", message: `${ids.length} entrada(s) arquivada(s).` });
       await loadIncomeSources();
     } catch (error) {
-      console.error("Erro técnico ao excluir receitas selecionadas:", error);
-      setFeedback({ type: "error", message: "Não foi possível excluir os itens selecionados." });
+      console.error("Erro técnico ao arquivar receitas selecionadas:", error);
+      setFeedback({ type: "error", message: "Não foi possível arquivar os itens selecionados." });
     } finally {
       setDeletingSelected(false);
     }
@@ -711,7 +713,7 @@ function IncomeTable({
                     </ActionButton>
                   ) : null}
                   <ActionButton variant="secondary" onClick={() => onEdit(income)}>Editar</ActionButton>
-                  <ActionButton variant="danger" onClick={() => onDelete(income)}>Excluir</ActionButton>
+                  <ActionButton variant="danger" onClick={() => onDelete(income)}>Arquivar</ActionButton>
                 </div>
               </td>
             </tr>
