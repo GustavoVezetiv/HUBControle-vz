@@ -2,7 +2,7 @@ import type { ReimbursementPerson, ReimbursementRow } from "@/features/reimburse
 import type { StatusTone } from "@/components/ui/status-badge";
 
 export type PersonDebtStatus = "em_dia" | "atrasado" | "parcial" | "quitado";
-export type PersonDebtViewMode = "open" | "late" | "all" | "hide_settled";
+export type PersonDebtViewMode = "open_month" | "late" | "all_debt" | "all_history" | "hide_settled";
 
 export type PersonDebtSummary = {
   person: ReimbursementPerson;
@@ -10,11 +10,13 @@ export type PersonDebtSummary = {
   received: number;
   open: number;
   late: number;
+  currentMonthOpen: number;
+  currentMonthExpectedCount: number;
   openCount: number;
   lateCount: number;
   partialCount: number;
   totalCount: number;
-  lastExpectedDate: string | null;
+  nextExpectedDate: string | null;
   status: PersonDebtStatus;
 };
 
@@ -23,6 +25,8 @@ export function buildPersonDebtSummaries(
   reimbursements: ReimbursementRow[],
   today = new Date().toISOString().slice(0, 10),
 ) {
+  const currentMonth = today.slice(0, 7);
+
   return people
     .map((person) => {
       const personRows = reimbursements.filter((item) => item.person_id === person.id);
@@ -30,15 +34,22 @@ export function buildPersonDebtSummaries(
       const received = personRows.reduce((sum, item) => sum + Number(item.received_amount || 0), 0);
       const open = personRows.reduce((sum, item) => sum + getReimbursementOpenAmount(item), 0);
       const lateRows = personRows.filter((item) => isReimbursementLateByDate(item, today));
+      const currentMonthRows = personRows.filter(
+        (item) =>
+          item.expected_date?.slice(0, 7) === currentMonth &&
+          !["received", "cancelled", "forgiven"].includes(item.status),
+      );
       const late = lateRows.reduce((sum, item) => sum + getReimbursementOpenAmount(item), 0);
+      const currentMonthOpen = currentMonthRows.reduce((sum, item) => sum + getReimbursementOpenAmount(item), 0);
       const openCount = personRows.filter((item) => getReimbursementOpenAmount(item) > 0).length;
       const partialCount = personRows.filter((item) => item.status === "partial" || isPartiallyReceived(item)).length;
-      const lastExpectedDate =
+      const nextExpectedDate =
         personRows
+          .filter((item) => getReimbursementOpenAmount(item) > 0)
           .map((item) => item.expected_date)
           .filter((date): date is string => Boolean(date))
           .sort()
-          .at(-1) ?? null;
+          .at(0) ?? null;
       const status = getPersonDebtStatus({ open, lateCount: lateRows.length, partialCount });
 
       return {
@@ -47,11 +58,13 @@ export function buildPersonDebtSummaries(
         received,
         open,
         late,
+        currentMonthOpen,
+        currentMonthExpectedCount: currentMonthRows.length,
         openCount,
         lateCount: lateRows.length,
         partialCount,
         totalCount: personRows.length,
-        lastExpectedDate,
+        nextExpectedDate,
         status,
       };
     })
@@ -60,10 +73,13 @@ export function buildPersonDebtSummaries(
 }
 
 export function filterPersonDebtSummaries(summaries: PersonDebtSummary[], mode: PersonDebtViewMode) {
-  if (mode === "all") return summaries;
+  if (mode === "all_history") return summaries;
   if (mode === "late") return summaries.filter((item) => item.lateCount > 0);
+  if (mode === "all_debt") return summaries.filter((item) => item.open > 0 || item.partialCount > 0 || item.lateCount > 0);
   if (mode === "hide_settled") return summaries.filter((item) => item.status !== "quitado");
-  return summaries.filter((item) => item.open > 0 || item.partialCount > 0 || item.lateCount > 0);
+  return summaries.filter(
+    (item) => item.currentMonthOpen > 0 || item.currentMonthExpectedCount > 0 || item.partialCount > 0 || item.lateCount > 0,
+  );
 }
 
 export function getReimbursementOpenAmount(reimbursement: ReimbursementRow) {

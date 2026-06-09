@@ -83,7 +83,7 @@ export function ReimbursementsCrud() {
   const [bulkCategoryId, setBulkCategoryId] = useState("");
   const [bulkPersonId, setBulkPersonId] = useState("");
   const [allowQuickTableEdit, setAllowQuickTableEdit] = useState(false);
-  const [peopleSummaryView, setPeopleSummaryView] = useState<PersonDebtViewMode>("open");
+  const [peopleSummaryView, setPeopleSummaryView] = useState<PersonDebtViewMode>("open_month");
   const [generatedInvoiceLink, setGeneratedInvoiceLink] = useState<{ invoiceId: string; transactionId?: string } | null>(null);
 
   const periodReimbursements = useMemo(() => {
@@ -513,12 +513,13 @@ export function ReimbursementsCrud() {
         </p>
       </SectionCard>
 
-      <SectionCard title="Saldo devedor por pessoa" description="Por padrão, mostra apenas pessoas que ainda têm algo em aberto, parcial ou atrasado.">
+      <SectionCard title="Saldo devedor por pessoa" description="Por padrão, mostra apenas pessoas com valores em aberto no mês atual, atrasos ou recebimentos parciais.">
         <div className="mb-4 flex flex-wrap gap-2">
           {[
-            { value: "open", label: "Mostrar em aberto" },
-            { value: "late", label: "Mostrar atrasados" },
-            { value: "all", label: "Mostrar todos com histórico" },
+            { value: "open_month", label: "Em aberto no mês" },
+            { value: "late", label: "Atrasados" },
+            { value: "all_debt", label: "Todos com saldo devedor" },
+            { value: "all_history", label: "Todos com histórico" },
             { value: "hide_settled", label: "Ocultar quitados" },
           ].map((option) => (
             <ActionButton
@@ -541,7 +542,7 @@ export function ReimbursementsCrud() {
               <button
                 key={item.person.id}
                 type="button"
-                className={`rounded-md border bg-white p-4 text-left transition hover:border-mint-500 hover:shadow-sm dark:bg-slate-950 ${
+                className={`rounded-xl border bg-white p-4 text-left shadow-sm transition hover:border-mint-500 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 ${
                   personFilter === item.person.id ? "border-mint-500 ring-2 ring-mint-500/20" : "border-ink-950/10"
                 }`}
                 onClick={() => setPersonFilter(item.person.id)}
@@ -549,21 +550,21 @@ export function ReimbursementsCrud() {
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-sm font-semibold text-ink-950">{item.person.name}</p>
-                    <p className="mt-1 text-sm text-ink-600">
+                    <p className="text-sm font-semibold text-ink-950 dark:text-slate-100">{item.person.name}</p>
+                    <p className="mt-1 text-sm text-ink-600 dark:text-slate-300">
                       {item.totalCount} reembolso(s)
-                      {item.lastExpectedDate ? ` · última previsão ${formatDate(item.lastExpectedDate)}` : ""}
+                      {item.nextExpectedDate ? ` · próxima previsão ${formatDate(item.nextExpectedDate)}` : ""}
                     </p>
                   </div>
                   <TextBadge tone={getPersonDebtStatusTone(item.status)}>{getPersonDebtStatusLabel(item.status)}</TextBadge>
                 </div>
-                <div className="mt-4 grid gap-2 text-sm text-ink-600">
-                  <p>Total esperado: <strong className="text-ink-950">{formatCurrency(item.totalExpected)}</strong></p>
-                  <p>Recebido: <strong className="text-ink-950">{formatCurrency(item.received)}</strong></p>
-                  <p>Em aberto: <strong className={item.open > 0 ? "text-amber-700" : "text-ink-950"}>{formatCurrency(item.open)}</strong></p>
-                  <p>Atrasado: <strong className={item.late > 0 ? "text-red-600" : "text-ink-950"}>{formatCurrency(item.late)}</strong></p>
-                  <p className="text-xs text-ink-500">
-                    {item.openCount} aberto(s) · {item.lateCount} atrasado(s) · {item.partialCount} parcial(is)
+                <div className="mt-4 grid gap-2 text-sm text-ink-600 dark:text-slate-300">
+                  <p>Total esperado: <strong className="text-ink-950 dark:text-slate-100">{formatCurrency(item.totalExpected)}</strong></p>
+                  <p>Recebido: <strong className="text-ink-950 dark:text-slate-100">{formatCurrency(item.received)}</strong></p>
+                  <p>Em aberto: <strong className={item.open > 0 ? "text-amber-700 dark:text-amber-300" : "text-ink-950 dark:text-slate-100"}>{formatCurrency(item.open)}</strong></p>
+                  <p>Atrasado: <strong className={item.late > 0 ? "text-red-600 dark:text-red-300" : "text-ink-950 dark:text-slate-100"}>{formatCurrency(item.late)}</strong></p>
+                  <p className="text-xs text-ink-500 dark:text-slate-400">
+                    {item.totalCount} titulo(s) · {item.openCount} aberto(s) · {item.lateCount} atrasado(s)
                   </p>
                 </div>
               </button>
