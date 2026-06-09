@@ -58,12 +58,16 @@ assert.equal(byPerson["person-open"].totalExpected, 100);
 assert.equal(byPerson["person-open"].received, 0);
 assert.equal(byPerson["person-open"].open, 100);
 assert.equal(byPerson["person-open"].late, 0);
+assert.equal(byPerson["person-open"].currentMonthOpen, 100);
+assert.equal(byPerson["person-open"].currentMonthExpectedCount, 1);
 assert.equal(byPerson["person-open"].openCount, 1);
 assert.equal(byPerson["person-open"].lateCount, 0);
+assert.equal(byPerson["person-open"].nextExpectedDate, "2026-06-20");
 assert.equal(byPerson["person-open"].status, "em_dia");
 
 assert.equal(byPerson["person-late"].open, 80);
 assert.equal(byPerson["person-late"].late, 80);
+assert.equal(byPerson["person-late"].nextExpectedDate, "2026-06-01");
 assert.equal(byPerson["person-late"].lateCount, 1);
 assert.equal(byPerson["person-late"].status, "atrasado");
 assert.equal(isReimbursementLateByDate(reimbursements[1], "2026-06-07"), true);
@@ -75,16 +79,21 @@ assert.equal(getReimbursementOpenAmount(reimbursements[2]), 0);
 
 assert.equal(byPerson["person-partial"].received, 40);
 assert.equal(byPerson["person-partial"].open, 80);
+assert.equal(byPerson["person-partial"].currentMonthOpen, 80);
 assert.equal(byPerson["person-partial"].partialCount, 1);
 assert.equal(byPerson["person-partial"].status, "parcial");
 
 assert.deepEqual(
-  filterPersonDebtSummaries(summaries, "open").map((item) => item.person.id).sort(),
+  filterPersonDebtSummaries(summaries, "open_month").map((item) => item.person.id).sort(),
   ["person-late", "person-open", "person-partial"].sort(),
-  "default open view should hide settled people",
+  "default current-month view should hide settled people",
 );
 assert.deepEqual(filterPersonDebtSummaries(summaries, "late").map((item) => item.person.id), ["person-late"]);
-assert.equal(filterPersonDebtSummaries(summaries, "all").length, 4);
+assert.deepEqual(
+  filterPersonDebtSummaries(summaries, "all_debt").map((item) => item.person.id).sort(),
+  ["person-late", "person-open", "person-partial"].sort(),
+);
+assert.equal(filterPersonDebtSummaries(summaries, "all_history").length, 4);
 assert.deepEqual(
   filterPersonDebtSummaries(summaries, "hide_settled").map((item) => item.person.id).sort(),
   ["person-late", "person-open", "person-partial"].sort(),

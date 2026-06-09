@@ -1,5 +1,6 @@
 import type { AppSupabaseClient } from "@/features/shared/types";
 import type { TransactionFormValues, TransactionRow } from "@/features/transactions/types";
+import { archiveRecord, restoreArchivedRecord } from "@/features/shared/archive";
 import { createSafeUuid } from "@/lib/uuid";
 import type { CreditCard, CreditCardInvoice, Reimbursement } from "@/lib/supabase/types";
 
@@ -23,6 +24,7 @@ export async function listTransactionSupportData(client: AppSupabaseClient) {
     client
       .from("credit_card_invoices")
       .select("id,credit_card_id,reference_month,due_date,status")
+      .is("archived_at", null)
       .order("due_date", { ascending: false }),
     client.from("categories").select("id,name,type,color,icon").order("name", { ascending: true }),
     client.from("people").select("id,name").order("name", { ascending: true }),
@@ -36,6 +38,7 @@ export async function listInvoiceTransactions(client: AppSupabaseClient, invoice
     .from("credit_card_transactions")
     .select("*")
     .eq("invoice_id", invoiceId)
+    .is("archived_at", null)
     .order("transaction_date", { ascending: false });
 }
 
@@ -64,8 +67,12 @@ export async function updateTransaction(
     .single();
 }
 
-export async function deleteTransaction(client: AppSupabaseClient, id: string) {
-  return client.from("credit_card_transactions").delete().eq("id", id);
+export async function archiveTransaction(client: AppSupabaseClient, id: string, userId: string, reason?: string) {
+  return archiveRecord(client, "credit_card_transactions", id, userId, reason);
+}
+
+export async function restoreTransaction(client: AppSupabaseClient, id: string, userId: string) {
+  return restoreArchivedRecord(client, "credit_card_transactions", id, userId);
 }
 
 export async function generateRecurringTransactions(

@@ -26,6 +26,12 @@ export type ReimbursementGeneratedLinkValues =
       transaction_date: string;
     };
 
+export type ReimbursementRenegotiationValues = {
+  expected_date: string;
+  description: string;
+  notes: string;
+};
+
 export type ReimbursementFormValues = {
   person_id: string;
   category_id: string;

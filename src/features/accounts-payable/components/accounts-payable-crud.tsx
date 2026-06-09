@@ -32,8 +32,8 @@ import { PeriodFilter } from "@/features/shared/period-filter";
 import { isDateInPeriod, parsePeriodSearchParams } from "@/features/shared/period";
 import type { FeedbackState } from "@/features/shared/types";
 import {
+  archiveAccountPayable,
   createAccountPayable,
-  deleteAccountPayable,
   generateRecurringAccounts,
   listAccountsPayable,
   listAccountSupportData,
@@ -352,18 +352,19 @@ export function AccountsPayableCrud() {
   }
 
   async function handleDelete(account: AccountPayableRow) {
-    if (!window.confirm(`Excluir ${account.title}?`)) {
+    if (!userId) return;
+    if (!window.confirm(`Arquivar ${account.title}?`)) {
       return;
     }
 
-    const { error } = await deleteAccountPayable(createClient(), account.id);
+    const { error } = await archiveAccountPayable(createClient(), account.id, userId);
 
     if (error) {
       setFeedback({ type: "error", message: error.message });
       return;
     }
 
-    setFeedback({ type: "success", message: "Conta excluída." });
+    setFeedback({ type: "success", message: "Conta arquivada." });
     await loadAccounts();
   }
 
@@ -429,7 +430,8 @@ export function AccountsPayableCrud() {
 
     if (ids.length === 0) return;
 
-    if (!window.confirm(`Tem certeza que deseja excluir ${ids.length} itens? Esta ação não pode ser desfeita.`)) {
+    if (!userId) return;
+    if (!window.confirm(`Arquivar ${ids.length} conta(s) selecionada(s)?`)) {
       return;
     }
 
@@ -438,21 +440,21 @@ export function AccountsPayableCrud() {
 
     try {
       const client = createClient();
-      const results = await Promise.all(ids.map((id) => deleteAccountPayable(client, id)));
+      const results = await Promise.all(ids.map((id) => archiveAccountPayable(client, id, userId)));
       const failed = results.find((result) => result.error);
 
       if (failed?.error) {
-        console.error("Erro técnico ao excluir contas selecionadas:", failed.error);
-        setFeedback({ type: "error", message: "Não foi possível excluir todos os itens selecionados." });
+        console.error("Erro técnico ao arquivar contas selecionadas:", failed.error);
+        setFeedback({ type: "error", message: "Não foi possível arquivar todos os itens selecionados." });
         return;
       }
 
       setSelectedIds(new Set());
-      setFeedback({ type: "success", message: `${ids.length} conta(s) excluída(s).` });
+      setFeedback({ type: "success", message: `${ids.length} conta(s) arquivada(s).` });
       await loadAccounts();
     } catch (error) {
-      console.error("Erro técnico ao excluir contas selecionadas:", error);
-      setFeedback({ type: "error", message: "Não foi possível excluir os itens selecionados." });
+      console.error("Erro técnico ao arquivar contas selecionadas:", error);
+      setFeedback({ type: "error", message: "Não foi possível arquivar os itens selecionados." });
     } finally {
       setDeletingSelected(false);
     }
@@ -801,7 +803,7 @@ function AccountsTable({
                     <ActionButton variant="secondary" onClick={() => onPayWithCard(account)}>Pagar com cartão</ActionButton>
                   ) : null}
                   <ActionButton variant="secondary" onClick={() => onEdit(account)}>Editar</ActionButton>
-                  <ActionButton variant="danger" onClick={() => onDelete(account)}>Excluir</ActionButton>
+                  <ActionButton variant="danger" onClick={() => onDelete(account)}>Arquivar</ActionButton>
                 </div>
               </td>
             </tr>

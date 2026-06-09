@@ -1,4 +1,5 @@
 import type { AppSupabaseClient } from "@/features/shared/types";
+import { archiveRecord, restoreArchivedRecord } from "@/features/shared/archive";
 import type { Goal } from "@/lib/supabase/types";
 
 export type GoalFormValues = {
@@ -49,7 +50,7 @@ export function goalToFormValues(goal: Goal): GoalFormValues {
 }
 
 export async function listGoals(client: AppSupabaseClient) {
-  return client.from("goals").select("*").order("target_date", { ascending: true });
+  return client.from("goals").select("*").is("archived_at", null).order("target_date", { ascending: true });
 }
 
 export async function listGoalCategories(client: AppSupabaseClient) {
@@ -64,8 +65,12 @@ export async function updateGoal(client: AppSupabaseClient, id: string, values: 
   return client.from("goals").update(toPayload(undefined, values)).eq("id", id).select("*").single();
 }
 
-export async function deleteGoal(client: AppSupabaseClient, id: string) {
-  return client.from("goals").delete().eq("id", id);
+export async function archiveGoal(client: AppSupabaseClient, id: string, userId: string, reason?: string) {
+  return archiveRecord(client, "goals", id, userId, reason);
+}
+
+export async function restoreGoal(client: AppSupabaseClient, id: string, userId: string) {
+  return restoreArchivedRecord(client, "goals", id, userId);
 }
 
 function toPayload(userId: string | undefined, values: GoalFormValues): Partial<Goal> {

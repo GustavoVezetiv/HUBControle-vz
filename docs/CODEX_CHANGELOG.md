@@ -2,6 +2,137 @@
 
 This file is maintained by project-local Codex hooks.
 
+## 2026-06-09T02:08:42.910Z - codex/test8-reimbursements-import-preview
+
+Objective: update database schema
+
+Files changed:
+- `README.md`
+- `scripts/validate-import-date-format.mjs`
+- `src/app/dashboard/archived/`
+- `src/app/dashboard/page.tsx`
+- `src/features/accounts-payable/components/accounts-payable-crud.tsx`
+- `src/features/accounts-payable/queries.ts`
+- `src/features/archived/`
+- `src/features/goals/components/goals-crud.tsx`
+- `src/features/goals/queries.ts`
+- `src/features/imports/components/imports-workbench.tsx`
+- `src/features/imports/import-engine.ts`
+- `src/features/imports/types.ts`
+- `src/features/income-sources/components/income-sources-crud.tsx`
+- `src/features/income-sources/queries.ts`
+- `src/features/invoices/components/invoices-crud.tsx`
+- `src/features/invoices/queries.ts`
+- `src/features/planned-purchases/components/planned-purchases-crud.tsx`
+- `src/features/planned-purchases/queries.ts`
+- `src/features/shared/archive.ts`
+- `src/features/shared/crud-ui.tsx`
+- `src/features/transactions/components/invoice-transactions-crud.tsx`
+- `src/features/transactions/queries.ts`
+- `src/lib/navigation.ts`
+- `supabase/migrations/202606080002_soft_archive_core_modules.sql`
+
+Impact: database behavior or available columns may change
+
+Risk: medium; verify database migration order and rollback manually
+
+Validation: `npm run lint` - failed
+
+Documentation: covered by changed files or not required
+
+Generated real estate intake files:
+- _none_
+
+Skipped from auto-commit because they were dirty before the turn:
+- `docs/CODEX_CHANGELOG.md`
+- `package.json`
+- `src/features/reimbursements/components/reimbursements-crud.tsx`
+- `src/features/reimbursements/debt-summary.ts`
+- `src/features/reimbursements/queries.ts`
+- `src/features/reimbursements/types.ts`
+- `src/features/shared/options.ts`
+- `src/lib/supabase/types.ts`
+- `scripts/validate-reimbursement-renegotiation.mjs`
+- `supabase/migrations/202606080001_reimbursement_renegotiation.sql`
+
+Skipped binary/PDF assets from auto-commit:
+- _none_
+
+Rollback: restore listed files from Git or from local snapshots in `.codex/backups`; after an automatic commit, use `git revert <commit>`.
+
+## 2026-06-09T01:48:08.642Z - codex/test8-reimbursements-import-preview
+
+Objective: update project automation scripts
+
+Files changed:
+- `README.md`
+- `scripts/validate-import-date-format.mjs`
+- `src/features/imports/components/imports-workbench.tsx`
+- `src/features/imports/import-engine.ts`
+- `src/features/imports/types.ts`
+
+Impact: application runtime behavior may change
+
+Risk: medium; verify affected UI and data flows
+
+Validation: `npm run lint` - failed
+
+Documentation: covered by changed files or not required
+
+Generated real estate intake files:
+- _none_
+
+Skipped from auto-commit because they were dirty before the turn:
+- `docs/CODEX_CHANGELOG.md`
+- `package.json`
+- `src/features/reimbursements/components/reimbursements-crud.tsx`
+- `src/features/reimbursements/debt-summary.ts`
+- `src/features/reimbursements/queries.ts`
+- `src/features/reimbursements/types.ts`
+- `src/features/shared/options.ts`
+- `src/lib/supabase/types.ts`
+- `scripts/validate-reimbursement-renegotiation.mjs`
+- `supabase/migrations/202606080001_reimbursement_renegotiation.sql`
+
+Skipped binary/PDF assets from auto-commit:
+- _none_
+
+Rollback: restore listed files from Git or from local snapshots in `.codex/backups`; after an automatic commit, use `git revert <commit>`.
+
+## 2026-06-09T01:32:47.303Z - codex/test8-reimbursements-import-preview
+
+Objective: update database schema
+
+Files changed:
+- `package.json`
+- `scripts/validate-reimbursement-renegotiation.mjs`
+- `src/features/reimbursements/components/reimbursements-crud.tsx`
+- `src/features/reimbursements/debt-summary.ts`
+- `src/features/reimbursements/queries.ts`
+- `src/features/reimbursements/types.ts`
+- `src/features/shared/options.ts`
+- `src/lib/supabase/types.ts`
+- `supabase/migrations/202606080001_reimbursement_renegotiation.sql`
+
+Impact: database behavior or available columns may change
+
+Risk: medium; verify database migration order and rollback manually
+
+Validation: `npm run lint` - failed
+
+Documentation: review recommended for README/docs because business, script, model, or migration files changed
+
+Generated real estate intake files:
+- _none_
+
+Skipped from auto-commit because they were dirty before the turn:
+- _none_
+
+Skipped binary/PDF assets from auto-commit:
+- _none_
+
+Rollback: restore listed files from Git or from local snapshots in `.codex/backups`; after an automatic commit, use `git revert <commit>`.
+
 ## 2026-06-07T12:57:41.110Z - codex/test8-reimbursements-import-preview
 
 Objective: update database schema

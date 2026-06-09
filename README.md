@@ -483,18 +483,20 @@ How to use:
 2. Download a CSV template from "Modelos de planilha".
 3. Fill the spreadsheet using the Portuguese headers.
 4. Choose the target module.
-5. Upload a `.csv` or `.xlsx` file.
-6. Click "Prévia".
-7. Review original values, mapped values and validation errors.
-8. Mark rows as ignored if they should not be imported.
-9. Save the preview.
-10. Confirm the import.
+5. Choose the date format used in the file. The default is Brazilian (`dd/mm/aaaa`).
+6. Upload a `.csv` or `.xlsx` file.
+7. Click "Prévia".
+8. Review original values, mapped values and validation errors.
+9. Mark rows as ignored if they should not be imported.
+10. Save the preview.
+11. Confirm the import.
 
 Validation rules:
 
 - Required fields must be present.
 - Amounts must be numeric and greater than or equal to zero.
-- Dates must be valid.
+- Dates must be valid. The import parser accepts `dd/mm/aaaa`, `dd-mm-aaaa`, and `aaaa-mm-dd`.
+- The UI lets the user choose `Brasileiro`, `ISO`, or `Automático` before generating the preview.
 - Enum-like values are normalized when possible.
 - For accounts payable and income sources, categories and people are optional, but when provided they must already exist.
 - For the Metas e compras XLSX flow, missing categories are shown as pending warnings. They are not created automatically.
@@ -809,3 +811,13 @@ Initial project documentation:
 - [Architecture Decisions](docs/DECISIONS.md)
 - [Deployment Checklist](docs/DEPLOYMENT_CHECKLIST.md)
 - [Beta Test Checklist](docs/BETA_TEST_CHECKLIST.md)
+## Arquivamento seguro
+
+Os módulos de contas, receitas, faturas, lançamentos de fatura, reembolsos, compras e metas agora usam arquivamento em vez de exclusão definitiva como ação padrão.
+
+- Campos usados: `archived_at`, `archived_by`, `archive_reason`
+- Registros arquivados saem das listas principais
+- Dashboard e cálculos ignoram arquivados por padrão
+- A restauração fica disponível em `/dashboard/archived`
+
+Se a migration `supabase/migrations/202606080002_soft_archive_core_modules.sql` ainda não foi rodada, execute primeiro no Supabase SQL Editor antes de testar a tela de arquivados.

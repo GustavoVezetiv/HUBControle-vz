@@ -9,8 +9,10 @@
     "import:purchases": "node scripts/import-planned-purchases-from-xlsx.mjs",
     "import:goals-purchases": "node scripts/import-goals-and-purchases-from-xlsx.mjs",
     "validate:goals-purchases-import": "node scripts/validate-goals-purchases-import-flow.mjs",
+    "validate:import-dates": "node scripts/validate-import-date-format.mjs",
     "validate:reimbursement-invoice-link": "node scripts/validate-reimbursement-invoice-link-flow.mjs",
     "validate:reimbursements-debt-summary": "node scripts/validate-reimbursements-debt-summary.mjs",
+    "validate:reimbursement-renegotiation": "node scripts/validate-reimbursement-renegotiation.mjs",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check ."

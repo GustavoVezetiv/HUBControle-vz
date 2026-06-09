@@ -4,6 +4,7 @@ import type {
   AccountPayableRow,
 } from "@/features/accounts-payable/types";
 import type { AppSupabaseClient } from "@/features/shared/types";
+import { archiveRecord, restoreArchivedRecord } from "@/features/shared/archive";
 
 export type GenerateRecurringAccountsResult = {
   created: number;
@@ -12,7 +13,7 @@ export type GenerateRecurringAccountsResult = {
 };
 
 export async function listAccountsPayable(client: AppSupabaseClient) {
-  return client.from("accounts_payable").select("*").order("due_date", { ascending: true });
+  return client.from("accounts_payable").select("*").is("archived_at", null).order("due_date", { ascending: true });
 }
 
 export async function createAccountPayable(
@@ -50,8 +51,12 @@ export async function updateAccountPayable(
   return result;
 }
 
-export async function deleteAccountPayable(client: AppSupabaseClient, id: string) {
-  return client.from("accounts_payable").delete().eq("id", id);
+export async function archiveAccountPayable(client: AppSupabaseClient, id: string, userId: string, reason?: string) {
+  return archiveRecord(client, "accounts_payable", id, userId, reason);
+}
+
+export async function restoreAccountPayable(client: AppSupabaseClient, id: string, userId: string) {
+  return restoreArchivedRecord(client, "accounts_payable", id, userId);
 }
 
 export async function generateRecurringAccounts(

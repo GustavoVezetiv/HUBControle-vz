@@ -14,7 +14,7 @@ import { invoiceStatusOptions, optionLabel } from "@/features/shared/options";
 import { PeriodFilter } from "@/features/shared/period-filter";
 import { isAnyDateInPeriod, parsePeriodSearchParams } from "@/features/shared/period";
 import type { FeedbackState } from "@/features/shared/types";
-import { createInvoice, deleteInvoice, listInvoiceCards, listInvoices, updateInvoice } from "@/features/invoices/queries";
+import { archiveInvoice, createInvoice, listInvoiceCards, listInvoices, updateInvoice } from "@/features/invoices/queries";
 import { emptyInvoiceForm, invoiceToFormValues, type InvoiceCard, type InvoiceFormValues, type InvoiceRow } from "@/features/invoices/types";
 import type { InvoicePaymentStatus } from "@/lib/supabase/types";
 import { createClient } from "@/lib/supabase/client";
@@ -195,11 +195,12 @@ export function InvoicesCrud() {
   }
 
   async function handleDelete(invoice: InvoiceRow) {
-    if (!window.confirm("Excluir esta fatura?")) return;
-    const { error } = await deleteInvoice(createClient(), invoice.id);
+    if (!userId) return;
+    if (!window.confirm("Arquivar esta fatura?")) return;
+    const { error } = await archiveInvoice(createClient(), invoice.id, userId);
     if (error) setFeedback({ type: "error", message: error.message });
     else {
-      setFeedback({ type: "success", message: "Fatura excluída." });
+      setFeedback({ type: "success", message: "Fatura arquivada." });
       await loadData();
     }
   }
@@ -288,7 +289,7 @@ export function InvoicesCrud() {
                                   </Link>
                                   <ActionButton variant="secondary" onClick={() => setModal({ mode: "payment", invoice })}>Registrar pagamento</ActionButton>
                                   <ActionButton variant="secondary" onClick={() => setModal({ mode: "edit", invoice })}>Editar</ActionButton>
-                                  <ActionButton variant="danger" onClick={() => void handleDelete(invoice)}>Excluir</ActionButton>
+                                  <ActionButton variant="danger" onClick={() => void handleDelete(invoice)}>Arquivar</ActionButton>
                                 </div>
                               </td>
                             </tr>

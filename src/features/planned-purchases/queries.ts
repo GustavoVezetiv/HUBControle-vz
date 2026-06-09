@@ -1,8 +1,9 @@
 import type { PlannedPurchaseFormValues, PlannedPurchaseRow } from "@/features/planned-purchases/types";
+import { archiveRecord, restoreArchivedRecord } from "@/features/shared/archive";
 import type { AppSupabaseClient } from "@/features/shared/types";
 
 export async function listPlannedPurchases(client: AppSupabaseClient) {
-  return client.from("planned_purchases").select("*").order("target_date", { ascending: true });
+  return client.from("planned_purchases").select("*").is("archived_at", null).order("target_date", { ascending: true });
 }
 
 export async function listPlannedPurchaseSupportData(client: AppSupabaseClient) {
@@ -18,8 +19,12 @@ export async function updatePlannedPurchase(client: AppSupabaseClient, id: strin
   return client.from("planned_purchases").update(toPayload(undefined, values)).eq("id", id).select("*").single();
 }
 
-export async function deletePlannedPurchase(client: AppSupabaseClient, id: string) {
-  return client.from("planned_purchases").delete().eq("id", id);
+export async function archivePlannedPurchase(client: AppSupabaseClient, id: string, userId: string, reason?: string) {
+  return archiveRecord(client, "planned_purchases", id, userId, reason);
+}
+
+export async function restorePlannedPurchase(client: AppSupabaseClient, id: string, userId: string) {
+  return restoreArchivedRecord(client, "planned_purchases", id, userId);
 }
 
 function toPayload(userId: string | undefined, values: PlannedPurchaseFormValues): Partial<PlannedPurchaseRow> {

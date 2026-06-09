@@ -7,7 +7,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
-import { createPlannedPurchase, deletePlannedPurchase, listPlannedPurchases, listPlannedPurchaseSupportData, updatePlannedPurchase } from "@/features/planned-purchases/queries";
+import { archivePlannedPurchase, createPlannedPurchase, listPlannedPurchases, listPlannedPurchaseSupportData, updatePlannedPurchase } from "@/features/planned-purchases/queries";
 import { decisionStatusOptions, emptyPlannedPurchaseForm, plannedPurchaseToFormValues, type PlannedPurchaseFormValues, type PlannedPurchaseRow, type PlannedPurchaseSupportData } from "@/features/planned-purchases/types";
 import { ActionButton, BulkActionsBar, CategoryBadge, CategorySelect, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, RowSelectionHint, shouldToggleRowSelection, TextBadge, TitleButton } from "@/features/shared/crud-ui";
 import { formatCurrency, formatDate } from "@/features/shared/format";
@@ -141,13 +141,14 @@ export function PlannedPurchasesCrud() {
   }
 
   async function handleDelete(item: PlannedPurchaseRow) {
-    if (!window.confirm("Excluir esta compra planejada?")) return;
-    const { error } = await deletePlannedPurchase(createClient(), item.id);
+    if (!userId) return;
+    if (!window.confirm("Arquivar esta compra planejada?")) return;
+    const { error } = await archivePlannedPurchase(createClient(), item.id, userId);
     if (error) {
-      console.error("Erro técnico ao excluir compra planejada:", error);
+      console.error("Erro técnico ao arquivar compra planejada:", error);
       setFeedback({ type: "error", message: error.message });
     } else {
-      setFeedback({ type: "success", message: "Compra excluída." });
+      setFeedback({ type: "success", message: "Compra arquivada." });
       await loadData();
     }
   }
@@ -178,7 +179,8 @@ export function PlannedPurchasesCrud() {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
 
-    if (!window.confirm(`Tem certeza que deseja excluir ${ids.length} itens? Esta ação não pode ser desfeita.`)) {
+    if (!userId) return;
+    if (!window.confirm(`Arquivar ${ids.length} compra(s) selecionada(s)?`)) {
       return;
     }
 
@@ -187,21 +189,21 @@ export function PlannedPurchasesCrud() {
 
     try {
       const client = createClient();
-      const results = await Promise.all(ids.map((id) => deletePlannedPurchase(client, id)));
+      const results = await Promise.all(ids.map((id) => archivePlannedPurchase(client, id, userId)));
       const failed = results.find((result) => result.error);
 
       if (failed?.error) {
-        console.error("Erro técnico ao excluir compras selecionadas:", failed.error);
-        setFeedback({ type: "error", message: "Não foi possível excluir todos os itens selecionados." });
+        console.error("Erro técnico ao arquivar compras selecionadas:", failed.error);
+        setFeedback({ type: "error", message: "Não foi possível arquivar todos os itens selecionados." });
         return;
       }
 
       setSelectedIds(new Set());
-      setFeedback({ type: "success", message: `${ids.length} compra(s) excluída(s).` });
+      setFeedback({ type: "success", message: `${ids.length} compra(s) arquivada(s).` });
       await loadData();
     } catch (error) {
-      console.error("Erro técnico ao excluir compras selecionadas:", error);
-      setFeedback({ type: "error", message: "Não foi possível excluir os itens selecionados." });
+      console.error("Erro técnico ao arquivar compras selecionadas:", error);
+      setFeedback({ type: "error", message: "Não foi possível arquivar os itens selecionados." });
     } finally {
       setDeletingSelected(false);
     }
@@ -411,7 +413,7 @@ export function PlannedPurchasesCrud() {
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-2">
                         <ActionButton variant="secondary" onClick={() => setModal({ mode: "edit", item })}>Editar</ActionButton>
-                        <ActionButton variant="danger" onClick={() => void handleDelete(item)}>Excluir</ActionButton>
+                        <ActionButton variant="danger" onClick={() => void handleDelete(item)}>Arquivar</ActionButton>
                       </div>
                     </td>
                   </tr>

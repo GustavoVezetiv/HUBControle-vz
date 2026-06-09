@@ -52,6 +52,12 @@ export type UserOwnedRow = {
   updated_at: string;
 };
 
+export type ArchiveFields = {
+  archived_at: string | null;
+  archived_by: string | null;
+  archive_reason: string | null;
+};
+
 export type Person = UserOwnedRow & {
   name: string;
   relationship_type: string;
@@ -72,7 +78,7 @@ export type Category = UserOwnedRow & {
   is_active: boolean;
 };
 
-export type AccountPayable = UserOwnedRow & {
+export type AccountPayable = UserOwnedRow & ArchiveFields & {
   category_id: string | null;
   person_id: string | null;
   title: string;
@@ -105,7 +111,7 @@ export type AccountPayable = UserOwnedRow & {
   notes: string | null;
 };
 
-export type IncomeSource = UserOwnedRow & {
+export type IncomeSource = UserOwnedRow & ArchiveFields & {
   category_id: string | null;
   person_id: string | null;
   name: string;
@@ -141,7 +147,7 @@ export type CreditCard = UserOwnedRow & {
   is_active: boolean;
 };
 
-export type CreditCardInvoice = UserOwnedRow & {
+export type CreditCardInvoice = UserOwnedRow & ArchiveFields & {
   credit_card_id: string;
   reference_month: string;
   closing_date: string | null;
@@ -156,7 +162,7 @@ export type CreditCardInvoice = UserOwnedRow & {
   notes: string | null;
 };
 
-export type CreditCardTransaction = UserOwnedRow & {
+export type CreditCardTransaction = UserOwnedRow & ArchiveFields & {
   credit_card_id: string;
   invoice_id: string | null;
   category_id: string | null;
@@ -182,7 +188,7 @@ export type CreditCardTransaction = UserOwnedRow & {
   notes: string | null;
 };
 
-export type Reimbursement = UserOwnedRow & {
+export type Reimbursement = UserOwnedRow & ArchiveFields & {
   person_id: string;
   category_id: string | null;
   source_type: string;
@@ -204,6 +210,9 @@ export type Reimbursement = UserOwnedRow & {
   recurrence_end_date: string | null;
   recurrence_parent_id: string | null;
   recurrence_generated_until: string | null;
+  renegotiated_into_id: string | null;
+  renegotiated_at: string | null;
+  renegotiation_source_ids: string[];
   pix_reference: string | null;
   notes: string | null;
 };
@@ -266,7 +275,7 @@ export type PaymentPlanItem = UserOwnedRow & {
   notes: string | null;
 };
 
-export type PlannedPurchase = UserOwnedRow & {
+export type PlannedPurchase = UserOwnedRow & ArchiveFields & {
   category_id: string | null;
   title: string;
   description: string | null;
@@ -288,7 +297,7 @@ export type PlannedPurchase = UserOwnedRow & {
   notes: string | null;
 };
 
-export type Goal = UserOwnedRow & {
+export type Goal = UserOwnedRow & ArchiveFields & {
   category_id: string | null;
   name: string;
   goal_type: string;

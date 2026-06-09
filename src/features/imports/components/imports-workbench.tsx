@@ -23,7 +23,7 @@ import {
   futureImportTargets,
   getImportTargetConfig,
 } from "@/features/imports/templates";
-import type { ImportTarget, PreviewRow } from "@/features/imports/types";
+import type { ImportDateFormat, ImportTarget, PreviewRow } from "@/features/imports/types";
 import { ActionButton, CrudFeedback, inputClassName, TextBadge } from "@/features/shared/crud-ui";
 import { formatDate } from "@/features/shared/format";
 import type { FeedbackState } from "@/features/shared/types";
@@ -32,6 +32,7 @@ import type { ImportBatch } from "@/lib/supabase/types";
 
 export function ImportsWorkbench() {
   const [target, setTarget] = useState<ImportTarget>("people");
+  const [dateFormat, setDateFormat] = useState<ImportDateFormat>("br");
   const [file, setFile] = useState<File | null>(null);
   const [rows, setRows] = useState<PreviewRow[]>([]);
   const [batches, setBatches] = useState<ImportBatch[]>([]);
@@ -82,8 +83,8 @@ export function ImportsWorkbench() {
       const references = await loadImportReferenceData(client);
       const preview =
         target === "system_goals_purchases"
-          ? buildSystemGoalsPurchasesPreviewRows(await parseSystemGoalsPurchasesFile(file), references)
-          : buildPreviewRows(target, await parseSpreadsheetFile(file), references);
+          ? buildSystemGoalsPurchasesPreviewRows(await parseSystemGoalsPurchasesFile(file), references, { dateFormat })
+          : buildPreviewRows(target, await parseSpreadsheetFile(file), references, { dateFormat });
       setRows(preview);
       setBatchId(null);
       setAllowMissingCategories(false);
@@ -394,7 +395,7 @@ export function ImportsWorkbench() {
       </SectionCard>
 
       <SectionCard title="Nova importação" description="A gravação final só acontece depois da confirmação.">
-        <div className="grid gap-4 lg:grid-cols-[1fr_1fr_auto]">
+        <div className="grid gap-4 lg:grid-cols-[1fr_1fr_1fr_auto]">
           <label className="block">
             <span className="text-sm font-medium text-ink-800">Módulo</span>
             <select
@@ -412,6 +413,18 @@ export function ImportsWorkbench() {
               {activeImportTargets.map((item) => (
                 <option key={item.target} value={item.target}>{item.label}</option>
               ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-sm font-medium text-ink-800">Formato de data</span>
+            <select
+              className={`${inputClassName} mt-2`}
+              value={dateFormat}
+              onChange={(event) => setDateFormat(event.target.value as ImportDateFormat)}
+            >
+              <option value="br">Brasileiro: dd/mm/aaaa</option>
+              <option value="iso">ISO: aaaa-mm-dd</option>
+              <option value="auto">Automático</option>
             </select>
           </label>
           <label className="block">
@@ -435,6 +448,9 @@ export function ImportsWorkbench() {
         <p className="mt-4 text-sm leading-6 text-ink-600">
           Alvo selecionado: <strong>{config.label}</strong>. Neste MVP, categorias e pessoas
           informadas na planilha precisam existir antes da importação.
+        </p>
+        <p className="mt-2 text-sm leading-6 text-ink-600">
+          Datas podem ser lidas como <strong>dd/mm/aaaa</strong>, <strong>dd-mm-aaaa</strong> ou <strong>aaaa-mm-dd</strong>, conforme o formato escolhido.
         </p>
       </SectionCard>
 

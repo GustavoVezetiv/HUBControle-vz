@@ -1,9 +1,11 @@
 import type {
   ReimbursementGeneratedLinkValues,
   ReimbursementFormValues,
+  ReimbursementRenegotiationValues,
   ReimbursementRow,
 } from "@/features/reimbursements/types";
 import type { AppSupabaseClient } from "@/features/shared/types";
+import { archiveRecord, restoreArchivedRecord } from "@/features/shared/archive";
 import type { CreditCardTransaction } from "@/lib/supabase/types";
 
 export type GenerateRecurringReimbursementsResult = {
@@ -13,7 +15,7 @@ export type GenerateRecurringReimbursementsResult = {
 };
 
 export async function listReimbursements(client: AppSupabaseClient) {
-  return client.from("reimbursements").select("*").order("expected_date", { ascending: true });
+  return client.from("reimbursements").select("*").is("archived_at", null).order("expected_date", { ascending: true });
 }
 
 export async function listReimbursementSupportData(client: AppSupabaseClient) {
@@ -53,8 +55,113 @@ export async function updateReimbursement(
   return client.from("reimbursements").update(toPayload(undefined, values)).eq("id", id).select("*").single();
 }
 
-export async function deleteReimbursement(client: AppSupabaseClient, id: string) {
-  return client.from("reimbursements").delete().eq("id", id);
+export async function archiveReimbursement(client: AppSupabaseClient, id: string, userId: string, reason?: string) {
+  return archiveRecord(client, "reimbursements", id, userId, reason);
+}
+
+export async function restoreReimbursement(client: AppSupabaseClient, id: string, userId: string) {
+  return restoreArchivedRecord(client, "reimbursements", id, userId);
+}
+
+export async function renegotiateReimbursements(
+  client: AppSupabaseClient,
+  userId: string,
+  reimbursements: ReimbursementRow[],
+  values: ReimbursementRenegotiationValues,
+) {
+  if (reimbursements.length === 0) {
+    return { error: { message: "Selecione ao menos um reembolso para renegociar." } };
+  }
+
+  const personIds = new Set(reimbursements.map((item) => item.person_id));
+  if (personIds.size > 1) {
+    return { error: { message: "A renegociação só pode ser feita com reembolsos da mesma pessoa." } };
+  }
+
+  const ineligible = reimbursements.find((item) => !isEligibleForRenegotiation(item));
+  if (ineligible) {
+    return { error: { message: "Selecione apenas reembolsos em aberto, parciais ou atrasados." } };
+  }
+
+  const alreadyRenegotiated = reimbursements.find(
+    (item) => item.status === "renegotiated" || item.renegotiated_into_id,
+  );
+  if (alreadyRenegotiated) {
+    return { error: { message: "Um ou mais reembolsos selecionados já foram renegociados. Revise o histórico antes de tentar novamente." } };
+  }
+
+  const expectedDate = values.expected_date?.trim();
+  const description = values.description?.trim();
+  if (!expectedDate || !description) {
+    return { error: { message: "Informe a nova data prevista e a descrição da renegociação." } };
+  }
+
+  const openTotal = reimbursements.reduce((sum, item) => sum + getOpenAmount(item), 0);
+  if (openTotal <= 0) {
+    return { error: { message: "Os reembolsos selecionados não possuem saldo em aberto para renegociar." } };
+  }
+
+  const sourceIds = reimbursements.map((item) => item.id);
+  const notes = buildRenegotiationNotes(reimbursements, values.notes);
+  const primaryCategoryId = reimbursements.every((item) => item.category_id === reimbursements[0].category_id)
+    ? reimbursements[0].category_id
+    : null;
+
+  const insertResult = await client
+    .from("reimbursements")
+    .insert({
+      user_id: userId,
+      person_id: reimbursements[0].person_id,
+      category_id: primaryCategoryId,
+      source_type: "reimbursement_renegotiation",
+      source_id: null,
+      credit_card_transaction_id: null,
+      account_payable_id: null,
+      income_source_id: null,
+      credit_card_invoice_id: null,
+      description,
+      expected_amount: openTotal,
+      received_amount: 0,
+      status: "expected",
+      expected_date: expectedDate,
+      received_at: null,
+      received_date: null,
+      is_recurring: false,
+      recurrence_frequency: null,
+      recurrence_start_date: null,
+      recurrence_end_date: null,
+      recurrence_parent_id: null,
+      recurrence_generated_until: null,
+      renegotiation_source_ids: sourceIds,
+      pix_reference: null,
+      notes,
+    })
+    .select("*")
+    .single();
+
+  if (insertResult.error) {
+    console.error("Erro técnico ao criar reembolso renegociado:", insertResult.error);
+    return { error: { message: "Não foi possível criar o novo título consolidado." } };
+  }
+
+  const renegotiatedAt = new Date().toISOString();
+  const updateResult = await client
+    .from("reimbursements")
+    .update({
+      status: "renegotiated",
+      renegotiated_into_id: insertResult.data.id,
+      renegotiated_at: renegotiatedAt,
+    })
+    .eq("user_id", userId)
+    .in("id", sourceIds);
+
+  if (updateResult.error) {
+    console.error("Erro técnico ao marcar reembolsos antigos como renegociados:", updateResult.error);
+    await client.from("reimbursements").delete().eq("user_id", userId).eq("id", insertResult.data.id);
+    return { error: { message: "O novo título foi criado, mas os títulos antigos não puderam ser marcados como renegociados. A criação foi desfeita." } };
+  }
+
+  return { error: null, created: insertResult.data, count: sourceIds.length };
 }
 
 export async function generateLinkedEntryFromReimbursement(
@@ -418,6 +525,30 @@ function toPayload(
     recurrence_end_date: values.is_recurring && values.recurrence_end_date ? values.recurrence_end_date : null,
     notes: values.notes.trim() || null,
   };
+}
+
+function isEligibleForRenegotiation(reimbursement: ReimbursementRow) {
+  return ["expected", "partial", "late"].includes(reimbursement.status) && getOpenAmount(reimbursement) > 0;
+}
+
+function getOpenAmount(reimbursement: ReimbursementRow) {
+  if (["received", "cancelled", "forgiven", "renegotiated"].includes(reimbursement.status)) return 0;
+  return Math.max(Number(reimbursement.expected_amount || 0) - Number(reimbursement.received_amount || 0), 0);
+}
+
+function buildRenegotiationNotes(reimbursements: ReimbursementRow[], notes: string) {
+  const lines = reimbursements.map((item) => {
+    const label = item.description?.trim() || "Sem descrição";
+    return `- ${label} (${item.expected_date ?? "sem data"}) · em aberto ${getOpenAmount(item).toFixed(2)}`;
+  });
+
+  return [
+    notes.trim() || null,
+    "Renegociação originada dos títulos:",
+    ...lines,
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function toTransactionReimbursementStatus(status: string) {

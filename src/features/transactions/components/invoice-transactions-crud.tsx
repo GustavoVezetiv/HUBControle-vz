@@ -16,7 +16,7 @@ import type { FeedbackState } from "@/features/shared/types";
 import {
   createExpectedReimbursementForTransaction,
   createTransaction,
-  deleteTransaction,
+  archiveTransaction,
   generateInstallmentTransactions,
   generateRecurringTransactions,
   listTransactionSupportData,
@@ -99,8 +99,9 @@ export function InvoiceTransactionsCrud({ invoiceId }: { invoiceId: string }) {
           .from("credit_card_transactions")
           .select("*")
           .eq("invoice_id", invoiceId)
+          .is("archived_at", null)
           .order("transaction_date", { ascending: false }),
-        client.from("reimbursements").select("*").eq("credit_card_invoice_id", invoiceId),
+        client.from("reimbursements").select("*").eq("credit_card_invoice_id", invoiceId).is("archived_at", null),
         listTransactionSupportData(client),
         getQuickTableEditPreference(client, auth.user.id),
       ]);
@@ -247,11 +248,12 @@ export function InvoiceTransactionsCrud({ invoiceId }: { invoiceId: string }) {
   }
 
   async function handleDelete(transaction: TransactionRow) {
-    if (!window.confirm("Excluir este lançamento?")) return;
-    const { error } = await deleteTransaction(createClient(), transaction.id);
+    if (!userId) return;
+    if (!window.confirm("Arquivar este lançamento?")) return;
+    const { error } = await archiveTransaction(createClient(), transaction.id, userId);
     if (error) setFeedback({ type: "error", message: error.message });
     else {
-      setFeedback({ type: "success", message: "Lançamento excluído." });
+      setFeedback({ type: "success", message: "Lançamento arquivado." });
       await loadData();
     }
   }
@@ -456,7 +458,7 @@ export function InvoiceTransactionsCrud({ invoiceId }: { invoiceId: string }) {
                           Editar
                         </ActionButton>
                         <ActionButton variant="danger" onClick={() => void handleDelete(transaction)}>
-                          Excluir
+                          Arquivar
                         </ActionButton>
                       </div>
                     </td>
