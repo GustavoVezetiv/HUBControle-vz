@@ -500,6 +500,7 @@ Validation rules:
 - Enum-like values are normalized when possible.
 - For accounts payable and income sources, categories and people are optional, but when provided they must already exist.
 - For the Metas e compras XLSX flow, missing categories are shown as pending warnings. They are not created automatically.
+- If saving the preview fails for metas e compras, make sure `supabase/migrations/202606090001_fix_import_preview_persistence.sql` has been executed. It aligns `import_batches` and `import_rows` with the current preview persistence fields.
 - Duplicates are blocked by practical matching rules per module.
 
 Metas e compras import:

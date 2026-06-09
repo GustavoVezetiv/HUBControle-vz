@@ -177,10 +177,14 @@ export function ImportsWorkbench() {
     try {
       const result = await saveImportPreview(createClient(), userId, target, file, rows);
       if (result.batch.error || result.rows?.error) {
-        console.error("Erro técnico ao salvar prévia de importação:", result.batch.error ?? result.rows?.error);
+        const technicalError = result.batch.error ?? result.rows?.error;
+        console.error("Erro técnico ao salvar prévia de importação:", technicalError);
         setFeedback({
           type: "error",
-          message: "Não foi possível salvar a prévia da importação. Revise os dados e tente novamente.",
+          message:
+            process.env.NODE_ENV === "development" && technicalError?.message
+              ? `Não foi possível salvar a prévia da importação. ${technicalError.message}`
+              : "Não foi possível salvar a prévia da importação. Verifique o console para mais detalhes.",
         });
       } else {
         setBatchId(result.batch.data?.id ?? null);
@@ -189,7 +193,13 @@ export function ImportsWorkbench() {
       }
     } catch (error) {
       console.error("Erro técnico ao salvar prévia de importação:", error);
-      setFeedback({ type: "error", message: "Não foi possível salvar a prévia da importação." });
+      setFeedback({
+        type: "error",
+        message:
+          process.env.NODE_ENV === "development" && error instanceof Error
+            ? `Não foi possível salvar a prévia da importação. ${error.message}`
+            : "Não foi possível salvar a prévia da importação. Verifique o console para mais detalhes.",
+      });
     } finally {
       setWorkingAction(null);
     }
