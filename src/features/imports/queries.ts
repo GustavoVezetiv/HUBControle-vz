@@ -128,6 +128,10 @@ export async function saveImportPreview(
 
   const rowResult = await client.from("import_rows").insert(rowPayload).select("*");
 
+  if (rowResult.error && batch.data?.id) {
+    await client.from("import_batches").delete().eq("id", batch.data.id).eq("user_id", userId);
+  }
+
   return { batch, rows: rowResult };
 }
 

@@ -2,6 +2,35 @@
 
 This file is maintained by project-local Codex hooks.
 
+## 2026-06-09T18:30:49.791Z - codex/test8-reimbursements-import-preview
+
+Objective: update database schema
+
+Files changed:
+- `README.md`
+- `src/features/imports/components/imports-workbench.tsx`
+- `src/features/imports/queries.ts`
+- `supabase/migrations/202606090001_fix_import_preview_persistence.sql`
+
+Impact: database behavior or available columns may change
+
+Risk: medium; verify database migration order and rollback manually
+
+Validation: `npm run lint` - failed
+
+Documentation: covered by changed files or not required
+
+Generated real estate intake files:
+- _none_
+
+Skipped from auto-commit because they were dirty before the turn:
+- _none_
+
+Skipped binary/PDF assets from auto-commit:
+- _none_
+
+Rollback: restore listed files from Git or from local snapshots in `.codex/backups`; after an automatic commit, use `git revert <commit>`.
+
 ## 2026-06-09T02:08:42.910Z - codex/test8-reimbursements-import-preview
 
 Objective: update database schema
