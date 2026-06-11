@@ -178,12 +178,19 @@ export function ImportsWorkbench() {
       const result = await saveImportPreview(createClient(), userId, target, file, rows);
       if (result.batch.error || result.rows?.error) {
         const technicalError = result.batch.error ?? result.rows?.error;
-        console.error("Erro técnico ao salvar prévia de importação:", technicalError);
+        const technicalMessage = formatTechnicalImportError(technicalError);
+        console.error("Erro técnico ao salvar prévia de importação:", {
+          error: technicalError,
+          target,
+          fileName: file.name,
+          rowCount: rows.length,
+          duplicateRowNumbers: findDuplicateRowNumbers(rows),
+        });
         setFeedback({
           type: "error",
           message:
-            process.env.NODE_ENV === "development" && technicalError?.message
-              ? `Não foi possível salvar a prévia da importação. ${technicalError.message}`
+            process.env.NODE_ENV === "development" && technicalMessage
+              ? `Não foi possível salvar a prévia da importação. ${technicalMessage}`
               : "Não foi possível salvar a prévia da importação. Verifique o console para mais detalhes.",
         });
       } else {
@@ -481,7 +488,7 @@ export function ImportsWorkbench() {
               <table className="min-w-full divide-y divide-ink-950/10 text-left text-sm">
                 <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-ink-600">
                   <tr>
-                    <th className="px-4 py-3">Linha</th>
+                    <th className="px-4 py-3">Linha / origem</th>
                     <th className="px-4 py-3">Destino</th>
                     <th className="px-4 py-3">Status</th>
                     <th className="px-4 py-3">Erros e avisos</th>
@@ -493,7 +500,10 @@ export function ImportsWorkbench() {
                 <tbody className="divide-y divide-ink-950/10">
                   {rows.map((row) => (
                     <tr key={row.rowNumber}>
-                      <td className="px-4 py-3 text-ink-600">{row.rowNumber}</td>
+                      <td className="px-4 py-3 text-ink-600">
+                        <p className="font-medium text-ink-800">#{row.rowNumber}</p>
+                        <p className="mt-1 text-xs text-ink-500">{formatSourceLocation(row)}</p>
+                      </td>
                       <td className="px-4 py-3 text-ink-600">{formatTarget(row.target ?? target)}</td>
                       <td className="px-4 py-3"><StatusPill status={row.status} /></td>
                       <td className="px-4 py-3">
@@ -619,6 +629,48 @@ function formatTarget(target: ImportTarget) {
     system_goals_purchases: "Metas e compras",
   };
   return labels[target] ?? target;
+}
+
+function formatSourceLocation(row: PreviewRow) {
+  const sourceSheet = stringMeta(row, "_source_sheet");
+  const sourceRowNumber = stringMeta(row, "_source_row_number");
+  if (sourceSheet && sourceRowNumber) return `${sourceSheet}!${sourceRowNumber}`;
+  return `Linha ${row.rowNumber}`;
+}
+
+function stringMeta(row: PreviewRow, key: "_source_sheet" | "_source_row_number") {
+  const mappedValue = row.mapped[key];
+  const rawValue = row.raw[key];
+  if (typeof mappedValue === "string" || typeof mappedValue === "number") return String(mappedValue);
+  if (typeof rawValue === "string" || typeof rawValue === "number") return String(rawValue);
+  return "";
+}
+
+function findDuplicateRowNumbers(rows: PreviewRow[]) {
+  const seen = new Set<number>();
+  const duplicates = new Set<number>();
+  for (const row of rows) {
+    if (seen.has(row.rowNumber)) duplicates.add(row.rowNumber);
+    seen.add(row.rowNumber);
+  }
+  return Array.from(duplicates).sort((a, b) => a - b);
+}
+
+function formatTechnicalImportError(error: unknown) {
+  if (!error) return "";
+  if (error instanceof Error) return error.message;
+  if (typeof error !== "object") return String(error);
+
+  const details = error as {
+    code?: unknown;
+    message?: unknown;
+    details?: unknown;
+    hint?: unknown;
+  };
+  return [details.code, details.message, details.details, details.hint]
+    .filter((value): value is string | number => typeof value === "string" || typeof value === "number")
+    .map(String)
+    .join(" | ");
 }
 
 function buildSystemStats(rows: PreviewRow[]) {
