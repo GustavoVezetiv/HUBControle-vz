@@ -32,6 +32,7 @@ export async function listReimbursementSupportData(client: AppSupabaseClient) {
     client
       .from("credit_card_invoices")
       .select("id,credit_card_id,reference_month,due_date,status,total_amount")
+      .is("archived_at", null)
       .neq("status", "cancelled")
       .order("due_date", { ascending: false }),
   ]);
@@ -240,6 +241,7 @@ export async function generateLinkedEntryFromReimbursement(
   const invoiceValidation = await client
     .from("credit_card_invoices")
     .select("id,credit_card_id")
+    .is("archived_at", null)
     .eq("user_id", userId)
     .eq("id", values.invoice_id)
     .single();
@@ -367,6 +369,7 @@ export async function recalculateInvoiceTotal(client: AppSupabaseClient, userId:
   const updateResult = await client
     .from("credit_card_invoices")
     .update({ total_amount: totalAmount })
+    .is("archived_at", null)
     .eq("user_id", userId)
     .eq("id", invoiceId);
 

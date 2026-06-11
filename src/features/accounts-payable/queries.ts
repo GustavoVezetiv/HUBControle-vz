@@ -193,7 +193,12 @@ export async function listAccountSupportData(client: AppSupabaseClient) {
     client.from("people").select("id,name").order("name", { ascending: true }),
     client.from("installments").select("id,description,installment_total,installment_count").order("description", { ascending: true }),
     client.from("credit_cards").select("id,name,issuer").eq("is_active", true).order("name", { ascending: true }),
-    client.from("credit_card_invoices").select("id,credit_card_id,reference_month,due_date").in("status", ["open", "closed", "partial"]).order("due_date", { ascending: false }),
+    client
+      .from("credit_card_invoices")
+      .select("id,credit_card_id,reference_month,due_date")
+      .is("archived_at", null)
+      .in("status", ["open", "closed", "partial"])
+      .order("due_date", { ascending: false }),
   ]);
 
   return { categories, people, installments, cards, invoices };
@@ -252,6 +257,7 @@ export async function payAccountWithCard(
   const invoiceResult = await client
     .from("credit_card_invoices")
     .select("total_amount")
+    .is("archived_at", null)
     .eq("id", values.invoice_id)
     .single();
 
@@ -263,6 +269,7 @@ export async function payAccountWithCard(
   const invoiceUpdateResult = await client
     .from("credit_card_invoices")
     .update({ total_amount: Number(invoiceResult.data.total_amount || 0) + amount })
+    .is("archived_at", null)
     .eq("id", values.invoice_id);
 
   if (invoiceUpdateResult.error) {

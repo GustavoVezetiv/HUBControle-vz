@@ -12,7 +12,7 @@ import { ActionButton, CrudFeedback, FieldShell, inputClassName, Modal, TitleBut
 import { formatCurrency, formatDate } from "@/features/shared/format";
 import { invoiceStatusOptions, optionLabel } from "@/features/shared/options";
 import { PeriodFilter } from "@/features/shared/period-filter";
-import { isAnyDateInPeriod, parsePeriodSearchParams } from "@/features/shared/period";
+import { getPeriodValue, isAnyDateInPeriod, parsePeriodSearchParams } from "@/features/shared/period";
 import type { FeedbackState } from "@/features/shared/types";
 import { archiveInvoice, createInvoice, listInvoiceCards, listInvoices, updateInvoice } from "@/features/invoices/queries";
 import { emptyInvoiceForm, invoiceToFormValues, type InvoiceCard, type InvoiceFormValues, type InvoiceRow } from "@/features/invoices/types";
@@ -40,6 +40,8 @@ export function InvoicesCrud() {
   const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [collapsedMonths, setCollapsedMonths] = useState<Set<string>>(new Set());
 
+  const hasActiveFilters = search.trim() !== "" || cardFilter !== "all" || statusFilter !== "all" || period.preset !== "all";
+
   const periodInvoices = useMemo(() => {
     return invoices.filter((invoice) =>
       isAnyDateInPeriod([invoice.due_date, invoice.reference_month], period),
@@ -65,6 +67,22 @@ export function InvoicesCrud() {
     const nextDue = periodInvoices.filter((i) => i.status !== "paid" && i.status !== "cancelled").sort((a, b) => a.due_date.localeCompare(b.due_date))[0];
     return { openTotal, overdueTotal, paidThisMonth, nextDue };
   }, [periodInvoices]);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development" || loading) return;
+    console.debug("Diagnóstico da listagem de faturas", {
+      totalCarregadas: invoices.length,
+      aposPeriodo: periodInvoices.length,
+      aposFiltros: filteredInvoices.length,
+      filtros: {
+        periodo: period,
+        cartao: cardFilter,
+        status: statusFilter,
+        busca: search.trim(),
+      },
+      observacao: "Faturas arquivadas não são carregadas na listagem principal. Use Arquivados para restaurar.",
+    });
+  }, [cardFilter, filteredInvoices.length, invoices.length, loading, period, periodInvoices.length, search, statusFilter]);
 
   const groupedInvoices = useMemo(() => {
     const groups = new Map<string, InvoiceRow[]>();
@@ -157,6 +175,19 @@ export function InvoicesCrud() {
     });
   }
 
+  function showAllInvoices() {
+    setSearch("");
+    setCardFilter("all");
+    setStatusFilter("all");
+    setPeriod(getPeriodValue("all"));
+  }
+
+  function clearFieldFilters() {
+    setSearch("");
+    setCardFilter("all");
+    setStatusFilter("all");
+  }
+
   async function handlePayment(invoice: InvoiceRow, paymentAmount: string) {
     const amount = Number(paymentAmount);
     if (Number.isNaN(amount) || amount <= 0) {
@@ -222,6 +253,20 @@ export function InvoicesCrud() {
           <select className={inputClassName} value={cardFilter} onChange={(e) => setCardFilter(e.target.value)}><option value="all">Todos cartões</option>{cards.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
           <select className={inputClassName} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}><option value="all">Todos status</option>{invoiceStatusOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
         </div>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-ink-950/10 bg-slate-50 px-4 py-3 text-sm text-ink-700">
+          <span>
+            Mostrando <strong>{filteredInvoices.length}</strong> de <strong>{invoices.length}</strong> faturas carregadas.
+            {period.preset !== "all" ? " O período também filtra por vencimento ou mês de referência." : " Período em Todos."}
+          </span>
+          <div className="flex flex-wrap gap-2">
+            <ActionButton type="button" variant="secondary" onClick={clearFieldFilters} disabled={!search.trim() && cardFilter === "all" && statusFilter === "all"}>
+              Limpar filtros
+            </ActionButton>
+            <ActionButton type="button" variant="secondary" onClick={showAllInvoices} disabled={!hasActiveFilters}>
+              Mostrar todas
+            </ActionButton>
+          </div>
+        </div>
       </SectionCard>
       <SectionCard title="Faturas cadastradas">
         {loading ? (
@@ -229,7 +274,17 @@ export function InvoicesCrud() {
         ) : invoices.length === 0 ? (
           <EmptyState title="Nenhuma fatura cadastrada" description="Crie faturas para lançar compras e acompanhar o impacto mensal." />
         ) : filteredInvoices.length === 0 ? (
-          <EmptyState title="Nenhuma fatura no período" description="Ajuste o período ou os filtros para ver outras faturas." />
+          <div className="space-y-4">
+            <EmptyState title="Nenhuma fatura no período" description="Ajuste o período ou os filtros para ver outras faturas. Faturas arquivadas ficam em Arquivados e podem ser restauradas por lá." />
+            <div className="flex justify-center gap-2">
+              <ActionButton type="button" variant="secondary" onClick={showAllInvoices}>
+                Mostrar todas
+              </ActionButton>
+              <Link className="hub-action hub-action-secondary rounded-md border border-ink-950/10 px-4 py-2.5 text-sm font-semibold text-ink-950 hover:border-mint-500 hover:text-mint-600" href="/dashboard/archived">
+                Ver arquivados
+              </Link>
+            </div>
+          </div>
         ) : (
           <div className="space-y-4">
             {groupedInvoices.map((group) => {
