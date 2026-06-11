@@ -53,12 +53,31 @@ export function buildSystemGoalsPurchasesPreviewRows(
 ) {
   const seenGoals = new Set<string>();
   const seenPurchases = new Set<string>();
-  const goalRows = rows.goals.map((raw, index) =>
-    validateRow("goals", raw, index + 2, references, seenGoals, { ...options, softMissingCategory: true }),
-  );
-  const purchaseRows = rows.purchases.map((raw, index) =>
-    validateRow("planned_purchases", raw, index + 2, references, seenPurchases, { ...options, softMissingCategory: true }),
-  );
+  let nextRowNumber = 1;
+  const goalRows = rows.goals.map((raw, index) => {
+    const sourceRowNumber = index + 2;
+    const row = validateRow(
+      "goals",
+      withSystemSource(raw, "Metas_Sistema", sourceRowNumber),
+      nextRowNumber++,
+      references,
+      seenGoals,
+      { ...options, softMissingCategory: true },
+    );
+    return withSystemSourceMetadata(row, "Metas_Sistema", sourceRowNumber);
+  });
+  const purchaseRows = rows.purchases.map((raw, index) => {
+    const sourceRowNumber = index + 2;
+    const row = validateRow(
+      "planned_purchases",
+      withSystemSource(raw, "Compras_Sistema", sourceRowNumber),
+      nextRowNumber++,
+      references,
+      seenPurchases,
+      { ...options, softMissingCategory: true },
+    );
+    return withSystemSourceMetadata(row, "Compras_Sistema", sourceRowNumber);
+  });
 
   return [
     ...goalRows.map((row) => ({ ...row, target: "goals" as const })),
@@ -300,6 +319,25 @@ function validateRow(
     warnings,
     duplicate,
     missingCategoryName: (mapped.missing_category_name as string | null | undefined) ?? null,
+  };
+}
+
+function withSystemSource(raw: RawImportRow, sourceSheet: string, sourceRowNumber: number): RawImportRow {
+  return {
+    ...raw,
+    _source_sheet: sourceSheet,
+    _source_row_number: String(sourceRowNumber),
+  };
+}
+
+function withSystemSourceMetadata(row: PreviewRow, sourceSheet: string, sourceRowNumber: number): PreviewRow {
+  return {
+    ...row,
+    mapped: {
+      ...row.mapped,
+      _source_sheet: sourceSheet,
+      _source_row_number: sourceRowNumber,
+    },
   };
 }
 

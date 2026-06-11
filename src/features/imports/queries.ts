@@ -129,10 +129,27 @@ export async function saveImportPreview(
   const rowResult = await client.from("import_rows").insert(rowPayload).select("*");
 
   if (rowResult.error && batch.data?.id) {
+    console.error("Erro técnico em saveImportPreview ao inserir import_rows:", {
+      error: rowResult.error,
+      target,
+      batchId: batch.data.id,
+      rowCount: rows.length,
+      duplicateRowNumbers: findDuplicateRowNumbers(rows),
+    });
     await client.from("import_batches").delete().eq("id", batch.data.id).eq("user_id", userId);
   }
 
   return { batch, rows: rowResult };
+}
+
+function findDuplicateRowNumbers(rows: PreviewRow[]) {
+  const seen = new Set<number>();
+  const duplicates = new Set<number>();
+  for (const row of rows) {
+    if (seen.has(row.rowNumber)) duplicates.add(row.rowNumber);
+    seen.add(row.rowNumber);
+  }
+  return Array.from(duplicates).sort((a, b) => a - b);
 }
 
 export async function confirmImportRows(

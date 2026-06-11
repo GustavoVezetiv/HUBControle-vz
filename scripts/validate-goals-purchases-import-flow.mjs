@@ -100,13 +100,22 @@ const rows = engine.buildSystemGoalsPurchasesPreviewRows(
 
 const goal = rows.find((row) => row.target === "goals");
 const duplicateGoal = rows.find((row) => row.mapped.name === "Meta duplicada");
+const purchase = rows.find((row) => row.mapped.title === "Notebook");
 const purchaseWithMissingCategory = rows.find((row) => row.mapped.title === "Cadeira");
 const goalPayload = engine.buildInsertPayload("goals", "user-1", {
   ...goal.mapped,
   import_batch_id: "batch-1",
 });
+const rowNumbers = rows.map((row) => row.rowNumber);
+const uniqueRowNumbers = new Set(rowNumbers);
 
 const assertions = [
+  ["linhas da previa usam rowNumber global unico", uniqueRowNumbers.size === rows.length],
+  ["metas preservam origem da aba", goal.rowNumber === 1 && goal.raw._source_sheet === "Metas_Sistema" && goal.raw._source_row_number === "2"],
+  ["metadados da meta preservam linha original", goal.mapped._source_sheet === "Metas_Sistema" && goal.mapped._source_row_number === 2],
+  ["compras continuam numeracao global apos metas", purchase.rowNumber === 3],
+  ["compras preservam origem da aba", purchase.raw._source_sheet === "Compras_Sistema" && purchase.raw._source_row_number === "2"],
+  ["metadados da compra preservam linha original", purchase.mapped._source_sheet === "Compras_Sistema" && purchase.mapped._source_row_number === 2],
   ["meta qualitativa valida", goal.status === "valid"],
   ["meta duplicada ignorada por padrao", duplicateGoal.status === "skipped" && duplicateGoal.duplicate === true],
   ["meta sem categoria pendente", goal.missingCategoryName === null],
