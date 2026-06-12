@@ -87,7 +87,7 @@ export function ReimbursementsCrud() {
   const [bulkCategoryId, setBulkCategoryId] = useState("");
   const [bulkPersonId, setBulkPersonId] = useState("");
   const [allowQuickTableEdit, setAllowQuickTableEdit] = useState(false);
-  const [peopleSummaryView, setPeopleSummaryView] = useState<PersonDebtViewMode>("open_month");
+  const [peopleSummaryView, setPeopleSummaryView] = useState<PersonDebtViewMode>("open_period");
   const [generatedInvoiceLink, setGeneratedInvoiceLink] = useState<{ invoiceId: string; transactionId?: string } | null>(null);
 
   const periodReimbursements = useMemo(() => {
@@ -147,7 +147,10 @@ export function ReimbursementsCrud() {
     return { totalExpected, totalReceived, lateAmount, partialAmount, amountOwed, estimatedPersonalCost };
   }, [accounts, periodReimbursements, transactions]);
 
-  const peopleSummary = useMemo(() => buildPersonDebtSummaries(people, reimbursements), [people, reimbursements]);
+  const peopleSummary = useMemo(
+    () => buildPersonDebtSummaries(people, periodReimbursements),
+    [people, periodReimbursements],
+  );
 
   const visiblePeopleSummary = useMemo(() => {
     return filterPersonDebtSummaries(peopleSummary, peopleSummaryView);
@@ -584,10 +587,10 @@ export function ReimbursementsCrud() {
         </p>
       </SectionCard>
 
-      <SectionCard title="Saldo devedor por pessoa" description="Por padrão, mostra apenas pessoas com valores em aberto no mês atual, atrasos, parcelas parciais ou títulos previstos para este mês.">
+      <SectionCard title="Saldo devedor por pessoa" description="Por padrão, mostra apenas pessoas com valores em aberto no período selecionado, atrasos, parcelas parciais ou títulos previstos dentro deste recorte.">
         <div className="mb-4 flex flex-wrap gap-2">
           {[
-            { value: "open_month", label: "Em aberto no mês" },
+            { value: "open_period", label: "Em aberto no período" },
             { value: "late", label: "Atrasados" },
             { value: "all_debt", label: "Todos com saldo devedor" },
             { value: "all_history", label: "Todos com histórico" },
@@ -954,6 +957,7 @@ export function ReimbursementsCrud() {
       ) : null}
       {reportOpen ? (
         <ReimbursementReportModal
+          allReimbursements={reimbursements}
           accounts={accounts}
           cards={cards}
           categories={categories}
@@ -1372,6 +1376,7 @@ function RenegotiationModal({
 }
 
 function ReimbursementReportModal({
+  allReimbursements,
   accounts,
   cards,
   categories,
@@ -1384,6 +1389,7 @@ function ReimbursementReportModal({
   transactions,
   onClose,
 }: {
+  allReimbursements: ReimbursementRow[];
   accounts: ReimbursementAccount[];
   cards: ReimbursementCard[];
   categories: ReimbursementCategory[];
@@ -1400,8 +1406,13 @@ function ReimbursementReportModal({
   const reportRef = useRef<HTMLElement | null>(null);
   const summary = summarizeReportReimbursements(reimbursements);
   const groups = groupReimbursementsByPerson(reimbursements, people);
+  const reportFileName = buildReimbursementReportFileName({
+    generatedAt,
+    period,
+    personName: person?.name ?? null,
+  });
 
-  function handlePrint() {
+  function handleDownloadPdf() {
     const report = reportRef.current;
 
     if (!report) {
@@ -1420,8 +1431,9 @@ function ReimbursementReportModal({
       return;
     }
 
-    printWindow.document.write(buildReimbursementPrintDocument(report.outerHTML));
+    printWindow.document.write(buildReimbursementPrintDocument(report.outerHTML, reportFileName));
     printWindow.document.close();
+    printWindow.document.title = reportFileName;
     printWindow.focus();
     printWindow.setTimeout(() => {
       printWindow.print();
@@ -1429,24 +1441,15 @@ function ReimbursementReportModal({
     }, 150);
   }
 
-  function handleFallbackPrint() {
-    document.documentElement.classList.add("printing-reimbursement-report");
-    window.print();
-    window.setTimeout(() => {
-      document.documentElement.classList.remove("printing-reimbursement-report");
-    }, 300);
-  }
-
   return (
     <Modal title="Relatório de reembolsos" onClose={onClose}>
       <div className="reimbursement-report-shell space-y-5">
         <div className="report-actions flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-ink-600">
-            Relatório otimizado para impressão/PDF. No navegador, desative &quot;Cabeçalhos e rodapés&quot; para ocultar URL e data externas.
+            Relatório otimizado para PDF com nome sugerido automático e layout próprio para compartilhamento.
           </p>
           <div className="flex flex-wrap gap-2">
-            <ActionButton variant="secondary" onClick={handlePrint}>Exportar PDF</ActionButton>
-            <ActionButton variant="secondary" onClick={handleFallbackPrint}>Imprimir tela</ActionButton>
+            <ActionButton variant="secondary" onClick={handleDownloadPdf}>Baixar PDF</ActionButton>
             <ActionButton variant="secondary" onClick={onClose}>Voltar</ActionButton>
           </div>
         </div>
@@ -1457,8 +1460,9 @@ function ReimbursementReportModal({
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-mint-600">Hub VZ</p>
                 <h2 className="mt-2 text-2xl font-semibold tracking-tight text-ink-950">Relatório de Reembolsos</h2>
+                {person ? <p className="mt-2 text-lg font-semibold text-ink-950">{person.name}</p> : null}
                 <p className="mt-2 text-sm leading-6 text-ink-600">
-                  {formatPeriodLabel(period)} · Gerado em {formatDateTime(generatedAt)} · {person?.name ?? "Todas as pessoas"}
+                  Período: {formatPeriodLabel(period)} · Gerado em {formatDateTime(generatedAt)}
                 </p>
               </div>
               <div className="rounded-md border border-mint-500/30 bg-mint-100 px-3 py-2 text-right text-xs font-semibold uppercase tracking-[0.12em] text-mint-600">
@@ -1537,6 +1541,30 @@ function ReimbursementReportModal({
                                 {reimbursement.notes ? (
                                   <p className="report-description-meta mt-1 text-xs leading-5 text-ink-600">Obs.: {reimbursement.notes}</p>
                                 ) : null}
+                                {reimbursement.renegotiation_source_ids.length > 0 ? (
+                                  <div className="report-renegotiation mt-2 rounded-md border border-amberRisk-500/20 bg-amberRisk-100/35 px-3 py-2">
+                                    <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-amberRisk-500">
+                                      Origem da renegociação
+                                    </p>
+                                    <div className="mt-2 space-y-2">
+                                      {reimbursement.renegotiation_source_ids.map((sourceId) => {
+                                        const source = allReimbursements.find((item) => item.id === sourceId);
+                                        const sourceOpenAmount = source ? getOpenAmount(source) : 0;
+
+                                        return (
+                                          <div key={sourceId} className="rounded-sm border border-ink-950/10 bg-white/70 px-2 py-1">
+                                            <p className="text-xs font-medium text-ink-950">
+                                              {source?.description ?? "Título original não encontrado"}
+                                            </p>
+                                            <p className="mt-1 text-[11px] text-ink-600">
+                                              Data original: {formatDate(source?.expected_date ?? null)} · Em aberto: {source ? formatCurrency(sourceOpenAmount) : "-"}
+                                            </p>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                ) : null}
                               </td>
                               <td className="report-money px-4 py-3 text-right align-top font-semibold text-ink-950">{formatCurrency(Number(reimbursement.expected_amount))}</td>
                               <td className="report-money px-4 py-3 text-right align-top text-ink-600">{formatCurrency(Number(reimbursement.received_amount))}</td>
@@ -1558,7 +1586,7 @@ function ReimbursementReportModal({
           )}
 
           <footer className="report-footer mt-8 border-t border-ink-950/10 pt-4 text-xs leading-5 text-ink-600">
-            Hub VZ · Relatório gerado em {formatDateTime(generatedAt)} · Reembolsos são dinheiro vinculado, não renda livre.
+            Hub VZ · Relatório de apoio · Reembolsos não são renda livre.
           </footer>
         </article>
       </div>
@@ -1590,13 +1618,13 @@ function ReportMetric({
   );
 }
 
-function buildReimbursementPrintDocument(reportHtml: string) {
+function buildReimbursementPrintDocument(reportHtml: string, fileName: string) {
   return `<!doctype html>
 <html lang="pt-BR">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Hub VZ - Relatório de Reembolsos</title>
+    <title>${fileName}</title>
     <style>
       @page {
         size: A4;
@@ -1812,6 +1840,16 @@ function buildReimbursementPrintDocument(reportHtml: string) {
         line-height: 1.35;
       }
 
+      .report-renegotiation {
+        margin-top: 5pt;
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
+
+      .report-renegotiation p {
+        margin: 0;
+      }
+
       .hub-category-badge {
         display: inline-flex;
         align-items: center;
@@ -2023,4 +2061,47 @@ function formatPeriodLabel(period: PeriodValue) {
   if (period.preset === "all") return "Todos os períodos";
   if (period.startDate && period.endDate) return `${formatDate(period.startDate)} até ${formatDate(period.endDate)}`;
   return "Período selecionado";
+}
+
+function buildReimbursementReportFileName({
+  generatedAt,
+  period,
+  personName,
+}: {
+  generatedAt: Date;
+  period: PeriodValue;
+  personName: string | null;
+}) {
+  const generatedDate = generatedAt.toISOString().slice(0, 10);
+  const segments = ["hub-vz", "reembolsos"];
+  const personSegment = sanitizeFileNameSegment(personName);
+  const periodSegment = getFilePeriodSegment(period);
+
+  if (personSegment) segments.push(personSegment);
+  if (periodSegment) segments.push(periodSegment);
+  segments.push(personSegment || periodSegment ? `gerado-${generatedDate}` : generatedDate);
+
+  return `${segments.join("-")}.pdf`;
+}
+
+function getFilePeriodSegment(period: PeriodValue) {
+  if (!period.startDate || !period.endDate) return null;
+
+  const startMonth = period.startDate.slice(0, 7);
+  const endMonth = period.endDate.slice(0, 7);
+
+  if (startMonth === endMonth) return startMonth;
+  return `${period.startDate}_a_${period.endDate}`;
+}
+
+function sanitizeFileNameSegment(value: string | null | undefined) {
+  if (!value) return null;
+
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-")
+    .toLowerCase();
 }
