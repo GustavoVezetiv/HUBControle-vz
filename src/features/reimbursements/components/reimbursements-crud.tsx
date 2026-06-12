@@ -1,8 +1,10 @@
 "use client";
 
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
@@ -24,6 +26,7 @@ import {
   listReimbursements,
   listReimbursementSupportData,
   renegotiateReimbursements,
+  syncReimbursementFinancialLink,
   updateReimbursement,
 } from "@/features/reimbursements/queries";
 import {
@@ -34,6 +37,7 @@ import {
   type ReimbursementCategory,
   type ReimbursementFormValues,
   type ReimbursementGeneratedLinkValues,
+  type ReimbursementFinancialLinkMode,
   type ReimbursementIncome,
   type ReimbursementInvoice,
   type ReimbursementPerson,
@@ -220,6 +224,26 @@ export function ReimbursementsCrud() {
         console.error("Erro técnico ao salvar reembolso:", result.error);
         setFeedback({ type: "error", message: result.error.message });
         return;
+      }
+
+      const reimbursementForSync =
+        modal?.mode === "edit"
+          ? {
+              ...result.data,
+              credit_card_transaction_id: modal.reimbursement.credit_card_transaction_id,
+              credit_card_invoice_id: modal.reimbursement.credit_card_invoice_id,
+            }
+          : result.data;
+
+      const linkResult = await syncReimbursementFinancialLink(client, userId, reimbursementForSync, values);
+      if (linkResult.error) {
+        console.error("Erro técnico ao sincronizar vínculo financeiro do reembolso:", linkResult.error);
+        setFeedback({ type: "error", message: linkResult.error.message });
+        return;
+      }
+
+      if (linkResult.invoiceId) {
+        setGeneratedInvoiceLink({ invoiceId: linkResult.invoiceId, transactionId: linkResult.transactionId ?? undefined });
       }
 
       let generatedMessage = "";
@@ -927,8 +951,10 @@ export function ReimbursementsCrud() {
       {modal ? (
         <ReimbursementModal
           accounts={accounts}
+          cards={cards}
           categories={categories}
           income={income}
+          invoices={invoices}
           modal={modal}
           people={people}
           saving={saving}
@@ -977,8 +1003,10 @@ export function ReimbursementsCrud() {
 
 function ReimbursementModal({
   accounts,
+  cards,
   categories,
   income,
+  invoices,
   modal,
   people,
   saving,
@@ -987,8 +1015,10 @@ function ReimbursementModal({
   onSubmit,
 }: {
   accounts: ReimbursementAccount[];
+  cards: ReimbursementCard[];
   categories: ReimbursementCategory[];
   income: ReimbursementIncome[];
+  invoices: ReimbursementInvoice[];
   modal: ModalState;
   people: ReimbursementPerson[];
   saving: boolean;
@@ -999,6 +1029,54 @@ function ReimbursementModal({
   const [values, setValues] = useState<ReimbursementFormValues>(
     modal?.mode === "edit" ? reimbursementToFormValues(modal.reimbursement) : emptyReimbursementForm,
   );
+  const currentTransaction =
+    modal?.mode === "edit" && modal.reimbursement.credit_card_transaction_id
+      ? transactions.find((transaction) => transaction.id === modal.reimbursement.credit_card_transaction_id) ?? null
+      : null;
+  const currentInvoice =
+    modal?.mode === "edit" && modal.reimbursement.credit_card_invoice_id
+      ? invoices.find((invoice) => invoice.id === modal.reimbursement.credit_card_invoice_id) ?? null
+      : null;
+  const currentCard =
+    currentTransaction?.credit_card_id
+      ? cards.find((card) => card.id === currentTransaction.credit_card_id) ?? null
+      : currentInvoice?.credit_card_id
+        ? cards.find((card) => card.id === currentInvoice.credit_card_id) ?? null
+        : null;
+  const selectedCardId = values.financial_link_card_id || currentCard?.id || "";
+  const selectedInvoiceId = values.financial_link_invoice_id || currentInvoice?.id || "";
+  const filteredInvoices = selectedCardId
+    ? invoices.filter((invoice) => invoice.credit_card_id === selectedCardId)
+    : [];
+  const filteredTransactions = selectedInvoiceId
+    ? transactions.filter((transaction) => transaction.invoice_id === selectedInvoiceId)
+    : [];
+  const selectedFinancialTransaction =
+    values.financial_link_transaction_id
+      ? transactions.find((transaction) => transaction.id === values.financial_link_transaction_id) ?? null
+      : null;
+  const selectedTransactionUsedByOtherReimbursement = Boolean(
+    selectedFinancialTransaction?.reimbursement_id &&
+      selectedFinancialTransaction.reimbursement_id !== modal?.reimbursement?.id,
+  );
+
+  useEffect(() => {
+    if (modal?.mode !== "edit" || !currentTransaction) return;
+
+    setValues((current) => ({
+      ...current,
+      financial_link_card_id: current.financial_link_card_id || currentTransaction.credit_card_id || currentCard?.id || "",
+      financial_link_invoice_id: current.financial_link_invoice_id || currentTransaction.invoice_id || modal.reimbursement.credit_card_invoice_id || "",
+      financial_link_transaction_id: current.financial_link_transaction_id || currentTransaction.id,
+      financial_link_new_description: current.financial_link_new_description || currentTransaction.description || current.description,
+      financial_link_new_amount:
+        current.financial_link_new_amount && current.financial_link_new_amount !== "0"
+          ? current.financial_link_new_amount
+          : String(currentTransaction.amount ?? current.expected_amount),
+      financial_link_new_date: current.financial_link_new_date || currentTransaction.transaction_date || current.expected_date,
+      financial_link_new_category_id: current.financial_link_new_category_id || currentTransaction.category_id || current.category_id,
+    }));
+  }, [currentCard?.id, currentTransaction, modal]);
 
   return (
     <Modal
@@ -1015,7 +1093,31 @@ function ReimbursementModal({
         className="grid gap-4 md:grid-cols-2"
         onSubmit={(event) => {
           event.preventDefault();
-          onSubmit(values);
+          const nextValues: ReimbursementFormValues = {
+            ...values,
+            credit_card_transaction_id:
+              values.financial_link_mode === "keep_current"
+                ? currentTransaction?.id ?? values.credit_card_transaction_id
+                : values.financial_link_mode === "link_existing"
+                  ? values.financial_link_transaction_id
+                  : "",
+            credit_card_invoice_id:
+              values.financial_link_mode === "keep_current"
+                ? currentInvoice?.id ?? values.credit_card_invoice_id
+                : values.financial_link_mode === "link_existing"
+                  ? values.financial_link_invoice_id
+                  : "",
+            account_payable_id:
+              values.financial_link_mode === "link_existing" || values.financial_link_mode === "create_invoice_transaction"
+                ? ""
+                : values.account_payable_id,
+            income_source_id:
+              values.financial_link_mode === "link_existing" || values.financial_link_mode === "create_invoice_transaction"
+                ? ""
+                : values.income_source_id,
+          };
+
+          onSubmit(nextValues);
         }}
       >
         <FieldShell label="Pessoa responsável">
@@ -1087,16 +1189,228 @@ function ReimbursementModal({
             </p>
           </>
         ) : null}
-        <FieldShell label="Lançamento do cartão">
-          <select className={inputClassName} value={values.credit_card_transaction_id} onChange={(event) => setValues({ ...values, credit_card_transaction_id: event.target.value })}>
-            <option value="">Sem vínculo</option>
-            {transactions.map((transaction) => (
-              <option key={transaction.id} value={transaction.id}>
-                {transaction.description} - {formatCurrency(Number(transaction.amount))}
-              </option>
-            ))}
-          </select>
-        </FieldShell>
+        <div className="rounded-lg border border-ink-950/10 bg-slate-50/70 p-4 md:col-span-2">
+          <div className="flex flex-col gap-1">
+            <h3 className="text-sm font-semibold text-ink-950">Vínculo financeiro</h3>
+            <p className="text-sm text-ink-600">
+              Use o fluxo cartão - fatura - lançamento para evitar vínculo errado e manter o total da fatura consistente.
+            </p>
+          </div>
+
+          {currentTransaction ? (
+            <div className="mt-4 rounded-md border border-mint-500/25 bg-white px-4 py-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="space-y-1 text-sm text-ink-600">
+                  <p><strong className="text-ink-950">Cartão:</strong> {currentCard ? getCardLabel(currentCard) : "-"}</p>
+                  <p><strong className="text-ink-950">Fatura:</strong> {currentInvoice ? formatInvoiceOptionLabel(currentInvoice, cards) : "-"}</p>
+                  <p><strong className="text-ink-950">Lançamento:</strong> {currentTransaction.description} · {formatDate(currentTransaction.transaction_date)} · {formatCurrency(Number(currentTransaction.amount))}</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {currentInvoice ? (
+                    <Link className="inline-flex items-center rounded-md border border-ink-950/10 bg-white px-3 py-2 text-sm font-medium text-ink-700" href={`/dashboard/invoices/${currentInvoice.id}`}>
+                      Abrir fatura
+                    </Link>
+                  ) : null}
+                  {currentInvoice && currentTransaction ? (
+                    <Link className="inline-flex items-center rounded-md border border-ink-950/10 bg-white px-3 py-2 text-sm font-medium text-ink-700" href={`/dashboard/invoices/${currentInvoice.id}?transaction=${currentTransaction.id}`}>
+                      Abrir lançamento
+                    </Link>
+                  ) : null}
+                  <ActionButton
+                    type="button"
+                    variant="secondary"
+                    onClick={() => setValues({ ...values, financial_link_mode: "remove_current" })}
+                  >
+                    Remover vínculo
+                  </ActionButton>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <FieldShell label="Modo de vínculo">
+              <select
+                className={inputClassName}
+                value={values.financial_link_mode}
+                onChange={(event) =>
+                  setValues({
+                    ...values,
+                    financial_link_mode: event.target.value as ReimbursementFinancialLinkMode,
+                  })
+                }
+              >
+                {currentTransaction ? <option value="keep_current">Manter vínculo atual</option> : null}
+                <option value="none">Sem vínculo</option>
+                <option value="link_existing">Vincular a lançamento existente</option>
+                <option value="create_invoice_transaction">Criar lançamento em fatura</option>
+                {currentTransaction ? <option value="remove_current">Remover vínculo atual</option> : null}
+              </select>
+            </FieldShell>
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              Não é permitido usar fatura arquivada nem misturar lançamento de outro cartão.
+            </div>
+          </div>
+
+          {values.financial_link_mode === "link_existing" || values.financial_link_mode === "create_invoice_transaction" ? (
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <FieldShell label="Cartão">
+                <select
+                  className={inputClassName}
+                  value={selectedCardId}
+                  onChange={(event) =>
+                    setValues({
+                      ...values,
+                      financial_link_card_id: event.target.value,
+                      financial_link_invoice_id: "",
+                      financial_link_transaction_id:
+                        currentTransaction && values.financial_link_mode === "link_existing" ? currentTransaction.id : "",
+                    })
+                  }
+                >
+                  <option value="">Selecione</option>
+                  {cards.map((card) => (
+                    <option key={card.id} value={card.id}>
+                      {getCardLabel(card)}
+                    </option>
+                  ))}
+                </select>
+              </FieldShell>
+              <FieldShell label="Fatura">
+                <select
+                  className={inputClassName}
+                  value={selectedInvoiceId}
+                  onChange={(event) =>
+                    setValues({
+                      ...values,
+                      financial_link_invoice_id: event.target.value,
+                    })
+                  }
+                >
+                  <option value="">Selecione</option>
+                  {filteredInvoices.map((invoice) => (
+                    <option key={invoice.id} value={invoice.id}>
+                      {formatInvoiceOptionLabel(invoice, cards)}
+                    </option>
+                  ))}
+                </select>
+              </FieldShell>
+
+              {values.financial_link_mode === "link_existing" ? (
+                <>
+                  <div className="md:col-span-2">
+                    <FieldShell label="Lançamento específico">
+                      <select
+                        className={inputClassName}
+                        value={values.financial_link_transaction_id}
+                        onChange={(event) =>
+                          setValues({
+                            ...values,
+                            financial_link_transaction_id: event.target.value,
+                            financial_link_allow_reuse: false,
+                          })
+                        }
+                      >
+                        <option value="">Selecione</option>
+                        {currentTransaction &&
+                        values.financial_link_transaction_id === currentTransaction.id &&
+                        currentTransaction.invoice_id !== selectedInvoiceId ? (
+                          <option value={currentTransaction.id}>
+                            Atual: {formatTransactionFinancialOption(currentTransaction, categories)}
+                          </option>
+                        ) : null}
+                        {filteredTransactions.map((transaction) => (
+                          <option key={transaction.id} value={transaction.id}>
+                            {formatTransactionFinancialOption(transaction, categories)}
+                          </option>
+                        ))}
+                      </select>
+                    </FieldShell>
+                  </div>
+                  {selectedFinancialTransaction ? (
+                    <div className="rounded-md border border-ink-950/10 bg-white px-3 py-2 text-sm text-ink-700 md:col-span-2">
+                      {selectedTransactionUsedByOtherReimbursement ? (
+                        <>
+                          <p className="font-medium text-amber-900">
+                            Este lançamento já está vinculado a outro reembolso.
+                          </p>
+                          <label className="mt-2 flex items-start gap-2">
+                            <input
+                              type="checkbox"
+                              checked={values.financial_link_allow_reuse}
+                              onChange={(event) => setValues({ ...values, financial_link_allow_reuse: event.target.checked })}
+                            />
+                            <span>Confirmo que desejo substituir o vínculo anterior por este reembolso.</span>
+                          </label>
+                        </>
+                      ) : (
+                        <p>Lançamento livre para vínculo. Se você trocar a fatura mantendo o lançamento atual selecionado, o sistema moverá o lançamento para a nova fatura.</p>
+                      )}
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <FieldShell label="Descrição do lançamento">
+                    <input
+                      className={inputClassName}
+                      value={values.financial_link_new_description}
+                      onChange={(event) => setValues({ ...values, financial_link_new_description: event.target.value })}
+                    />
+                  </FieldShell>
+                  <FieldShell label="Valor do lançamento">
+                    <input
+                      min="0"
+                      step="0.01"
+                      type="number"
+                      className={inputClassName}
+                      value={values.financial_link_new_amount}
+                      onChange={(event) => setValues({ ...values, financial_link_new_amount: event.target.value })}
+                    />
+                  </FieldShell>
+                  <FieldShell label="Data do lançamento">
+                    <input
+                      type="date"
+                      className={inputClassName}
+                      value={values.financial_link_new_date}
+                      onChange={(event) => setValues({ ...values, financial_link_new_date: event.target.value })}
+                    />
+                  </FieldShell>
+                  <FieldShell label="Categoria do lançamento">
+                    <CategorySelect
+                      categories={categories}
+                      value={values.financial_link_new_category_id}
+                      onChange={(category_id) => setValues({ ...values, financial_link_new_category_id: category_id })}
+                    />
+                  </FieldShell>
+                </>
+              )}
+            </div>
+          ) : null}
+
+          {values.financial_link_mode === "remove_current" ? (
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <FieldShell label="Ao remover vínculo">
+                <select
+                  className={inputClassName}
+                  value={values.financial_link_remove_mode}
+                  onChange={(event) =>
+                    setValues({
+                      ...values,
+                      financial_link_remove_mode: event.target.value as ReimbursementFormValues["financial_link_remove_mode"],
+                    })
+                  }
+                >
+                  <option value="keep_transaction">Manter lançamento de cartão como lançamento normal</option>
+                  <option value="archive_transaction">Arquivar lançamento gerado pelo reembolso</option>
+                </select>
+              </FieldShell>
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                O sistema nunca exclui o lançamento automaticamente. Se ele estiver em uma fatura, o total será recalculado.
+              </div>
+            </div>
+          ) : null}
+        </div>
         <FieldShell label="Conta vinculada">
           <select className={inputClassName} value={values.account_payable_id} onChange={(event) => setValues({ ...values, account_payable_id: event.target.value })}>
             <option value="">Sem vínculo</option>
@@ -1403,7 +1717,6 @@ function ReimbursementReportModal({
   onClose: () => void;
 }) {
   const generatedAt = new Date();
-  const reportRef = useRef<HTMLElement | null>(null);
   const summary = summarizeReportReimbursements(reimbursements);
   const groups = groupReimbursementsByPerson(reimbursements, people);
   const reportFileName = buildReimbursementReportFileName({
@@ -1411,34 +1724,37 @@ function ReimbursementReportModal({
     period,
     personName: person?.name ?? null,
   });
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
 
-  function handleDownloadPdf() {
-    const report = reportRef.current;
+  async function handleDownloadPdf() {
+    try {
+      setDownloadingPdf(true);
+      setPdfError(null);
 
-    if (!report) {
-      window.print();
-      return;
+      const document = buildReimbursementPdfDocument({
+        allReimbursements,
+        accounts,
+        cards,
+        categories,
+        generatedAt,
+        groups,
+        income,
+        invoices,
+        period,
+        personName: person?.name ?? null,
+        reimbursements,
+        summary,
+        transactions,
+      });
+
+      document.save(reportFileName);
+    } catch (error) {
+      console.error("Erro ao gerar PDF de reembolsos", error);
+      setPdfError("Não foi possível gerar o PDF agora. Tente novamente.");
+    } finally {
+      setDownloadingPdf(false);
     }
-
-    const printWindow = window.open("", "hub-vz-reembolsos-pdf", "width=980,height=1200");
-
-    if (!printWindow) {
-      document.documentElement.classList.add("printing-reimbursement-report");
-      window.print();
-      window.setTimeout(() => {
-        document.documentElement.classList.remove("printing-reimbursement-report");
-      }, 300);
-      return;
-    }
-
-    printWindow.document.write(buildReimbursementPrintDocument(report.outerHTML, reportFileName));
-    printWindow.document.close();
-    printWindow.document.title = reportFileName;
-    printWindow.focus();
-    printWindow.setTimeout(() => {
-      printWindow.print();
-      printWindow.close();
-    }, 150);
   }
 
   return (
@@ -1449,12 +1765,19 @@ function ReimbursementReportModal({
             Relatório otimizado para PDF com nome sugerido automático e layout próprio para compartilhamento.
           </p>
           <div className="flex flex-wrap gap-2">
-            <ActionButton variant="secondary" onClick={handleDownloadPdf}>Baixar PDF</ActionButton>
+            <ActionButton variant="secondary" onClick={handleDownloadPdf} disabled={downloadingPdf}>
+              {downloadingPdf ? "Baixando..." : "Baixar PDF"}
+            </ActionButton>
             <ActionButton variant="secondary" onClick={onClose}>Voltar</ActionButton>
           </div>
         </div>
+        {pdfError ? (
+          <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {pdfError}
+          </div>
+        ) : null}
 
-        <article ref={reportRef} className="reimbursement-report rounded-lg border border-ink-950/10 bg-white p-6 text-ink-950 shadow-sm">
+        <article className="reimbursement-report rounded-lg border border-ink-950/10 bg-white p-6 text-ink-950 shadow-sm">
           <header className="report-header border-b border-ink-950/10 pb-5">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
@@ -1510,12 +1833,13 @@ function ReimbursementReportModal({
                     <table className="report-table w-full table-fixed border-collapse text-left text-sm">
                       <thead>
                         <tr className="border-b border-ink-950/10 text-xs uppercase tracking-[0.12em] text-ink-600">
-                          <th className="w-[15%] px-4 py-3 font-semibold">Data prevista</th>
-                          <th className="w-[40%] px-4 py-3 font-semibold">Descrição</th>
-                          <th className="w-[12%] px-4 py-3 text-right font-semibold">Esperado</th>
-                          <th className="w-[12%] px-4 py-3 text-right font-semibold">Recebido</th>
-                          <th className="w-[12%] px-4 py-3 text-right font-semibold">Em aberto</th>
-                          <th className="w-[9%] px-4 py-3 font-semibold">Status</th>
+                          <th className="w-[12%] px-4 py-3 font-semibold">Data</th>
+                          <th className="w-[32%] px-4 py-3 font-semibold">Descrição</th>
+                          <th className="w-[18%] px-4 py-3 font-semibold">Categoria/Vínculo</th>
+                          <th className="w-[10%] px-4 py-3 text-right font-semibold">Esperado</th>
+                          <th className="w-[10%] px-4 py-3 text-right font-semibold">Recebido</th>
+                          <th className="w-[10%] px-4 py-3 text-right font-semibold">Em aberto</th>
+                          <th className="w-[8%] px-4 py-3 font-semibold">Status</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-ink-950/10">
@@ -1523,58 +1847,73 @@ function ReimbursementReportModal({
                           const openAmount = getOpenAmount(reimbursement);
                           const category = categories.find((item) => item.id === reimbursement.category_id);
                           const late = isLateReimbursement(reimbursement);
+                          const renegotiationSources = reimbursement.renegotiation_source_ids
+                            .map((sourceId) => allReimbursements.find((item) => item.id === sourceId))
+                            .filter((item): item is ReimbursementRow => Boolean(item));
 
                           return (
-                            <tr key={reimbursement.id} className={late ? "report-row-late bg-amberRisk-100/45" : ""}>
-                              <td className="px-4 py-3 align-top text-ink-600">
-                                <span className={late ? "font-semibold text-amberRisk-500" : ""}>{formatDate(reimbursement.expected_date)}</span>
-                                {reimbursement.received_date ? (
-                                  <span className="mt-1 block text-xs text-ink-600">Recebido: {formatDate(reimbursement.received_date)}</span>
-                                ) : null}
-                              </td>
-                              <td className="px-4 py-3 align-top">
-                                <p className="font-semibold text-ink-950">{reimbursement.description ?? "Reembolso sem descrição"}</p>
-                                <div className="report-description-meta mt-1 flex flex-wrap items-center gap-2 text-xs leading-5 text-ink-600">
-                                  <CategoryBadge category={category} />
-                                  <span>Vínculo: {getLinkedLabel(reimbursement, transactions, accounts, income, invoices, cards)}</span>
-                                </div>
-                                {reimbursement.notes ? (
-                                  <p className="report-description-meta mt-1 text-xs leading-5 text-ink-600">Obs.: {reimbursement.notes}</p>
-                                ) : null}
-                                {reimbursement.renegotiation_source_ids.length > 0 ? (
-                                  <div className="report-renegotiation mt-2 rounded-md border border-amberRisk-500/20 bg-amberRisk-100/35 px-3 py-2">
-                                    <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-amberRisk-500">
-                                      Origem da renegociação
+                            <Fragment key={reimbursement.id}>
+                              <tr className={late ? "report-row-late bg-amberRisk-100/45" : ""}>
+                                <td className="px-4 py-3 align-top text-ink-600">
+                                  <span className={late ? "font-semibold text-amberRisk-500" : ""}>{formatDate(reimbursement.expected_date)}</span>
+                                  {reimbursement.received_date ? (
+                                    <span className="mt-1 block text-xs text-ink-600">Recebido: {formatDate(reimbursement.received_date)}</span>
+                                  ) : null}
+                                </td>
+                                <td className="px-4 py-3 align-top">
+                                  <p className="font-semibold text-ink-950">
+                                    {renegotiationSources.length > 0
+                                      ? `Renegociação de ${renegotiationSources.length} título(s)`
+                                      : reimbursement.description ?? "Reembolso sem descrição"}
+                                  </p>
+                                  {renegotiationSources.length === 0 && reimbursement.notes ? (
+                                    <p className="report-description-meta mt-1 text-xs leading-5 text-ink-600">Obs.: {reimbursement.notes}</p>
+                                  ) : null}
+                                  {renegotiationSources.length > 0 ? (
+                                    <p className="report-description-meta mt-1 text-xs leading-5 text-ink-600">
+                                      Valor consolidado da renegociação.
                                     </p>
-                                    <div className="mt-2 space-y-2">
-                                      {reimbursement.renegotiation_source_ids.map((sourceId) => {
-                                        const source = allReimbursements.find((item) => item.id === sourceId);
-                                        const sourceOpenAmount = source ? getOpenAmount(source) : 0;
-
-                                        return (
-                                          <div key={sourceId} className="rounded-sm border border-ink-950/10 bg-white/70 px-2 py-1">
+                                  ) : null}
+                                </td>
+                                <td className="px-4 py-3 align-top">
+                                  <div className="report-description-meta flex flex-col gap-2 text-xs leading-5 text-ink-600">
+                                    <CategoryBadge category={category} />
+                                    <span>Vínculo: {getLinkedLabel(reimbursement, transactions, accounts, income, invoices, cards)}</span>
+                                  </div>
+                                </td>
+                                <td className="report-money px-4 py-3 text-right align-top font-semibold text-ink-950">{formatCurrency(Number(reimbursement.expected_amount))}</td>
+                                <td className="report-money px-4 py-3 text-right align-top text-ink-600">{formatCurrency(Number(reimbursement.received_amount))}</td>
+                                <td className="report-money px-4 py-3 text-right align-top font-semibold text-ink-950">{formatCurrency(openAmount)}</td>
+                                <td className="report-status px-4 py-3 align-top">
+                                  <span className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${late ? "bg-amberRisk-100 text-amberRisk-500" : "bg-ink-950/5 text-ink-600"}`}>
+                                    {late ? "Atrasado" : optionLabel(reimbursementStatusOptions, reimbursement.status)}
+                                  </span>
+                                </td>
+                              </tr>
+                              {renegotiationSources.length > 0 ? (
+                                <tr className="bg-amberRisk-100/20">
+                                  <td colSpan={7} className="px-4 py-3 align-top">
+                                    <div className="report-renegotiation rounded-md border border-amberRisk-500/20 bg-amberRisk-100/35 px-3 py-2">
+                                      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-amberRisk-500">
+                                        Origem da renegociação
+                                      </p>
+                                      <div className="mt-2 space-y-2">
+                                        {renegotiationSources.map((source) => (
+                                          <div key={source.id} className="rounded-sm border border-ink-950/10 bg-white/70 px-2 py-1">
                                             <p className="text-xs font-medium text-ink-950">
-                                              {source?.description ?? "Título original não encontrado"}
+                                              {source.description ?? "Título original não encontrado"}
                                             </p>
                                             <p className="mt-1 text-[11px] text-ink-600">
-                                              Data original: {formatDate(source?.expected_date ?? null)} · Em aberto: {source ? formatCurrency(sourceOpenAmount) : "-"}
+                                              Data original: {formatDate(source.expected_date)} · Valor original: {formatCurrency(Number(source.expected_amount))} · Em aberto: {formatCurrency(getOpenAmount(source))}
                                             </p>
                                           </div>
-                                        );
-                                      })}
+                                        ))}
+                                      </div>
                                     </div>
-                                  </div>
-                                ) : null}
-                              </td>
-                              <td className="report-money px-4 py-3 text-right align-top font-semibold text-ink-950">{formatCurrency(Number(reimbursement.expected_amount))}</td>
-                              <td className="report-money px-4 py-3 text-right align-top text-ink-600">{formatCurrency(Number(reimbursement.received_amount))}</td>
-                              <td className="report-money px-4 py-3 text-right align-top font-semibold text-ink-950">{formatCurrency(openAmount)}</td>
-                              <td className="report-status px-4 py-3 align-top">
-                                <span className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${late ? "bg-amberRisk-100 text-amberRisk-500" : "bg-ink-950/5 text-ink-600"}`}>
-                                  {late ? "Atrasado" : optionLabel(reimbursementStatusOptions, reimbursement.status)}
-                                </span>
-                              </td>
-                            </tr>
+                                  </td>
+                                </tr>
+                              ) : null}
+                            </Fragment>
                           );
                         })}
                       </tbody>
@@ -1618,6 +1957,267 @@ function ReportMetric({
   );
 }
 
+function buildReimbursementPdfDocument({
+  allReimbursements,
+  accounts,
+  cards,
+  categories,
+  generatedAt,
+  groups,
+  income,
+  invoices,
+  period,
+  personName,
+  reimbursements,
+  summary,
+  transactions,
+}: {
+  allReimbursements: ReimbursementRow[];
+  accounts: ReimbursementAccount[];
+  cards: ReimbursementCard[];
+  categories: ReimbursementCategory[];
+  generatedAt: Date;
+  groups: ReturnType<typeof groupReimbursementsByPerson>;
+  income: ReimbursementIncome[];
+  invoices: ReimbursementInvoice[];
+  period: PeriodValue;
+  personName: string | null;
+  reimbursements: ReimbursementRow[];
+  summary: ReturnType<typeof summarizeReportReimbursements>;
+  transactions: ReimbursementTransaction[];
+}) {
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const marginX = 10;
+  const marginTop = 10;
+  const marginBottom = 10;
+  const contentWidth = pageWidth - marginX * 2;
+  const footerText = "Hub VZ · Relatório de apoio · Reembolsos não são renda livre.";
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(8, 127, 116);
+  doc.text("Hub VZ", marginX, marginTop);
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(20);
+  doc.setTextColor(17, 24, 39);
+  doc.text("Relatório de Reembolsos", marginX, marginTop + 8);
+
+  let cursorY = marginTop + 15;
+
+  if (personName) {
+    doc.setFontSize(13);
+    doc.text(personName, marginX, cursorY);
+    cursorY += 6;
+  }
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(75, 85, 99);
+  doc.text(`Período: ${formatPeriodLabel(period)}`, marginX, cursorY);
+  cursorY += 5;
+  doc.text(`Data de geração: ${formatDateTime(generatedAt)}`, marginX, cursorY);
+
+  const summaryMetrics = [
+    { label: "Total esperado", value: formatCurrency(summary.expected) },
+    { label: "Total recebido", value: formatCurrency(summary.received) },
+    { label: "Total em aberto", value: formatCurrency(summary.open) },
+    { label: "Quantidade de reembolsos", value: String(summary.count) },
+    { label: "Quantidade de pessoas", value: String(summary.personCount) },
+    { label: "Maior valor em aberto", value: formatCurrency(summary.largestOpen) },
+    { label: "Próximo recebimento", value: summary.nextExpectedDate ? formatDate(summary.nextExpectedDate) : "-" },
+    { label: "Percentual recebido", value: `${summary.receivedPercentage.toFixed(1)}%` },
+  ];
+
+  cursorY += 6;
+  const cardColumns = 4;
+  const cardGap = 4;
+  const cardWidth = (contentWidth - cardGap * (cardColumns - 1)) / cardColumns;
+  const cardHeight = 16;
+
+  summaryMetrics.forEach((metric, index) => {
+    const col = index % cardColumns;
+    const row = Math.floor(index / cardColumns);
+    const x = marginX + col * (cardWidth + cardGap);
+    const y = cursorY + row * (cardHeight + 3);
+
+    doc.setDrawColor(209, 213, 219);
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(x, y, cardWidth, cardHeight, 2, 2, "FD");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7);
+    doc.setTextColor(75, 85, 99);
+    doc.text(metric.label.toUpperCase(), x + 3, y + 5);
+    doc.setFontSize(10);
+    doc.setTextColor(17, 24, 39);
+    doc.text(metric.value, x + 3, y + 11);
+  });
+
+  cursorY += cardHeight * 2 + 10;
+
+  if (reimbursements.length === 0) {
+    doc.setDrawColor(209, 213, 219);
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(marginX, cursorY, contentWidth, 24, 2, 2, "FD");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.setTextColor(17, 24, 39);
+    doc.text("Nenhum reembolso encontrado para os filtros selecionados.", marginX + 4, cursorY + 10);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(75, 85, 99);
+    doc.text("Ajuste período, pessoa ou filtros e gere novamente.", marginX + 4, cursorY + 16);
+  } else {
+    groups.forEach((group, groupIndex) => {
+      if (groupIndex > 0 && cursorY > pageHeight - 80) {
+        doc.addPage();
+        cursorY = marginTop;
+      }
+
+      doc.setDrawColor(209, 213, 219);
+      doc.setFillColor(248, 250, 252);
+      doc.roundedRect(marginX, cursorY, contentWidth, 14, 2, 2, "FD");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.setTextColor(17, 24, 39);
+      doc.text(group.person.name, marginX + 3, cursorY + 5.5);
+      doc.setFontSize(8);
+      doc.setTextColor(75, 85, 99);
+      doc.text(group.statusLabel.toUpperCase(), marginX + 3, cursorY + 10.5);
+      doc.setFont("helvetica", "normal");
+      doc.text(
+        [
+          `Esperado ${formatCurrency(group.summary.expected)}`,
+          `Recebido ${formatCurrency(group.summary.received)}`,
+          `Em aberto ${formatCurrency(group.summary.open)}`,
+          `${group.summary.count} item(ns)`,
+        ].join("   ·   "),
+        pageWidth - marginX - 3,
+        cursorY + 8.2,
+        { align: "right" },
+      );
+
+      cursorY += 18;
+
+      const bodyRows = group.rows.flatMap((reimbursement) => {
+        const openAmount = getOpenAmount(reimbursement);
+        const late = isLateReimbursement(reimbursement);
+        const category = categories.find((item) => item.id === reimbursement.category_id);
+        const linkedLabel = getLinkedLabel(reimbursement, transactions, accounts, income, invoices, cards);
+        const renegotiationSources = reimbursement.renegotiation_source_ids
+          .map((sourceId) => allReimbursements.find((item) => item.id === sourceId))
+          .filter((item): item is ReimbursementRow => Boolean(item));
+
+        const mainRow = [
+          `${formatDate(reimbursement.expected_date)}${reimbursement.received_date ? `\nRecebido: ${formatDate(reimbursement.received_date)}` : ""}`,
+          renegotiationSources.length > 0
+            ? `Renegociação de ${renegotiationSources.length} título(s)\nValor consolidado da renegociação.`
+            : [reimbursement.description ?? "Reembolso sem descrição", reimbursement.notes ? `Obs.: ${reimbursement.notes}` : null].filter(Boolean).join("\n"),
+          [category?.name ?? "Sem categoria", `Vínculo: ${linkedLabel}`].join("\n"),
+          formatCurrency(Number(reimbursement.expected_amount)),
+          formatCurrency(Number(reimbursement.received_amount)),
+          formatCurrency(openAmount),
+          late ? "Atrasado" : optionLabel(reimbursementStatusOptions, reimbursement.status),
+        ];
+
+        if (renegotiationSources.length === 0) {
+          return [mainRow];
+        }
+
+        const renegotiationBlock = [
+          "Origem da renegociação",
+          ...renegotiationSources.map((source) =>
+            [
+              `• ${source.description ?? "Título original não encontrado"}`,
+              `  Data original: ${formatDate(source.expected_date)}`,
+              `  Valor original: ${formatCurrency(Number(source.expected_amount))}`,
+              `  Em aberto na renegociação: ${formatCurrency(getOpenAmount(source))}`,
+            ].join("\n"),
+          ),
+        ].join("\n");
+
+        return [
+          mainRow,
+          [
+            {
+              content: renegotiationBlock,
+              colSpan: 7,
+              styles: {
+                fillColor: [255, 247, 237] as [number, number, number],
+                textColor: [120, 53, 15] as [number, number, number],
+                fontSize: 8,
+                cellPadding: 2.5,
+                lineColor: [251, 191, 36] as [number, number, number],
+                lineWidth: 0.1,
+              },
+            },
+          ],
+        ];
+      });
+
+      autoTable(doc, {
+        startY: cursorY,
+        margin: { left: marginX, right: marginX, bottom: marginBottom + 8 },
+        head: [["Data", "Descrição", "Categoria/Vínculo", "Esperado", "Recebido", "Em aberto", "Status"]],
+        body: bodyRows as Parameters<typeof autoTable>[1]["body"],
+        theme: "grid",
+        styles: {
+          font: "helvetica",
+          fontSize: 8,
+          textColor: [17, 24, 39],
+          cellPadding: 2.4,
+          lineColor: [229, 231, 235],
+          lineWidth: 0.1,
+          overflow: "linebreak",
+          valign: "top",
+        },
+        headStyles: {
+          fillColor: [248, 250, 252],
+          textColor: [75, 85, 99],
+          fontStyle: "bold",
+        },
+        columnStyles: {
+          0: { cellWidth: 27 },
+          1: { cellWidth: 67 },
+          2: { cellWidth: 46 },
+          3: { cellWidth: 24, halign: "right" },
+          4: { cellWidth: 24, halign: "right" },
+          5: { cellWidth: 24, halign: "right" },
+          6: { cellWidth: 22, halign: "center" },
+        },
+        didParseCell(data) {
+          if (data.section === "body" && data.column.index >= 3 && data.column.index <= 5) {
+            data.cell.styles.fontStyle = data.column.index === 4 ? "normal" : "bold";
+          }
+
+          if (
+            data.section === "body" &&
+            Array.isArray(data.row.raw) &&
+            typeof data.row.raw[0] === "string" &&
+            String(data.row.raw[6] ?? "").toLowerCase() === "atrasado"
+          ) {
+            data.cell.styles.fillColor = [255, 247, 237];
+          }
+        },
+        didDrawPage() {
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(8);
+          doc.setTextColor(100, 116, 139);
+          doc.text(footerText, pageWidth / 2, pageHeight - 5, { align: "center" });
+        },
+      });
+
+      cursorY = ((doc as jsPDF & { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY ?? cursorY) + 8;
+    });
+  }
+
+  return doc;
+}
+
+// Legacy helper kept temporarily for local reference while the modal uses direct PDF generation.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function buildReimbursementPrintDocument(reportHtml: string, fileName: string) {
   return `<!doctype html>
 <html lang="pt-BR">
@@ -1985,6 +2585,27 @@ function getLinkedTone(reimbursement: ReimbursementRow) {
   if (reimbursement.account_payable_id) return "warning";
   if (reimbursement.income_source_id) return "success";
   return "neutral";
+}
+
+function getCardLabel(card: ReimbursementCard) {
+  return card.issuer ? `${card.name} · ${card.issuer}` : card.name;
+}
+
+function formatTransactionFinancialOption(
+  transaction: ReimbursementTransaction,
+  categories: ReimbursementCategory[],
+) {
+  const category = categories.find((item) => item.id === transaction.category_id);
+
+  return [
+    transaction.description,
+    formatDate(transaction.transaction_date),
+    formatCurrency(Number(transaction.amount)),
+    category?.name ? `Categoria: ${category.name}` : null,
+    transaction.reimbursement_id ? "já vinculado" : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function summarizeReportReimbursements(rows: ReimbursementRow[]) {

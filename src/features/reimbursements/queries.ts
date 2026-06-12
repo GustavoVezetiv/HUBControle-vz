@@ -14,6 +14,12 @@ export type GenerateRecurringReimbursementsResult = {
   error: { message: string } | null;
 };
 
+type FinancialLinkSyncResult = {
+  error: { message: string } | null;
+  invoiceId: string | null;
+  transactionId: string | null;
+};
+
 export async function listReimbursements(client: AppSupabaseClient) {
   return client.from("reimbursements").select("*").is("archived_at", null).order("expected_date", { ascending: true });
 }
@@ -23,7 +29,8 @@ export async function listReimbursementSupportData(client: AppSupabaseClient) {
     client.from("people").select("id,name").order("name", { ascending: true }),
     client
       .from("credit_card_transactions")
-      .select("id,description,amount,transaction_date")
+      .select("id,credit_card_id,invoice_id,category_id,description,amount,transaction_date,reimbursement_id,is_reimbursable")
+      .is("archived_at", null)
       .order("transaction_date", { ascending: false }),
     client.from("accounts_payable").select("id,title,amount").order("due_date", { ascending: false }),
     client.from("income_sources").select("id,name,amount").order("expected_date", { ascending: false }),
@@ -53,7 +60,19 @@ export async function updateReimbursement(
   id: string,
   values: ReimbursementFormValues,
 ) {
-  return client.from("reimbursements").update(toPayload(undefined, values)).eq("id", id).select("*").single();
+  const current = await client.from("reimbursements").select("*").eq("id", id).single();
+
+  if (current.error || !current.data) {
+    console.error("Erro técnico ao carregar reembolso atual para atualização:", current.error);
+    return { data: null, error: { message: "Não foi possível carregar o reembolso atual." } };
+  }
+
+  return client
+    .from("reimbursements")
+    .update(toPayload(undefined, values, current.data))
+    .eq("id", id)
+    .select("*")
+    .single();
 }
 
 export async function archiveReimbursement(client: AppSupabaseClient, id: string, userId: string, reason?: string) {
@@ -354,7 +373,8 @@ export async function recalculateInvoiceTotal(client: AppSupabaseClient, userId:
     .from("credit_card_transactions")
     .select("amount")
     .eq("user_id", userId)
-    .eq("invoice_id", invoiceId);
+    .eq("invoice_id", invoiceId)
+    .is("archived_at", null);
 
   if (transactionsResult.error) {
     console.error("Erro técnico ao buscar lançamentos para recalcular fatura:", transactionsResult.error);
@@ -380,6 +400,42 @@ export async function recalculateInvoiceTotal(client: AppSupabaseClient, userId:
 
   return { totalAmount, error: null };
 }
+
+export async function syncReimbursementFinancialLink(
+  client: AppSupabaseClient,
+  userId: string,
+  reimbursement: ReimbursementRow,
+  values: ReimbursementFormValues,
+): Promise<FinancialLinkSyncResult> {
+  const mode = values.financial_link_mode;
+
+  if (mode === "none" || mode === "keep_current") {
+    return { error: null, invoiceId: reimbursement.credit_card_invoice_id ?? null, transactionId: reimbursement.credit_card_transaction_id ?? null };
+  }
+
+  const currentTransaction = reimbursement.credit_card_transaction_id
+    ? await getTransactionById(client, userId, reimbursement.credit_card_transaction_id)
+    : { data: null, error: null };
+
+  if (currentTransaction.error) {
+    console.error("Erro técnico ao carregar lançamento atual do reembolso:", currentTransaction.error);
+    return { error: { message: "Não foi possível carregar o lançamento atual do reembolso." }, invoiceId: null, transactionId: null };
+  }
+
+  if (mode === "remove_current") {
+    return removeFinancialLink(client, userId, reimbursement, currentTransaction.data, values.financial_link_remove_mode);
+  }
+
+  if (mode === "create_invoice_transaction") {
+    return createFinancialTransaction(client, userId, reimbursement, currentTransaction.data, values);
+  }
+
+  if (mode === "link_existing") {
+    return linkExistingTransaction(client, userId, reimbursement, currentTransaction.data, values);
+  }
+
+    return { error: null, invoiceId: null, transactionId: null };
+  }
 
 async function rollbackGeneratedTransaction(client: AppSupabaseClient, userId: string, transactionId: string) {
   const rollback = await client.from("credit_card_transactions").delete().eq("user_id", userId).eq("id", transactionId);
@@ -495,20 +551,345 @@ export async function generateRecurringReimbursements(
   return { created, skipped: candidateDates.length - rows.length, error: null };
 }
 
+async function linkExistingTransaction(
+  client: AppSupabaseClient,
+  userId: string,
+  reimbursement: ReimbursementRow,
+  currentTransaction: CreditCardTransaction | null,
+  values: ReimbursementFormValues,
+): Promise<FinancialLinkSyncResult> {
+  if (!values.financial_link_card_id || !values.financial_link_invoice_id || !values.financial_link_transaction_id) {
+    return { error: { message: "Selecione cartão, fatura e lançamento para concluir o vínculo." }, invoiceId: null, transactionId: null };
+  }
+
+  const invoiceResult = await getInvoiceById(client, userId, values.financial_link_invoice_id);
+  if (invoiceResult.error || !invoiceResult.data) {
+    console.error("Erro técnico ao validar fatura para vínculo do reembolso:", invoiceResult.error);
+    return { error: { message: "A fatura selecionada não foi encontrada ou está arquivada." }, invoiceId: null, transactionId: null };
+  }
+
+  if (invoiceResult.data.credit_card_id !== values.financial_link_card_id) {
+    return { error: { message: "A fatura selecionada não pertence ao cartão informado." }, invoiceId: null, transactionId: null };
+  }
+
+  const transactionResult = await getTransactionById(client, userId, values.financial_link_transaction_id);
+  if (transactionResult.error || !transactionResult.data) {
+    console.error("Erro técnico ao validar lançamento para vínculo do reembolso:", transactionResult.error);
+    return { error: { message: "O lançamento selecionado não foi encontrado ou está arquivado." }, invoiceId: null, transactionId: null };
+  }
+
+  const selectedTransaction = transactionResult.data;
+  if (selectedTransaction.credit_card_id !== values.financial_link_card_id) {
+    return { error: { message: "O lançamento selecionado não pertence ao cartão informado." }, invoiceId: null, transactionId: null };
+  }
+
+  if (selectedTransaction.reimbursement_id && selectedTransaction.reimbursement_id !== reimbursement.id) {
+    if (!values.financial_link_allow_reuse) {
+      return { error: { message: "Este lançamento já está vinculado a outro reembolso. Confirme a substituição para continuar." }, invoiceId: null, transactionId: null };
+    }
+
+    const previousReimbursementResult = await client
+      .from("reimbursements")
+      .select("*")
+      .eq("user_id", userId)
+      .eq("id", selectedTransaction.reimbursement_id)
+      .single();
+
+    if (previousReimbursementResult.error || !previousReimbursementResult.data) {
+      console.error("Erro técnico ao carregar reembolso anterior do lançamento:", previousReimbursementResult.error);
+      return { error: { message: "Não foi possível preparar a substituição do vínculo anterior." }, invoiceId: null, transactionId: null };
+    }
+
+    const previousClear = await clearReimbursementCardLink(client, userId, previousReimbursementResult.data);
+    if (previousClear.error) return previousClear;
+  }
+
+  if (currentTransaction && currentTransaction.id !== selectedTransaction.id) {
+    const detachCurrent = await detachTransactionFromReimbursement(client, userId, currentTransaction.id);
+    if (detachCurrent.error) return detachCurrent;
+  }
+
+  const previousInvoiceId = selectedTransaction.invoice_id;
+  const updateTransaction = await client
+    .from("credit_card_transactions")
+    .update({
+      credit_card_id: values.financial_link_card_id,
+      invoice_id: values.financial_link_invoice_id,
+      reimbursement_id: reimbursement.id,
+      is_reimbursable: true,
+      reimbursement_status: toTransactionReimbursementStatus(reimbursement.status),
+    })
+    .eq("user_id", userId)
+    .eq("id", selectedTransaction.id);
+
+  if (updateTransaction.error) {
+    console.error("Erro técnico ao atualizar lançamento vinculado ao reembolso:", updateTransaction.error);
+    return { error: { message: "Não foi possível vincular o lançamento selecionado ao reembolso." }, invoiceId: null, transactionId: null };
+  }
+
+  const updateReimbursement = await client
+    .from("reimbursements")
+    .update({
+      credit_card_transaction_id: selectedTransaction.id,
+      credit_card_invoice_id: values.financial_link_invoice_id,
+      source_type: "credit_card_transaction",
+      source_id: selectedTransaction.id,
+      account_payable_id: null,
+      income_source_id: null,
+    })
+    .eq("user_id", userId)
+    .eq("id", reimbursement.id);
+
+  if (updateReimbursement.error) {
+    console.error("Erro técnico ao salvar vínculo do reembolso com lançamento existente:", updateReimbursement.error);
+    return { error: { message: "O lançamento foi preparado, mas o reembolso não pôde ser atualizado." }, invoiceId: null, transactionId: null };
+  }
+
+  const invoiceIdsToRecalculate = new Set<string>();
+  if (previousInvoiceId) invoiceIdsToRecalculate.add(previousInvoiceId);
+  if (values.financial_link_invoice_id) invoiceIdsToRecalculate.add(values.financial_link_invoice_id);
+
+  for (const invoiceId of invoiceIdsToRecalculate) {
+    const recalculate = await recalculateInvoiceTotal(client, userId, invoiceId);
+    if (recalculate.error) {
+      return { error: { message: "O vínculo foi salvo, mas não foi possível recalcular o total da fatura." }, invoiceId: null, transactionId: null };
+    }
+  }
+
+  return { error: null, invoiceId: values.financial_link_invoice_id, transactionId: selectedTransaction.id };
+}
+
+async function createFinancialTransaction(
+  client: AppSupabaseClient,
+  userId: string,
+  reimbursement: ReimbursementRow,
+  currentTransaction: CreditCardTransaction | null,
+  values: ReimbursementFormValues,
+): Promise<FinancialLinkSyncResult> {
+  if (currentTransaction) {
+    return { error: { message: "Este reembolso já possui lançamento vinculado. Remova ou ajuste o vínculo atual antes de criar outro." }, invoiceId: null, transactionId: null };
+  }
+
+  if (
+    !values.financial_link_card_id ||
+    !values.financial_link_invoice_id ||
+    !values.financial_link_new_description.trim() ||
+    Number(values.financial_link_new_amount || 0) < 0 ||
+    !values.financial_link_new_date
+  ) {
+    return { error: { message: "Informe cartão, fatura, descrição, valor e data válidos para criar o lançamento." }, invoiceId: null, transactionId: null };
+  }
+
+  const invoiceResult = await getInvoiceById(client, userId, values.financial_link_invoice_id);
+  if (invoiceResult.error || !invoiceResult.data) {
+    console.error("Erro técnico ao validar fatura para novo lançamento do reembolso:", invoiceResult.error);
+    return { error: { message: "A fatura selecionada não foi encontrada ou está arquivada." }, invoiceId: null, transactionId: null };
+  }
+
+  if (invoiceResult.data.credit_card_id !== values.financial_link_card_id) {
+    return { error: { message: "A fatura selecionada não pertence ao cartão informado." }, invoiceId: null, transactionId: null };
+  }
+
+  const insertResult = await client
+    .from("credit_card_transactions")
+    .insert({
+      user_id: userId,
+      credit_card_id: values.financial_link_card_id,
+      invoice_id: values.financial_link_invoice_id,
+      category_id: values.financial_link_new_category_id || reimbursement.category_id || null,
+      person_id: reimbursement.person_id,
+      description: values.financial_link_new_description.trim(),
+      amount: Number(values.financial_link_new_amount || 0),
+      transaction_date: values.financial_link_new_date,
+      ownership_type: "third_party",
+      is_reimbursable: true,
+      reimbursement_status: toTransactionReimbursementStatus(reimbursement.status),
+      reimbursement_id: reimbursement.id,
+      notes: "Lançamento gerado a partir de reembolso.",
+    })
+    .select("*")
+    .single();
+
+  if (insertResult.error) {
+    console.error("Erro técnico ao criar lançamento da fatura para o reembolso:", insertResult.error);
+    return { error: { message: "Não foi possível criar o lançamento na fatura selecionada." }, invoiceId: null, transactionId: null };
+  }
+
+  const updateReimbursement = await client
+    .from("reimbursements")
+    .update({
+      credit_card_transaction_id: insertResult.data.id,
+      credit_card_invoice_id: values.financial_link_invoice_id,
+      source_type: "credit_card_transaction",
+      source_id: insertResult.data.id,
+      account_payable_id: null,
+      income_source_id: null,
+    })
+    .eq("user_id", userId)
+    .eq("id", reimbursement.id);
+
+  if (updateReimbursement.error) {
+    console.error("Erro técnico ao vincular novo lançamento ao reembolso:", updateReimbursement.error);
+    await rollbackGeneratedTransaction(client, userId, insertResult.data.id);
+    await recalculateInvoiceTotal(client, userId, values.financial_link_invoice_id);
+    return { error: { message: "O lançamento foi criado, mas não foi possível concluir o vínculo com o reembolso." }, invoiceId: null, transactionId: null };
+  }
+
+  const recalculate = await recalculateInvoiceTotal(client, userId, values.financial_link_invoice_id);
+  if (recalculate.error) {
+    return { error: { message: "O lançamento foi criado, mas o total da fatura não pôde ser recalculado." }, invoiceId: null, transactionId: null };
+  }
+
+  return { error: null, invoiceId: values.financial_link_invoice_id, transactionId: insertResult.data.id };
+}
+
+async function removeFinancialLink(
+  client: AppSupabaseClient,
+  userId: string,
+  reimbursement: ReimbursementRow,
+  currentTransaction: CreditCardTransaction | null,
+  removeMode: ReimbursementFormValues["financial_link_remove_mode"],
+): Promise<FinancialLinkSyncResult> {
+  if (!currentTransaction) {
+    return clearReimbursementCardLink(client, userId, reimbursement);
+  }
+
+  const previousInvoiceId = currentTransaction.invoice_id;
+  const detachResult = await detachTransactionFromReimbursement(client, userId, currentTransaction.id);
+  if (detachResult.error) return detachResult;
+
+  if (removeMode === "archive_transaction") {
+    const archiveResult = await archiveRecord(
+      client,
+      "credit_card_transactions",
+      currentTransaction.id,
+      userId,
+      "Lançamento arquivado ao remover vínculo do reembolso.",
+    );
+
+    if (archiveResult.error) {
+      console.error("Erro técnico ao arquivar lançamento removido do reembolso:", archiveResult.error);
+      return { error: { message: "O vínculo foi removido, mas não foi possível arquivar o lançamento vinculado." }, invoiceId: null, transactionId: null };
+    }
+  }
+
+  const clearReimbursement = await clearReimbursementCardLink(client, userId, reimbursement);
+  if (clearReimbursement.error) return clearReimbursement;
+
+  if (previousInvoiceId) {
+    const recalculate = await recalculateInvoiceTotal(client, userId, previousInvoiceId);
+    if (recalculate.error) {
+      return { error: { message: "O vínculo foi removido, mas não foi possível recalcular o total da fatura." }, invoiceId: null, transactionId: null };
+    }
+  }
+
+  return { error: null, invoiceId: null, transactionId: null };
+}
+
+async function clearReimbursementCardLink(
+  client: AppSupabaseClient,
+  userId: string,
+  reimbursement: ReimbursementRow,
+): Promise<FinancialLinkSyncResult> {
+  const updateResult = await client
+    .from("reimbursements")
+    .update({
+      credit_card_transaction_id: null,
+      credit_card_invoice_id: null,
+      ...buildNonCardSourcePayload(reimbursement.account_payable_id, reimbursement.income_source_id),
+    })
+    .eq("user_id", userId)
+    .eq("id", reimbursement.id);
+
+  if (updateResult.error) {
+    console.error("Erro técnico ao limpar vínculo financeiro do reembolso:", updateResult.error);
+    return { error: { message: "Não foi possível remover o vínculo atual do reembolso." }, invoiceId: null, transactionId: null };
+  }
+
+  return { error: null, invoiceId: null, transactionId: null };
+}
+
+async function detachTransactionFromReimbursement(
+  client: AppSupabaseClient,
+  userId: string,
+  transactionId: string,
+): Promise<FinancialLinkSyncResult> {
+  const updateResult = await client
+    .from("credit_card_transactions")
+    .update({
+      reimbursement_id: null,
+      is_reimbursable: false,
+      reimbursement_status: "not_applicable",
+    })
+    .eq("user_id", userId)
+    .eq("id", transactionId);
+
+  if (updateResult.error) {
+    console.error("Erro técnico ao remover vínculo do lançamento com reembolso:", updateResult.error);
+    return { error: { message: "Não foi possível atualizar o lançamento vinculado ao reembolso." }, invoiceId: null, transactionId: null };
+  }
+
+  return { error: null, invoiceId: null, transactionId: null };
+}
+
+async function getInvoiceById(client: AppSupabaseClient, userId: string, invoiceId: string) {
+  return client
+    .from("credit_card_invoices")
+    .select("id,credit_card_id,reference_month,due_date,status,total_amount")
+    .eq("user_id", userId)
+    .eq("id", invoiceId)
+    .is("archived_at", null)
+    .neq("status", "cancelled")
+    .single();
+}
+
+async function getTransactionById(client: AppSupabaseClient, userId: string, transactionId: string) {
+  return client
+    .from("credit_card_transactions")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("id", transactionId)
+    .is("archived_at", null)
+    .single();
+}
+
+function buildNonCardSourcePayload(accountPayableId: string | null, incomeSourceId: string | null) {
+  if (accountPayableId) {
+    return { source_type: "account_payable", source_id: accountPayableId };
+  }
+
+  if (incomeSourceId) {
+    return { source_type: "income_source", source_id: incomeSourceId };
+  }
+
+  return { source_type: "manual", source_id: null };
+}
+
 function toPayload(
   userId: string | undefined,
   values: ReimbursementFormValues,
+  current?: ReimbursementRow,
 ): Partial<ReimbursementRow> {
-  const linkedTransactionId = values.credit_card_transaction_id || null;
+  const linkedTransactionId =
+    values.financial_link_mode === "create_invoice_transaction" || values.financial_link_mode === "remove_current"
+      ? null
+      : values.credit_card_transaction_id || null;
   const linkedAccountId = values.account_payable_id || null;
+  const linkedIncomeId = values.income_source_id || null;
+  const sourcePayload = linkedTransactionId
+    ? { source_type: "credit_card_transaction", source_id: linkedTransactionId }
+    : buildNonCardSourcePayload(linkedAccountId, linkedIncomeId);
 
   return {
     ...(userId ? { user_id: userId } : {}),
     person_id: values.person_id,
     category_id: values.category_id || null,
     credit_card_transaction_id: linkedTransactionId,
+    credit_card_invoice_id: linkedTransactionId
+      ? values.financial_link_invoice_id || current?.credit_card_invoice_id || values.credit_card_invoice_id || null
+      : null,
     account_payable_id: linkedAccountId,
-    income_source_id: values.income_source_id || null,
+    income_source_id: linkedIncomeId,
     description: values.description.trim() || null,
     expected_amount: Number(values.expected_amount || 0),
     received_amount: Number(values.received_amount || 0),
@@ -516,12 +897,7 @@ function toPayload(
     received_date: values.received_date || null,
     received_at: values.received_date ? `${values.received_date}T00:00:00.000Z` : null,
     status: values.status,
-    source_type: linkedTransactionId
-      ? "credit_card_transaction"
-      : linkedAccountId
-        ? "account_payable"
-        : "manual",
-    source_id: linkedTransactionId ?? linkedAccountId,
+    ...sourcePayload,
     is_recurring: values.is_recurring,
     recurrence_frequency: values.is_recurring ? "monthly" : null,
     recurrence_start_date: values.is_recurring ? values.recurrence_start_date || values.expected_date || null : null,
