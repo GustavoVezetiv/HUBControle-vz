@@ -38,6 +38,15 @@ import { createClient } from "@/lib/supabase/client";
 import type { Category, Goal } from "@/lib/supabase/types";
 
 type ModalState = { mode: "create"; goal: null } | { mode: "edit"; goal: Goal } | null;
+type ViewMode = "list" | "kanban";
+type KanbanGroupMode = "status" | "goal_category" | "category" | "deadline" | "progress";
+type DeadlineFilter = "all" | "overdue" | "next_30" | "future" | "no_target";
+type UrgencyFilter = "all" | ReturnType<typeof calculateUrgency>;
+type KanbanColumn = {
+  value: string;
+  label: string;
+  goals: Goal[];
+};
 
 const goalCategoryOptions = [
   { value: "personal", label: "Pessoal" },
@@ -71,6 +80,14 @@ export function GoalsCrud() {
   const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [allowQuickTableEdit, setAllowQuickTableEdit] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>("list");
+  const [kanbanGroup, setKanbanGroup] = useState<KanbanGroupMode>("status");
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [kindFilter, setKindFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [deadlineFilter, setDeadlineFilter] = useState<DeadlineFilter>("all");
+  const [urgencyFilter, setUrgencyFilter] = useState<UrgencyFilter>("all");
 
   const summary = useMemo(() => {
     const active = goals.filter((goal) => goal.status === "active");
@@ -85,6 +102,27 @@ export function GoalsCrud() {
       monthlyTotal: financial.reduce((sum, goal) => sum + Number(goal.monthly_contribution ?? 0), 0),
     };
   }, [goals]);
+
+  const filteredGoals = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+
+    return goals.filter((goal) => {
+      const category = categories.find((item) => item.id === goal.category_id);
+      return (
+        (!needle ||
+          goal.name.toLowerCase().includes(needle) ||
+          (goal.notes ?? "").toLowerCase().includes(needle) ||
+          (category?.name ?? "").toLowerCase().includes(needle)) &&
+        (statusFilter === "all" || goal.status === statusFilter) &&
+        (kindFilter === "all" || goal.goal_kind === kindFilter || goal.goal_category === kindFilter || goal.goal_type === kindFilter) &&
+        (categoryFilter === "all" || goal.category_id === categoryFilter) &&
+        (deadlineFilter === "all" || getDeadlineBucket(goal) === deadlineFilter) &&
+        (urgencyFilter === "all" || calculateUrgency(goal) === urgencyFilter)
+      );
+    });
+  }, [categories, categoryFilter, deadlineFilter, goals, kindFilter, search, statusFilter, urgencyFilter]);
+
+  const kanbanColumns = useMemo(() => buildKanbanColumns(filteredGoals, categories, kanbanGroup), [categories, filteredGoals, kanbanGroup]);
 
   async function loadData() {
     setLoading(true);
@@ -182,6 +220,27 @@ export function GoalsCrud() {
     }
   }
 
+  async function handleKanbanDrop(goalId: string, columnValue: string) {
+    const goal = goals.find((item) => item.id === goalId);
+    if (!goal) return;
+
+    if (!isEditableKanbanGroup(kanbanGroup)) {
+      setFeedback({ type: "error", message: "Este agrupamento é apenas visual. Altere data ou progresso pela edição da meta." });
+      return;
+    }
+
+    const patch: Partial<GoalFormValues> =
+      kanbanGroup === "status"
+        ? { status: columnValue }
+        : { goal_category: columnValue, goal_type: columnValue };
+
+    await handleQuickUpdate(goal, patch);
+    setFeedback({
+      type: "success",
+      message: kanbanGroup === "status" ? "Status da meta atualizado." : "Tipo/categoria da meta atualizado.",
+    });
+  }
+
   async function handleBulkDelete() {
     if (selectedIds.size === 0) return;
     if (!userId) return;
@@ -224,6 +283,69 @@ export function GoalsCrud() {
         ) : null}
       </section>
 
+      <SectionCard title="Visualização e filtros">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <FieldShell label="Visualização">
+            <select className={inputClassName} value={viewMode} onChange={(event) => setViewMode(event.target.value as ViewMode)}>
+              <option value="list">Lista</option>
+              <option value="kanban">Kanban</option>
+            </select>
+          </FieldShell>
+          <FieldShell label="Colunas do kanban">
+            <select className={inputClassName} value={kanbanGroup} onChange={(event) => setKanbanGroup(event.target.value as KanbanGroupMode)}>
+              <option value="status">Status</option>
+              <option value="goal_category">Tipo/categoria</option>
+              <option value="category">Categoria vinculada</option>
+              <option value="deadline">Prazo</option>
+              <option value="progress">Progresso</option>
+            </select>
+          </FieldShell>
+          <FieldShell label="Busca">
+            <input className={inputClassName} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nome" />
+          </FieldShell>
+          <FieldShell label="Status">
+            <select className={inputClassName} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+              <option value="all">Todos</option>
+              {goalStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </FieldShell>
+          <FieldShell label="Tipo">
+            <select className={inputClassName} value={kindFilter} onChange={(event) => setKindFilter(event.target.value)}>
+              <option value="all">Todos</option>
+              {goalKindOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              {goalCategoryOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </FieldShell>
+          <FieldShell label="Categoria">
+            <select className={inputClassName} value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
+              <option value="all">Todas</option>
+              {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+            </select>
+          </FieldShell>
+          <FieldShell label="Prazo">
+            <select className={inputClassName} value={deadlineFilter} onChange={(event) => setDeadlineFilter(event.target.value as DeadlineFilter)}>
+              <option value="all">Todos</option>
+              <option value="overdue">Vencidas</option>
+              <option value="next_30">Próximas</option>
+              <option value="future">Em andamento</option>
+              <option value="no_target">Sem prazo</option>
+            </select>
+          </FieldShell>
+          <FieldShell label="Urgência">
+            <select className={inputClassName} value={urgencyFilter} onChange={(event) => setUrgencyFilter(event.target.value as UrgencyFilter)}>
+              <option value="all">Todas</option>
+              <option value="urgent">Urgente</option>
+              <option value="attention">Atenção</option>
+              <option value="comfortable">Confortável</option>
+              <option value="no_target">Sem prazo</option>
+            </select>
+          </FieldShell>
+        </div>
+        <p className="mt-3 text-sm text-ink-600 dark:text-slate-300">
+          Mostrando {filteredGoals.length} de {goals.length} metas. Arrastar cards altera dados somente nos agrupamentos por status ou tipo/categoria.
+        </p>
+      </SectionCard>
+
       <SectionCard title="Metas cadastradas">
         {loading ? (
           <p className="text-sm text-ink-600">Carregando metas...</p>
@@ -231,6 +353,16 @@ export function GoalsCrud() {
           <EmptyState title="Nenhuma meta cadastrada" description="Crie metas pessoais para considerar nos planos do mês." />
         ) : (
           <>
+            {viewMode === "kanban" ? (
+              <GoalsKanban
+                categories={categories}
+                columns={kanbanColumns}
+                editable={isEditableKanbanGroup(kanbanGroup)}
+                onDrop={(goalId, columnValue) => void handleKanbanDrop(goalId, columnValue)}
+                onEdit={(goal) => setModal({ mode: "edit", goal })}
+              />
+            ) : (
+              <>
             <BulkActionsBar selectedCount={selectedIds.size} deleting={deletingSelected} onClear={() => setSelectedIds(new Set())} onDelete={() => void handleBulkDelete()} />
             <RowSelectionHint />
             <div className="overflow-x-auto">
@@ -240,8 +372,8 @@ export function GoalsCrud() {
                     <th className="px-4 py-3">
                       <input
                         type="checkbox"
-                        checked={goals.length > 0 && goals.every((goal) => selectedIds.has(goal.id))}
-                        onChange={(event) => setSelectedIds(event.target.checked ? new Set(goals.map((goal) => goal.id)) : new Set())}
+                        checked={filteredGoals.length > 0 && filteredGoals.every((goal) => selectedIds.has(goal.id))}
+                        onChange={(event) => setSelectedIds(event.target.checked ? new Set(filteredGoals.map((goal) => goal.id)) : new Set())}
                         aria-label="Selecionar todas as metas"
                       />
                     </th>
@@ -254,7 +386,7 @@ export function GoalsCrud() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-ink-950/10">
-                  {goals.map((goal) => (
+                  {filteredGoals.map((goal) => (
                     <tr
                       key={goal.id}
                       className="cursor-default"
@@ -338,12 +470,119 @@ export function GoalsCrud() {
                 </tbody>
               </table>
             </div>
+              </>
+            )}
           </>
         )}
       </SectionCard>
 
       {modal ? <GoalModal modal={modal} saving={saving} onClose={() => setModal(null)} onSubmit={(values) => void handleSubmit(values)} /> : null}
     </div>
+  );
+}
+
+function GoalsKanban({
+  categories,
+  columns,
+  editable,
+  onDrop,
+  onEdit,
+}: {
+  categories: Pick<Category, "id" | "name" | "type" | "color" | "icon">[];
+  columns: KanbanColumn[];
+  editable: boolean;
+  onDrop: (goalId: string, columnValue: string) => void;
+  onEdit: (goal: Goal) => void;
+}) {
+  return (
+    <div className="overflow-x-auto pb-2">
+      <div className="grid min-w-[920px] auto-cols-fr grid-flow-col gap-4">
+        {columns.map((column) => (
+          <section
+            key={column.value}
+            className="flex min-h-96 flex-col rounded-lg border border-slate-300 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-950/55"
+            onDragOver={(event) => {
+              if (!editable) return;
+              event.preventDefault();
+            }}
+            onDrop={(event) => {
+              if (!editable) return;
+              const goalId = event.dataTransfer.getData("text/plain");
+              if (goalId) onDrop(goalId, column.value);
+            }}
+          >
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-ink-950 dark:text-slate-100">{column.label}</h3>
+                <p className="mt-1 text-xs text-ink-600 dark:text-slate-300">{column.goals.length} meta(s)</p>
+              </div>
+              {!editable ? <TextBadge tone="neutral">Visual</TextBadge> : null}
+            </div>
+            <div className="flex flex-1 flex-col gap-3">
+              {column.goals.length === 0 ? (
+                <div className="rounded-md border border-dashed border-slate-300 bg-white/70 px-3 py-8 text-center text-sm text-ink-600 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-300">
+                  Nenhuma meta
+                </div>
+              ) : (
+                column.goals.map((goal) => (
+                  <GoalKanbanCard
+                    key={goal.id}
+                    categories={categories}
+                    draggable={editable}
+                    goal={goal}
+                    onEdit={onEdit}
+                  />
+                ))
+              )}
+            </div>
+          </section>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function GoalKanbanCard({
+  categories,
+  draggable,
+  goal,
+  onEdit,
+}: {
+  categories: Pick<Category, "id" | "name" | "type" | "color" | "icon">[];
+  draggable: boolean;
+  goal: Goal;
+  onEdit: (goal: Goal) => void;
+}) {
+  return (
+    <article
+      draggable={draggable}
+      onDragStart={(event) => {
+        event.dataTransfer.setData("text/plain", goal.id);
+        event.dataTransfer.effectAllowed = "move";
+      }}
+      className="rounded-lg border border-slate-300 bg-white p-4 text-ink-950 shadow-sm transition hover:border-mint-500 hover:shadow-md dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <button type="button" className="text-left text-sm font-semibold text-ink-950 hover:text-mint-700 dark:text-slate-100 dark:hover:text-mint-200" onClick={() => onEdit(goal)}>
+          {goal.name}
+        </button>
+        <TextBadge tone={goal.status === "completed" ? "success" : goal.status === "active" ? "info" : "neutral"}>
+          {labelFor(goalStatusOptions, goal.status)}
+        </TextBadge>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <TextBadge tone="neutral">{labelFor(goalCategoryOptions, goal.goal_category ?? goal.goal_type)}</TextBadge>
+        <TextBadge tone="neutral">{labelFor(goalKindOptions, goal.goal_kind ?? "qualitative")}</TextBadge>
+        {goal.category_id ? <CategoryBadge category={categories.find((category) => category.id === goal.category_id)} /> : null}
+      </div>
+      <div className="mt-4">
+        <GoalProgress goal={goal} />
+      </div>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs text-ink-600 dark:text-slate-300">
+        <span>Prazo: {goal.target_date ? formatDate(goal.target_date) : "Sem prazo"}</span>
+        <UrgencyBadge goal={goal} />
+      </div>
+    </article>
   );
 }
 
@@ -394,14 +633,89 @@ function GoalProgress({ goal }: { goal: Goal }) {
   return (
     <div className="min-w-32">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-sm font-semibold text-ink-950">{progress}%</span>
-        <span className="text-xs text-ink-500">Prazo</span>
+        <span className="text-sm font-semibold text-ink-950 dark:text-slate-100">{progress}%</span>
+        <span className="text-xs text-ink-500 dark:text-slate-400">Prazo</span>
       </div>
-      <div className="mt-2 h-2 rounded-full bg-slate-200">
+      <div className="mt-2 h-2 rounded-full bg-slate-200 dark:bg-slate-700">
         <div className={`h-2 rounded-full ${deadlineProgressColor(goal)}`} style={{ width: `${progress}%` }} />
       </div>
     </div>
   );
+}
+
+function buildKanbanColumns(
+  goals: Goal[],
+  categories: Pick<Category, "id" | "name" | "type" | "color" | "icon">[],
+  groupMode: KanbanGroupMode,
+): KanbanColumn[] {
+  const definitions = getKanbanColumnDefinitions(goals, categories, groupMode);
+
+  return definitions.map((definition) => ({
+    ...definition,
+    goals: goals.filter((goal) => getKanbanValue(goal, groupMode) === definition.value),
+  }));
+}
+
+function getKanbanColumnDefinitions(
+  goals: Goal[],
+  categories: Pick<Category, "id" | "name" | "type" | "color" | "icon">[],
+  groupMode: KanbanGroupMode,
+) {
+  if (groupMode === "status") return goalStatusOptions;
+  if (groupMode === "goal_category") return goalCategoryOptions;
+  if (groupMode === "deadline") {
+    return [
+      { value: "overdue", label: "Vencidas" },
+      { value: "next_30", label: "Próximas" },
+      { value: "future", label: "Em andamento" },
+      { value: "no_target", label: "Sem prazo" },
+    ];
+  }
+  if (groupMode === "progress") {
+    return [
+      { value: "0_25", label: "0-25%" },
+      { value: "26_50", label: "26-50%" },
+      { value: "51_75", label: "51-75%" },
+      { value: "76_100", label: "76-100%" },
+    ];
+  }
+
+  const usedCategoryIds = new Set(goals.map((goal) => goal.category_id).filter((id): id is string => Boolean(id)));
+  return [
+    ...categories
+      .filter((category) => usedCategoryIds.has(category.id))
+      .map((category) => ({ value: category.id, label: category.name })),
+    { value: "no_category", label: "Sem categoria" },
+  ];
+}
+
+function getKanbanValue(goal: Goal, groupMode: KanbanGroupMode) {
+  if (groupMode === "status") return goal.status;
+  if (groupMode === "goal_category") return goal.goal_category ?? goal.goal_type ?? "personal";
+  if (groupMode === "category") return goal.category_id ?? "no_category";
+  if (groupMode === "deadline") return getDeadlineBucket(goal);
+  return getProgressBucket(calculateDeadlineProgress(goal));
+}
+
+function isEditableKanbanGroup(groupMode: KanbanGroupMode) {
+  return groupMode === "status" || groupMode === "goal_category";
+}
+
+function getDeadlineBucket(goal: Goal): Exclude<DeadlineFilter, "all"> {
+  if (!goal.target_date) return "no_target";
+  const today = startOfDay(new Date());
+  const target = startOfDay(new Date(`${goal.target_date}T00:00:00`));
+  const days = Math.ceil((target.getTime() - today.getTime()) / 86_400_000);
+  if (days < 0) return "overdue";
+  if (days <= 30) return "next_30";
+  return "future";
+}
+
+function getProgressBucket(progress: number) {
+  if (progress <= 25) return "0_25";
+  if (progress <= 50) return "26_50";
+  if (progress <= 75) return "51_75";
+  return "76_100";
 }
 
 function UrgencyBadge({ goal }: { goal: Goal }) {

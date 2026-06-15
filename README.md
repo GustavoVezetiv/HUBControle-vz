@@ -296,6 +296,19 @@ supabase/migrations/202606060002_profile_advanced_visual_preferences.sql
 
 Run it after the existing profile visual preference migrations. It adds `animation_level`, `card_effect` and `border_style`, and expands the safe check constraints for the current visual settings UI.
 
+The planned purchases paid fields migration lives at:
+
+```bash
+supabase/migrations/202606100001_add_planned_purchase_paid_fields.sql
+```
+
+Run it after the existing planned purchases migrations. It adds:
+
+- `planned_purchases.paid_amount`
+- `planned_purchases.purchase_date`
+
+The purchases screen uses `purchase_date` as the main indicator that an item was bought. `target_date` remains available as an optional planning date.
+
 ## Authentication
 
 The `/login` route supports:
@@ -382,6 +395,29 @@ The dashboard now reads:
 
 Reimbursements and third-party money are displayed separately from real income. The projected balance can include them for cash-flow visibility, but the UI warns that they are not free income. Invoice transaction ownership distinguishes personal expenses from third-party, shared and family expenses.
 
+## Credit Card Invoice Automation
+
+Credit card invoices can be created automatically when the app needs them.
+
+Rules:
+
+- The app uses each card's `closing_day` and `due_day`.
+- A transaction dated after the closing day belongs to the next reference month.
+- The invoice due date is placed in the next month when `due_day` is less than or equal to `closing_day`.
+- Existing invoices are reused by `user_id`, `credit_card_id` and `reference_month`.
+- Archived invoices are not recreated silently; restore the archived invoice first.
+- Paid invoices are not recalculated automatically.
+
+Where this is used:
+
+- Creating a card transaction without manually selecting an invoice.
+- Generating recurring card transactions.
+- Generating future installments on a card.
+- Creating a credit card transaction from a reimbursement when no invoice is selected.
+- The `/dashboard/invoices` action "Gerar faturas futuras", limited to 24 months per action.
+
+No new database migration is required for this behavior. The existing unique invoice constraint by user, card and reference month prevents duplicate invoices.
+
 ## Metas
 
 The `/dashboard/goals` route now uses the `goals` table as a user-owned personal goals module.
@@ -398,6 +434,20 @@ The page includes CRUD for the authenticated user's goals using:
 - `notes`
 
 These goals are user-owned data and remain protected by RLS.
+
+## Compras e Desejos
+
+The `/dashboard/purchases` route tracks planned purchases and wishes as decision items before they become real obligations.
+
+The screen includes:
+
+- List and Kanban views.
+- Filters by priority, status, category, project, bought/pending state and search.
+- Financial summary with estimated total, paid total, savings or overspend, bought items and pending items.
+- `purchase_date` as the main bought indicator.
+- `target_date` as optional planning metadata.
+
+Internally, the database still uses `risk_level`; the UI labels this field as `Prioridade`.
 
 ## Decision Dashboard and Cash Flow
 

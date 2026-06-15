@@ -1,8 +1,13 @@
 import type { AppSupabaseClient } from "@/features/shared/types";
 import type { TransactionFormValues, TransactionRow } from "@/features/transactions/types";
 import { archiveRecord, restoreArchivedRecord } from "@/features/shared/archive";
+import {
+  ensureInvoicesForTransactionDates,
+  findOrCreateInvoiceForTransactionDate,
+  recalculateInvoiceTotal,
+} from "@/features/invoices/auto-invoices";
 import { createSafeUuid } from "@/lib/uuid";
-import type { CreditCard, CreditCardInvoice, Reimbursement } from "@/lib/supabase/types";
+import type { Reimbursement } from "@/lib/supabase/types";
 
 export type GenerateRecurringTransactionsResult = {
   created: number;
@@ -47,11 +52,20 @@ export async function createTransaction(
   userId: string,
   values: TransactionFormValues,
 ) {
-  return client
+  const payloadResult = await buildPayloadWithResolvedInvoice(client, userId, values);
+  if (payloadResult.error) return { data: null, error: payloadResult.error };
+
+  const insertResult = await client
     .from("credit_card_transactions")
-    .insert(toPayload(userId, values))
+    .insert(payloadResult.payload)
     .select("*")
     .single();
+
+  if (!insertResult.error && insertResult.data?.invoice_id) {
+    await recalculateInvoiceTotal(client, userId, insertResult.data.invoice_id);
+  }
+
+  return insertResult;
 }
 
 export async function updateTransaction(
@@ -59,12 +73,46 @@ export async function updateTransaction(
   id: string,
   values: TransactionFormValues,
 ) {
-  return client
+  const currentResult = await client.from("credit_card_transactions").select("invoice_id,user_id").eq("id", id).single();
+  const userId = currentResult.data?.user_id;
+  const payloadResult = userId ? await buildPayloadWithResolvedInvoice(client, userId, values) : { payload: toPayload(undefined, values), error: null };
+  if (payloadResult.error) return { data: null, error: payloadResult.error };
+
+  const updateResult = await client
     .from("credit_card_transactions")
-    .update(toPayload(undefined, values))
+    .update(payloadResult.payload)
     .eq("id", id)
     .select("*")
     .single();
+
+  if (!updateResult.error && userId) {
+    const invoiceIds = new Set<string>();
+    if (currentResult.data?.invoice_id) invoiceIds.add(currentResult.data.invoice_id);
+    if (updateResult.data?.invoice_id) invoiceIds.add(updateResult.data.invoice_id);
+    for (const invoiceId of invoiceIds) {
+      await recalculateInvoiceTotal(client, userId, invoiceId);
+    }
+  }
+
+  return updateResult;
+}
+
+async function buildPayloadWithResolvedInvoice(
+  client: AppSupabaseClient,
+  userId: string,
+  values: TransactionFormValues,
+) {
+  const payload = toPayload(userId, values);
+
+  if (!payload.invoice_id && values.credit_card_id && values.transaction_date) {
+    const invoiceResult = await findOrCreateInvoiceForTransactionDate(client, userId, values.credit_card_id, values.transaction_date);
+    if (invoiceResult.error || !invoiceResult.invoice) {
+      return { payload, error: invoiceResult.error ?? { message: "Não foi possível definir a fatura automaticamente." } };
+    }
+    payload.invoice_id = invoiceResult.invoice.id;
+  }
+
+  return { payload, error: null };
 }
 
 export async function archiveTransaction(client: AppSupabaseClient, id: string, userId: string, reason?: string) {
@@ -100,13 +148,13 @@ export async function generateRecurringTransactions(
     return emptyGenerationResult("Nenhuma ocorrência futura dentro do período da recorrência.");
   }
 
-  const ensuredInvoices = await ensureInvoicesForDates(client, userId, transaction.credit_card_id, candidateDates);
+  const ensuredInvoices = await ensureInvoicesForTransactionDates(client, userId, transaction.credit_card_id, candidateDates);
 
   if (ensuredInvoices.error) {
     return emptyGenerationResult(ensuredInvoices.error.message);
   }
 
-  const invoicesByMonth = ensuredInvoices.invoicesByMonth;
+  const invoicesByDate = ensuredInvoices.invoicesByDate;
 
   const existingResult = await client
     .from("credit_card_transactions")
@@ -126,7 +174,7 @@ export async function generateRecurringTransactions(
     .map((date) => ({
       user_id: userId,
       credit_card_id: transaction.credit_card_id,
-      invoice_id: invoicesByMonth.get(toMonthKey(date))?.id ?? null,
+      invoice_id: invoicesByDate.get(date)?.id ?? null,
       category_id: transaction.category_id,
       person_id: transaction.person_id,
       description: transaction.description,
@@ -159,6 +207,11 @@ export async function generateRecurringTransactions(
     }
 
     createdTransactions = (insertResult.data ?? []) as TransactionRow[];
+
+    const affectedInvoiceIds = new Set(createdTransactions.map((item) => item.invoice_id).filter((invoiceId): invoiceId is string => Boolean(invoiceId)));
+    for (const invoiceId of affectedInvoiceIds) {
+      await recalculateInvoiceTotal(client, userId, invoiceId);
+    }
   }
 
   const allOccurrencesByDate = new Map<string, TransactionRow>(existingByDate);
@@ -227,7 +280,7 @@ export async function generateInstallmentTransactions(
     (_, index) => currentInstallment + index + 1,
   );
   const futureDates = futureNumbers.map((number) => addMonths(transaction.transaction_date, number - currentInstallment));
-  const ensuredInvoices = await ensureInvoicesForDates(client, userId, transaction.credit_card_id, futureDates);
+  const ensuredInvoices = await ensureInvoicesForTransactionDates(client, userId, transaction.credit_card_id, futureDates);
 
   if (ensuredInvoices.error) {
     return { created: 0, skipped: 0, error: ensuredInvoices.error };
@@ -266,7 +319,7 @@ export async function generateInstallmentTransactions(
       return {
         user_id: userId,
         credit_card_id: transaction.credit_card_id,
-        invoice_id: ensuredInvoices.invoicesByMonth.get(toMonthKey(transactionDate))?.id ?? null,
+        invoice_id: ensuredInvoices.invoicesByDate.get(transactionDate)?.id ?? null,
         category_id: transaction.category_id,
         person_id: transaction.person_id,
         description: transaction.description,
@@ -298,6 +351,11 @@ export async function generateInstallmentTransactions(
   if (insertResult.error) {
     console.error("Erro técnico ao gerar parcelas no cartão:", insertResult.error);
     return { created: 0, skipped: futureNumbers.length - rows.length, error: { message: "Não foi possível gerar as parcelas futuras." } };
+  }
+
+  const affectedInvoiceIds = new Set(rows.map((item) => item.invoice_id).filter((invoiceId): invoiceId is string => Boolean(invoiceId)));
+  for (const invoiceId of affectedInvoiceIds) {
+    await recalculateInvoiceTotal(client, userId, invoiceId);
   }
 
   return {
@@ -359,82 +417,6 @@ function toPayload(
     recurrence_end_date: values.is_recurring && values.recurrence_end_date ? values.recurrence_end_date : null,
     notes: values.notes.trim() || null,
   };
-}
-
-async function ensureInvoicesForDates(
-  client: AppSupabaseClient,
-  userId: string,
-  creditCardId: string,
-  dates: string[],
-): Promise<{ invoicesByMonth: Map<string, Pick<CreditCardInvoice, "id" | "credit_card_id" | "reference_month" | "due_date" | "status">>; error: { message: string } | null }> {
-  const uniqueMonths = [...new Set(dates.map(toMonthKey))];
-
-  const [cardResult, invoicesResult] = await Promise.all([
-    client.from("credit_cards").select("id,name,closing_day,due_day").eq("user_id", userId).eq("id", creditCardId).single(),
-    client
-      .from("credit_card_invoices")
-      .select("id,credit_card_id,reference_month,due_date,status")
-      .eq("user_id", userId)
-      .eq("credit_card_id", creditCardId),
-  ]);
-
-  if (cardResult.error) {
-    console.error("Erro técnico ao buscar cartão para faturas automáticas:", cardResult.error);
-    return { invoicesByMonth: new Map(), error: { message: "Não foi possível buscar o cartão para criar faturas futuras." } };
-  }
-
-  if (invoicesResult.error) {
-    console.error("Erro técnico ao buscar faturas automáticas:", invoicesResult.error);
-    return { invoicesByMonth: new Map(), error: { message: "Não foi possível buscar as faturas do cartão." } };
-  }
-
-  const card = cardResult.data as Pick<CreditCard, "id" | "name" | "closing_day" | "due_day">;
-
-  if (!card.closing_day || !card.due_day) {
-    return { invoicesByMonth: new Map(), error: { message: `Configure dia de fechamento e vencimento do cartão ${card.name} antes de gerar faturas futuras.` } };
-  }
-
-  const invoicesByMonth = new Map(
-    (invoicesResult.data ?? []).map((invoice) => [String(invoice.reference_month).slice(0, 7), invoice]),
-  );
-  const missingMonths = uniqueMonths.filter((month) => !invoicesByMonth.has(month));
-
-  if (missingMonths.length > 0) {
-    const rows = missingMonths.map((month) => ({
-      user_id: userId,
-      credit_card_id: creditCardId,
-      reference_month: `${month}-01`,
-      closing_date: buildCardDate(month, card.closing_day ?? 1, 0),
-      due_date: buildCardDate(month, card.due_day ?? 1, (card.due_day ?? 1) <= (card.closing_day ?? 1) ? 1 : 0),
-      total_amount: 0,
-      paid_amount: 0,
-      status: "open",
-      notes: "Fatura criada automaticamente para lançamento recorrente ou parcelado.",
-    }));
-
-    const insertResult = await client
-      .from("credit_card_invoices")
-      .insert(rows)
-      .select("id,credit_card_id,reference_month,due_date,status");
-
-    if (insertResult.error) {
-      console.error("Erro técnico ao criar faturas automáticas:", insertResult.error);
-      return { invoicesByMonth: new Map(), error: { message: "Não foi possível criar as faturas futuras automaticamente." } };
-    }
-
-    (insertResult.data ?? []).forEach((invoice) => invoicesByMonth.set(String(invoice.reference_month).slice(0, 7), invoice));
-  }
-
-  return { invoicesByMonth, error: null };
-}
-
-function buildCardDate(month: string, configuredDay: number, monthOffset: number) {
-  const [year, monthNumber] = month.split("-").map(Number);
-  const date = new Date(year, monthNumber - 1 + monthOffset, 1);
-  const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
-  date.setDate(Math.min(configuredDay, lastDay));
-
-  return toDateInputValue(date);
 }
 
 async function generateLinkedRecurringReimbursements(
@@ -580,10 +562,6 @@ function moveDateToMonth(baseDate: string, targetDate: string) {
   nextDate.setDate(Math.min(baseDay, lastDay));
 
   return toDateInputValue(nextDate);
-}
-
-function toMonthKey(date: string) {
-  return date.slice(0, 7);
 }
 
 function toDateInputValue(date: Date) {

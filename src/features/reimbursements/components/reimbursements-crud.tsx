@@ -581,9 +581,9 @@ export function ReimbursementsCrud() {
       />
       <CrudFeedback feedback={feedback} />
       {generatedInvoiceLink ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-mint-500/30 bg-mint-50 px-4 py-3 text-sm text-ink-700">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-mint-500/35 bg-mint-50 px-4 py-3 text-sm text-ink-800 shadow-sm dark:border-mint-400/35 dark:bg-mint-950/30 dark:text-slate-100">
           <span>Lançamento vinculado à fatura selecionada.</span>
-          <Link className="font-semibold text-mint-700 hover:text-mint-800" href={`/dashboard/invoices/${generatedInvoiceLink.invoiceId}`}>
+          <Link className="font-semibold text-mint-700 hover:text-mint-800 dark:text-mint-200 dark:hover:text-mint-100" href={`/dashboard/invoices/${generatedInvoiceLink.invoiceId}`}>
             Abrir fatura
           </Link>
         </div>
@@ -640,8 +640,10 @@ export function ReimbursementsCrud() {
               <button
                 key={item.person.id}
                 type="button"
-                className={`hub-card flex h-full flex-col rounded-xl border p-4 text-left transition hover:border-mint-500 hover:shadow-md ${
-                  personFilter === item.person.id ? "border-mint-500 ring-2 ring-mint-500/20" : "border-ink-950/10"
+                className={`flex h-full flex-col rounded-xl border bg-white p-4 text-left text-ink-950 shadow-sm transition hover:border-mint-500 hover:bg-mint-50/60 hover:shadow-md dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800/90 ${
+                  personFilter === item.person.id
+                    ? "border-mint-500 ring-2 ring-mint-500/25 dark:border-mint-400 dark:ring-mint-400/25"
+                    : "border-slate-300 dark:border-slate-700"
                 }`}
                 onClick={() => setPersonFilter(item.person.id)}
                 aria-pressed={personFilter === item.person.id}
@@ -662,7 +664,7 @@ export function ReimbursementsCrud() {
                   <p>Atrasado: <strong className={item.late > 0 ? "text-red-600 dark:text-red-300" : "text-ink-950 dark:text-slate-100"}>{formatCurrency(item.late)}</strong></p>
                   <p>Quantidade de títulos: <strong className="text-ink-950 dark:text-slate-100">{item.totalCount}</strong></p>
                   <p>Próxima data prevista: <strong className="text-ink-950 dark:text-slate-100">{item.nextExpectedDate ? formatDate(item.nextExpectedDate) : "-"}</strong></p>
-                  <p className="text-xs text-ink-500 dark:text-slate-400">
+                  <p className="text-xs font-medium text-ink-600 dark:text-slate-300">
                     {item.totalCount} titulo(s) · {item.openCount} aberto(s) · {item.lateCount} atrasado(s)
                   </p>
                 </div>
@@ -1184,35 +1186,35 @@ function ReimbursementModal({
                 onChange={(event) => setValues({ ...values, recurrence_occurrences: event.target.value })}
               />
             </FieldShell>
-            <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 md:col-span-2">
+            <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-950 shadow-sm dark:border-amber-400/50 dark:bg-amber-950/35 dark:text-amber-100 md:col-span-2">
               Reembolsos recorrentes geram novas cobranças mensais sem transformar esse dinheiro em renda livre.
             </p>
           </>
         ) : null}
-        <div className="rounded-lg border border-ink-950/10 bg-slate-50/70 p-4 md:col-span-2">
+        <div className="rounded-lg border border-slate-300 bg-slate-50 p-4 text-ink-900 shadow-sm dark:border-slate-600 dark:bg-slate-950/70 dark:text-slate-100 md:col-span-2">
           <div className="flex flex-col gap-1">
-            <h3 className="text-sm font-semibold text-ink-950">Vínculo financeiro</h3>
-            <p className="text-sm text-ink-600">
+            <h3 className="text-sm font-semibold text-ink-950 dark:text-slate-100">Vínculo financeiro</h3>
+            <p className="text-sm text-ink-700 dark:text-slate-200">
               Use o fluxo cartão - fatura - lançamento para evitar vínculo errado e manter o total da fatura consistente.
             </p>
           </div>
 
           {currentTransaction ? (
-            <div className="mt-4 rounded-md border border-mint-500/25 bg-white px-4 py-3">
+            <div className="mt-4 rounded-md border border-mint-500/35 bg-mint-50 px-4 py-3 shadow-sm dark:border-mint-400/40 dark:bg-mint-950/35">
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="space-y-1 text-sm text-ink-600">
-                  <p><strong className="text-ink-950">Cartão:</strong> {currentCard ? getCardLabel(currentCard) : "-"}</p>
-                  <p><strong className="text-ink-950">Fatura:</strong> {currentInvoice ? formatInvoiceOptionLabel(currentInvoice, cards) : "-"}</p>
-                  <p><strong className="text-ink-950">Lançamento:</strong> {currentTransaction.description} · {formatDate(currentTransaction.transaction_date)} · {formatCurrency(Number(currentTransaction.amount))}</p>
+                <div className="space-y-1 text-sm text-ink-700 dark:text-slate-200">
+                  <p><strong className="text-ink-950 dark:text-slate-50">Cartão:</strong> {currentCard ? getCardLabel(currentCard) : "-"}</p>
+                  <p><strong className="text-ink-950 dark:text-slate-50">Fatura:</strong> {currentInvoice ? formatInvoiceOptionLabel(currentInvoice, cards) : "-"}</p>
+                  <p><strong className="text-ink-950 dark:text-slate-50">Lançamento:</strong> {currentTransaction.description} · {formatDate(currentTransaction.transaction_date)} · {formatCurrency(Number(currentTransaction.amount))}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {currentInvoice ? (
-                    <Link className="inline-flex items-center rounded-md border border-ink-950/10 bg-white px-3 py-2 text-sm font-medium text-ink-700" href={`/dashboard/invoices/${currentInvoice.id}`}>
+                    <Link className="inline-flex items-center rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-ink-800 hover:border-mint-500 hover:text-mint-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:border-mint-400 dark:hover:text-mint-200" href={`/dashboard/invoices/${currentInvoice.id}`}>
                       Abrir fatura
                     </Link>
                   ) : null}
                   {currentInvoice && currentTransaction ? (
-                    <Link className="inline-flex items-center rounded-md border border-ink-950/10 bg-white px-3 py-2 text-sm font-medium text-ink-700" href={`/dashboard/invoices/${currentInvoice.id}?transaction=${currentTransaction.id}`}>
+                    <Link className="inline-flex items-center rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-ink-800 hover:border-mint-500 hover:text-mint-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:border-mint-400 dark:hover:text-mint-200" href={`/dashboard/invoices/${currentInvoice.id}?transaction=${currentTransaction.id}`}>
                       Abrir lançamento
                     </Link>
                   ) : null}
@@ -1247,7 +1249,7 @@ function ReimbursementModal({
                 {currentTransaction ? <option value="remove_current">Remover vínculo atual</option> : null}
               </select>
             </FieldShell>
-            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-950 shadow-sm dark:border-amber-400/50 dark:bg-amber-950/35 dark:text-amber-100">
               Não é permitido usar fatura arquivada nem misturar lançamento de outro cartão.
             </div>
           </div>
@@ -1268,7 +1270,11 @@ function ReimbursementModal({
                     })
                   }
                 >
-                  <option value="">Selecione</option>
+                  <option value="">
+                    {values.financial_link_mode === "create_invoice_transaction"
+                      ? "Criar/encontrar automaticamente pela data"
+                      : "Selecione"}
+                  </option>
                   {cards.map((card) => (
                     <option key={card.id} value={card.id}>
                       {getCardLabel(card)}
@@ -1328,10 +1334,10 @@ function ReimbursementModal({
                     </FieldShell>
                   </div>
                   {selectedFinancialTransaction ? (
-                    <div className="rounded-md border border-ink-950/10 bg-white px-3 py-2 text-sm text-ink-700 md:col-span-2">
+                    <div className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-ink-800 shadow-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 md:col-span-2">
                       {selectedTransactionUsedByOtherReimbursement ? (
                         <>
-                          <p className="font-medium text-amber-900">
+                          <p className="font-medium text-amber-900 dark:text-amber-200">
                             Este lançamento já está vinculado a outro reembolso.
                           </p>
                           <label className="mt-2 flex items-start gap-2">
@@ -1351,6 +1357,9 @@ function ReimbursementModal({
                 </>
               ) : (
                 <>
+                  <p className="rounded-md border border-mint-500/35 bg-mint-50 px-3 py-2 text-sm font-medium text-ink-800 shadow-sm dark:border-mint-400/35 dark:bg-mint-950/30 dark:text-slate-100 md:col-span-2">
+                    Se nenhuma fatura for escolhida, o sistema cria ou encontra automaticamente a fatura correta pelo cartão e data do lançamento.
+                  </p>
                   <FieldShell label="Descrição do lançamento">
                     <input
                       className={inputClassName}
@@ -1405,7 +1414,7 @@ function ReimbursementModal({
                   <option value="archive_transaction">Arquivar lançamento gerado pelo reembolso</option>
                 </select>
               </FieldShell>
-              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-950 shadow-sm dark:border-amber-400/50 dark:bg-amber-950/35 dark:text-amber-100">
                 O sistema nunca exclui o lançamento automaticamente. Se ele estiver em uma fatura, o total será recalculado.
               </div>
             </div>
@@ -1506,16 +1515,16 @@ function LinkedEntryModal({
         }}
       >
         {hasLink ? (
-          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 md:col-span-2">
+          <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-950 shadow-sm dark:border-amber-400/50 dark:bg-amber-950/35 dark:text-amber-100 md:col-span-2">
             <p>Este reembolso já possui vínculo. Para evitar duplicidade, o sistema não cria outro lançamento sobre o mesmo reembolso.</p>
             {reimbursement.credit_card_invoice_id ? (
-              <Link className="mt-2 inline-flex font-semibold text-amber-950 underline" href={`/dashboard/invoices/${reimbursement.credit_card_invoice_id}`}>
+              <Link className="mt-2 inline-flex font-semibold text-amber-950 underline dark:text-amber-100" href={`/dashboard/invoices/${reimbursement.credit_card_invoice_id}`}>
                 Abrir fatura vinculada
               </Link>
             ) : null}
           </div>
         ) : (
-          <p className="rounded-md border border-mint-500/30 bg-mint-50 px-3 py-2 text-sm text-ink-700 md:col-span-2">
+          <p className="rounded-md border border-mint-500/35 bg-mint-50 px-3 py-2 text-sm font-medium text-ink-800 shadow-sm dark:border-mint-400/35 dark:bg-mint-950/30 dark:text-slate-100 md:col-span-2">
             Gerar lançamento vinculado cria uma conta ou lançamento de fatura rastreável a este reembolso.
           </p>
         )}
@@ -1559,13 +1568,16 @@ function LinkedEntryModal({
             </FieldShell>
             <FieldShell label="Fatura">
               <select
-                required
                 disabled={!invoiceValues.credit_card_id}
                 className={inputClassName}
                 value={invoiceValues.invoice_id}
                 onChange={(event) => setInvoiceValues({ ...invoiceValues, invoice_id: event.target.value })}
               >
-                <option value="">{invoiceValues.credit_card_id ? "Selecione" : "Selecione um cartão primeiro"}</option>
+                <option value="">
+                  {invoiceValues.credit_card_id
+                    ? "Criar/encontrar automaticamente pela data"
+                    : "Selecione um cartão primeiro"}
+                </option>
                 {filteredInvoices.map((invoice) => (
                   <option key={invoice.id} value={invoice.id}>
                     {formatInvoiceOptionLabel(invoice, cards)}
@@ -1574,8 +1586,8 @@ function LinkedEntryModal({
               </select>
             </FieldShell>
             {invoiceValues.credit_card_id && filteredInvoices.length === 0 ? (
-              <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 md:col-span-2">
-                Este cartão não possui faturas abertas para vínculo. Crie a fatura antes de gerar o lançamento.
+              <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-950 shadow-sm dark:border-amber-400/50 dark:bg-amber-950/35 dark:text-amber-100 md:col-span-2">
+                Este cartão não possui faturas abertas para vínculo. O sistema pode criar a fatura correta pela data do lançamento.
               </p>
             ) : null}
             <FieldShell label="Valor">
@@ -1677,7 +1689,7 @@ function RenegotiationModal({
             />
           </FieldShell>
         </div>
-        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 md:col-span-2">
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-950 shadow-sm dark:border-amber-400/50 dark:bg-amber-950/35 dark:text-amber-100 md:col-span-2">
           Os títulos antigos não serão apagados. Eles serão marcados como renegociados e sairão do saldo ativo.
         </div>
         <div className="flex justify-end gap-2 md:col-span-2">

@@ -6,6 +6,7 @@ import type {
 } from "@/features/reimbursements/types";
 import type { AppSupabaseClient } from "@/features/shared/types";
 import { archiveRecord, restoreArchivedRecord } from "@/features/shared/archive";
+import { findOrCreateInvoiceForTransactionDate } from "@/features/invoices/auto-invoices";
 import type { CreditCardTransaction } from "@/lib/supabase/types";
 
 export type GenerateRecurringReimbursementsResult = {
@@ -253,26 +254,18 @@ export async function generateLinkedEntryFromReimbursement(
 
   const amount = Number(values.amount || 0);
 
-  if (!values.credit_card_id || !values.invoice_id || !values.description.trim() || amount < 0 || !values.transaction_date) {
-    return { error: { message: "Informe cartão, fatura, descrição, valor e data válidos." } };
+  if (!values.credit_card_id || !values.description.trim() || amount < 0 || !values.transaction_date) {
+    return { error: { message: "Informe cartão, descrição, valor e data válidos." } };
   }
 
-  const invoiceValidation = await client
-    .from("credit_card_invoices")
-    .select("id,credit_card_id")
-    .is("archived_at", null)
-    .eq("user_id", userId)
-    .eq("id", values.invoice_id)
-    .single();
-
-  if (invoiceValidation.error || !invoiceValidation.data) {
-    console.error("Erro técnico ao validar fatura do reembolso:", invoiceValidation.error);
-    return { error: { message: "Fatura selecionada não foi encontrada." } };
-  }
-
-  if (invoiceValidation.data.credit_card_id !== values.credit_card_id) {
-    return { error: { message: "A fatura selecionada não pertence ao cartão informado." } };
-  }
+  const invoiceResolution = await resolveInvoiceForFinancialTransaction(
+    client,
+    userId,
+    values.credit_card_id,
+    values.invoice_id,
+    values.transaction_date,
+  );
+  if (invoiceResolution.error || !invoiceResolution.invoiceId) return { error: invoiceResolution.error };
 
   const existingLinkedTransaction = await client
     .from("credit_card_transactions")
@@ -299,7 +292,7 @@ export async function generateLinkedEntryFromReimbursement(
     .insert({
       user_id: userId,
       credit_card_id: values.credit_card_id,
-      invoice_id: values.invoice_id,
+      invoice_id: invoiceResolution.invoiceId,
       category_id: reimbursement.category_id,
       person_id: reimbursement.person_id,
       description: values.description.trim(),
@@ -320,7 +313,7 @@ export async function generateLinkedEntryFromReimbursement(
   }
 
   const transactionId = insertResult.data.id;
-  const recalculateResult = await recalculateInvoiceTotal(client, userId, values.invoice_id);
+  const recalculateResult = await recalculateInvoiceTotal(client, userId, invoiceResolution.invoiceId);
 
   if (recalculateResult.error) {
     await rollbackGeneratedTransaction(client, userId, transactionId);
@@ -332,13 +325,13 @@ export async function generateLinkedEntryFromReimbursement(
     .select("id")
     .eq("user_id", userId)
     .eq("id", transactionId)
-    .eq("invoice_id", values.invoice_id)
+    .eq("invoice_id", invoiceResolution.invoiceId)
     .maybeSingle();
 
   if (visibilityResult.error || !visibilityResult.data) {
     console.error("Erro técnico ao confirmar visibilidade do lançamento na fatura:", visibilityResult.error);
     await rollbackGeneratedTransaction(client, userId, transactionId);
-    await recalculateInvoiceTotal(client, userId, values.invoice_id);
+    await recalculateInvoiceTotal(client, userId, invoiceResolution.invoiceId);
     return { error: { message: "O lançamento foi criado, mas não apareceu na consulta da fatura. A criação foi desfeita." } };
   }
 
@@ -346,7 +339,7 @@ export async function generateLinkedEntryFromReimbursement(
     .from("reimbursements")
     .update({
       credit_card_transaction_id: transactionId,
-      credit_card_invoice_id: values.invoice_id,
+      credit_card_invoice_id: invoiceResolution.invoiceId,
       source_type: "credit_card_transaction",
       source_id: transactionId,
     })
@@ -356,19 +349,36 @@ export async function generateLinkedEntryFromReimbursement(
   if (updateResult.error) {
     console.error("Erro técnico ao vincular lançamento de fatura ao reembolso:", updateResult.error);
     await rollbackGeneratedTransaction(client, userId, transactionId);
-    await recalculateInvoiceTotal(client, userId, values.invoice_id);
+    await recalculateInvoiceTotal(client, userId, invoiceResolution.invoiceId);
     return { error: { message: "O lançamento foi criado, mas não foi possível vincular ao reembolso. A criação foi desfeita." } };
   }
 
   return {
     error: null,
     transactionId,
-    invoiceId: values.invoice_id,
+    invoiceId: invoiceResolution.invoiceId,
     invoiceTotal: recalculateResult.totalAmount,
   };
 }
 
 export async function recalculateInvoiceTotal(client: AppSupabaseClient, userId: string, invoiceId: string) {
+  const invoiceResult = await client
+    .from("credit_card_invoices")
+    .select("id,status")
+    .eq("user_id", userId)
+    .eq("id", invoiceId)
+    .is("archived_at", null)
+    .single();
+
+  if (invoiceResult.error || !invoiceResult.data) {
+    console.error("Erro técnico ao buscar fatura para recalcular total:", invoiceResult.error);
+    return { totalAmount: 0, error: invoiceResult.error ?? { message: "Fatura não encontrada." } };
+  }
+
+  if (invoiceResult.data.status === "paid") {
+    return { totalAmount: 0, error: null, skipped: true };
+  }
+
   const transactionsResult = await client
     .from("credit_card_transactions")
     .select("amount")
@@ -672,22 +682,22 @@ async function createFinancialTransaction(
 
   if (
     !values.financial_link_card_id ||
-    !values.financial_link_invoice_id ||
     !values.financial_link_new_description.trim() ||
     Number(values.financial_link_new_amount || 0) < 0 ||
     !values.financial_link_new_date
   ) {
-    return { error: { message: "Informe cartão, fatura, descrição, valor e data válidos para criar o lançamento." }, invoiceId: null, transactionId: null };
+    return { error: { message: "Informe cartão, descrição, valor e data válidos para criar o lançamento." }, invoiceId: null, transactionId: null };
   }
 
-  const invoiceResult = await getInvoiceById(client, userId, values.financial_link_invoice_id);
-  if (invoiceResult.error || !invoiceResult.data) {
-    console.error("Erro técnico ao validar fatura para novo lançamento do reembolso:", invoiceResult.error);
-    return { error: { message: "A fatura selecionada não foi encontrada ou está arquivada." }, invoiceId: null, transactionId: null };
-  }
-
-  if (invoiceResult.data.credit_card_id !== values.financial_link_card_id) {
-    return { error: { message: "A fatura selecionada não pertence ao cartão informado." }, invoiceId: null, transactionId: null };
+  const invoiceResolution = await resolveInvoiceForFinancialTransaction(
+    client,
+    userId,
+    values.financial_link_card_id,
+    values.financial_link_invoice_id,
+    values.financial_link_new_date,
+  );
+  if (invoiceResolution.error || !invoiceResolution.invoiceId) {
+    return { error: invoiceResolution.error ?? { message: "Não foi possível definir a fatura do lançamento." }, invoiceId: null, transactionId: null };
   }
 
   const insertResult = await client
@@ -695,7 +705,7 @@ async function createFinancialTransaction(
     .insert({
       user_id: userId,
       credit_card_id: values.financial_link_card_id,
-      invoice_id: values.financial_link_invoice_id,
+      invoice_id: invoiceResolution.invoiceId,
       category_id: values.financial_link_new_category_id || reimbursement.category_id || null,
       person_id: reimbursement.person_id,
       description: values.financial_link_new_description.trim(),
@@ -719,7 +729,7 @@ async function createFinancialTransaction(
     .from("reimbursements")
     .update({
       credit_card_transaction_id: insertResult.data.id,
-      credit_card_invoice_id: values.financial_link_invoice_id,
+      credit_card_invoice_id: invoiceResolution.invoiceId,
       source_type: "credit_card_transaction",
       source_id: insertResult.data.id,
       account_payable_id: null,
@@ -731,16 +741,48 @@ async function createFinancialTransaction(
   if (updateReimbursement.error) {
     console.error("Erro técnico ao vincular novo lançamento ao reembolso:", updateReimbursement.error);
     await rollbackGeneratedTransaction(client, userId, insertResult.data.id);
-    await recalculateInvoiceTotal(client, userId, values.financial_link_invoice_id);
+    await recalculateInvoiceTotal(client, userId, invoiceResolution.invoiceId);
     return { error: { message: "O lançamento foi criado, mas não foi possível concluir o vínculo com o reembolso." }, invoiceId: null, transactionId: null };
   }
 
-  const recalculate = await recalculateInvoiceTotal(client, userId, values.financial_link_invoice_id);
+  const recalculate = await recalculateInvoiceTotal(client, userId, invoiceResolution.invoiceId);
   if (recalculate.error) {
     return { error: { message: "O lançamento foi criado, mas o total da fatura não pôde ser recalculado." }, invoiceId: null, transactionId: null };
   }
 
-  return { error: null, invoiceId: values.financial_link_invoice_id, transactionId: insertResult.data.id };
+  return { error: null, invoiceId: invoiceResolution.invoiceId, transactionId: insertResult.data.id };
+}
+
+async function resolveInvoiceForFinancialTransaction(
+  client: AppSupabaseClient,
+  userId: string,
+  creditCardId: string,
+  invoiceId: string,
+  transactionDate: string,
+): Promise<{ invoiceId: string | null; error: { message: string } | null }> {
+  if (invoiceId) {
+    const invoiceResult = await getInvoiceById(client, userId, invoiceId);
+    if (invoiceResult.error || !invoiceResult.data) {
+      console.error("Erro técnico ao validar fatura do reembolso:", invoiceResult.error);
+      return { invoiceId: null, error: { message: "A fatura selecionada não foi encontrada ou está arquivada." } };
+    }
+
+    if (invoiceResult.data.credit_card_id !== creditCardId) {
+      return { invoiceId: null, error: { message: "A fatura selecionada não pertence ao cartão informado." } };
+    }
+
+    return { invoiceId: invoiceResult.data.id, error: null };
+  }
+
+  const automaticInvoice = await findOrCreateInvoiceForTransactionDate(client, userId, creditCardId, transactionDate);
+  if (automaticInvoice.error || !automaticInvoice.invoice) {
+    return {
+      invoiceId: null,
+      error: automaticInvoice.error ?? { message: "Não foi possível criar ou encontrar a fatura correta para este lançamento." },
+    };
+  }
+
+  return { invoiceId: automaticInvoice.invoice.id, error: null };
 }
 
 async function removeFinancialLink(

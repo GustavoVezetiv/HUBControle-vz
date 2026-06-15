@@ -280,7 +280,9 @@ export type PlannedPurchase = UserOwnedRow & ArchiveFields & {
   title: string;
   description: string | null;
   estimated_amount: number;
+  paid_amount: number;
   target_date: string | null;
+  purchase_date: string | null;
   payment_method: string;
   credit_card_id: string | null;
   installment_count: number | null;

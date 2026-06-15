@@ -14,6 +14,7 @@ import { invoiceStatusOptions, optionLabel } from "@/features/shared/options";
 import { PeriodFilter } from "@/features/shared/period-filter";
 import { getPeriodValue, isAnyDateInPeriod, parsePeriodSearchParams } from "@/features/shared/period";
 import type { FeedbackState } from "@/features/shared/types";
+import { calculateInvoiceCycleForReferenceMonth, generateFutureInvoicesForCard } from "@/features/invoices/auto-invoices";
 import { archiveInvoice, createInvoice, listInvoiceCards, listInvoices, updateInvoice } from "@/features/invoices/queries";
 import { emptyInvoiceForm, invoiceToFormValues, type InvoiceCard, type InvoiceFormValues, type InvoiceRow } from "@/features/invoices/types";
 import type { InvoicePaymentStatus } from "@/lib/supabase/types";
@@ -36,6 +37,8 @@ export function InvoicesCrud() {
   const [period, setPeriod] = useState(() => parsePeriodSearchParams(Object.fromEntries(searchParams.entries())));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [generatingInvoices, setGeneratingInvoices] = useState(false);
+  const [generateModalOpen, setGenerateModalOpen] = useState(false);
   const [modal, setModal] = useState<ModalState>(null);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [collapsedMonths, setCollapsedMonths] = useState<Set<string>>(new Set());
@@ -236,9 +239,58 @@ export function InvoicesCrud() {
     }
   }
 
+  async function handleGenerateFutureInvoices(values: { creditCardId: string; months: string }) {
+    if (!userId) {
+      setFeedback({ type: "error", message: "Sessão não encontrada." });
+      return;
+    }
+
+    const months = Number(values.months);
+    if (!values.creditCardId || Number.isNaN(months) || months < 1 || months > 24) {
+      setFeedback({ type: "error", message: "Selecione um cartão e informe entre 1 e 24 meses." });
+      return;
+    }
+
+    setGeneratingInvoices(true);
+    setFeedback(null);
+
+    try {
+      const result = await generateFutureInvoicesForCard(createClient(), userId, values.creditCardId, months);
+      const errorSuffix = result.errors.length > 0 ? ` Erros: ${result.errors.join(" ")}` : "";
+
+      setFeedback({
+        type: result.errors.length > 0 ? "error" : "success",
+        message: `${result.created} fatura(s) criada(s). ${result.existing} já existia(m).${errorSuffix}`,
+      });
+
+      if (result.created > 0) {
+        await loadData();
+      }
+
+      if (result.errors.length === 0) {
+        setGenerateModalOpen(false);
+      }
+    } catch (error) {
+      console.error("Erro técnico ao gerar faturas futuras:", error);
+      setFeedback({ type: "error", message: "Não foi possível gerar as faturas futuras." });
+    } finally {
+      setGeneratingInvoices(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="Pressão mensal" title="Faturas" description="Controle faturas por cartão e mês." action={<ActionButton onClick={() => setModal({ mode: "create", invoice: null })}>Nova fatura</ActionButton>} />
+      <PageHeader
+        eyebrow="Pressão mensal"
+        title="Faturas"
+        description="Controle faturas por cartão e mês."
+        action={
+          <div className="flex flex-wrap gap-2">
+            <ActionButton variant="secondary" onClick={() => setGenerateModalOpen(true)}>Gerar faturas futuras</ActionButton>
+            <ActionButton onClick={() => setModal({ mode: "create", invoice: null })}>Nova fatura</ActionButton>
+          </div>
+        }
+      />
       <CrudFeedback feedback={feedback} />
       <PeriodFilter value={period} onChange={setPeriod} syncUrl />
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -361,6 +413,14 @@ export function InvoicesCrud() {
       </SectionCard>
       {modal?.mode === "create" || modal?.mode === "edit" ? <InvoiceModal modal={modal} cards={cards} saving={saving} onClose={() => setModal(null)} onSubmit={(values) => void handleSubmit(values)} /> : null}
       {modal?.mode === "payment" ? <InvoicePaymentModal invoice={modal.invoice} cards={cards} saving={saving} onClose={() => setModal(null)} onSubmit={(amount) => void handlePayment(modal.invoice, amount)} /> : null}
+      {generateModalOpen ? (
+        <GenerateFutureInvoicesModal
+          cards={cards}
+          generating={generatingInvoices}
+          onClose={() => setGenerateModalOpen(false)}
+          onSubmit={(values) => void handleGenerateFutureInvoices(values)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -373,11 +433,18 @@ function InvoiceModal({ modal, cards, saving, onClose, onSubmit }: { modal: Extr
       setValues((current) => ({ ...current, credit_card_id: nextCardId, reference_month: nextReferenceMonth }));
       return;
     }
-    const month = nextReferenceMonth.slice(0, 7);
-    const closingDate = buildMonthDate(month, card.closing_day);
-    const dueMonth = card.due_day <= card.closing_day ? addMonths(month, 1) : month;
-    const dueDate = buildMonthDate(dueMonth, card.due_day);
-    setValues((current) => ({ ...current, credit_card_id: nextCardId, reference_month: nextReferenceMonth, closing_date: closingDate, due_date: dueDate }));
+    try {
+      const cycle = calculateInvoiceCycleForReferenceMonth(card, nextReferenceMonth);
+      setValues((current) => ({
+        ...current,
+        credit_card_id: nextCardId,
+        reference_month: cycle.reference_month,
+        closing_date: cycle.closing_date,
+        due_date: cycle.due_date,
+      }));
+    } catch {
+      setValues((current) => ({ ...current, credit_card_id: nextCardId, reference_month: nextReferenceMonth }));
+    }
   }
   return <Modal title={modal?.mode === "edit" ? "Editar fatura" : "Nova fatura"} onClose={onClose}><form className="grid gap-4 md:grid-cols-2" onSubmit={(e) => { e.preventDefault(); onSubmit(values); }}>
     <FieldShell label="Cartão"><select required className={inputClassName} value={values.credit_card_id} onChange={(e) => applySuggestedDates(e.target.value, values.reference_month)}><option value="">Selecione</option>{cards.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></FieldShell>
@@ -390,6 +457,66 @@ function InvoiceModal({ modal, cards, saving, onClose, onSubmit }: { modal: Extr
     <div className="md:col-span-2"><FieldShell label="Notas"><textarea rows={3} className={inputClassName} value={values.notes} onChange={(e) => setValues({ ...values, notes: e.target.value })} /></FieldShell></div>
     <div className="flex justify-end gap-2 md:col-span-2"><ActionButton type="button" variant="secondary" onClick={onClose}>Cancelar</ActionButton><ActionButton type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar"}</ActionButton></div>
   </form></Modal>;
+}
+
+function GenerateFutureInvoicesModal({
+  cards,
+  generating,
+  onClose,
+  onSubmit,
+}: {
+  cards: InvoiceCard[];
+  generating: boolean;
+  onClose: () => void;
+  onSubmit: (values: { creditCardId: string; months: string }) => void;
+}) {
+  const [values, setValues] = useState({ creditCardId: "", months: "12" });
+
+  return (
+    <Modal title="Gerar faturas futuras" description="Cria apenas faturas que ainda não existem para o cartão selecionado." onClose={onClose}>
+      <form
+        className="grid gap-4 md:grid-cols-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit(values);
+        }}
+      >
+        <FieldShell label="Cartão">
+          <select
+            required
+            className={inputClassName}
+            value={values.creditCardId}
+            onChange={(event) => setValues({ ...values, creditCardId: event.target.value })}
+          >
+            <option value="">Selecione</option>
+            {cards.map((card) => (
+              <option key={card.id} value={card.id}>
+                {card.name}{card.issuer ? ` - ${card.issuer}` : ""}
+              </option>
+            ))}
+          </select>
+        </FieldShell>
+        <FieldShell label="Quantidade de meses">
+          <input
+            required
+            min="1"
+            max="24"
+            type="number"
+            className={inputClassName}
+            value={values.months}
+            onChange={(event) => setValues({ ...values, months: event.target.value })}
+          />
+        </FieldShell>
+        <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-950 shadow-sm dark:border-amber-400/50 dark:bg-amber-950/35 dark:text-amber-100 md:col-span-2">
+          O sistema usa fechamento e vencimento do cartão. Faturas pagas não são alteradas e faturas já existentes não são duplicadas.
+        </p>
+        <div className="flex justify-end gap-2 md:col-span-2">
+          <ActionButton type="button" variant="secondary" onClick={onClose}>Cancelar</ActionButton>
+          <ActionButton type="submit" disabled={generating}>{generating ? "Gerando..." : "Gerar faturas"}</ActionButton>
+        </div>
+      </form>
+    </Modal>
+  );
 }
 
 function InvoicePaymentModal({ invoice, cards, saving, onClose, onSubmit }: { invoice: InvoiceRow; cards: InvoiceCard[]; saving: boolean; onClose: () => void; onSubmit: (amount: string) => void }) {
@@ -410,18 +537,6 @@ function InvoicePaymentModal({ invoice, cards, saving, onClose, onSubmit }: { in
       </form>
     </Modal>
   );
-}
-
-function buildMonthDate(month: string, day: number) {
-  const [year, monthNumber] = month.split("-").map(Number);
-  const lastDay = new Date(year, monthNumber, 0).getDate();
-  return `${month}-${String(Math.min(day, lastDay)).padStart(2, "0")}`;
-}
-
-function addMonths(month: string, count: number) {
-  const [year, monthNumber] = month.split("-").map(Number);
-  const date = new Date(year, monthNumber - 1 + count, 1);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
 function formatMonthLabel(month: string) {
