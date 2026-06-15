@@ -1,6 +1,5 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/ui/empty-state";
@@ -12,25 +11,34 @@ import { decisionStatusOptions, emptyPlannedPurchaseForm, plannedPurchaseToFormV
 import { ActionButton, BulkActionsBar, CategoryBadge, CategorySelect, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, RowSelectionHint, shouldToggleRowSelection, TextBadge, TitleButton } from "@/features/shared/crud-ui";
 import { formatCurrency, formatDate } from "@/features/shared/format";
 import { optionLabel, paymentMethodOptions, priorityOptions } from "@/features/shared/options";
-import { PeriodFilter } from "@/features/shared/period-filter";
-import { isDateInPeriod, parsePeriodSearchParams } from "@/features/shared/period";
 import { getQuickTableEditPreference } from "@/features/shared/quick-edit";
 import type { FeedbackState } from "@/features/shared/types";
 import { createClient } from "@/lib/supabase/client";
 
 type ModalState = { mode: "create"; item: null } | { mode: "edit"; item: PlannedPurchaseRow } | null;
+type ViewMode = "list" | "kanban";
+type KanbanGroupMode = "decision_status" | "category" | "risk_level" | "project";
+type PurchaseStateFilter = "all" | "purchased" | "pending";
+type KanbanColumn = {
+  value: string;
+  label: string;
+  items: PlannedPurchaseRow[];
+};
 
 export function PlannedPurchasesCrud() {
-  const searchParams = useSearchParams();
   const [items, setItems] = useState<PlannedPurchaseRow[]>([]);
   const [support, setSupport] = useState<PlannedPurchaseSupportData>({ categories: [] });
   const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState(searchParams.get("status") ?? "all");
-  const [riskFilter, setRiskFilter] = useState("all");
-  const [period, setPeriod] = useState(() => parsePeriodSearchParams(Object.fromEntries(searchParams.entries())));
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [priorityFilter, setPriorityFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [projectFilter, setProjectFilter] = useState("all");
+  const [purchaseStateFilter, setPurchaseStateFilter] = useState<PurchaseStateFilter>("all");
+  const [viewMode, setViewMode] = useState<ViewMode>("list");
+  const [kanbanGroup, setKanbanGroup] = useState<KanbanGroupMode>("decision_status");
   const [modal, setModal] = useState<ModalState>(null);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [deletingSelected, setDeletingSelected] = useState(false);
@@ -72,39 +80,55 @@ export function PlannedPurchasesCrud() {
     void loadData();
   }, [loadData]);
 
-  const periodItems = useMemo(() => {
-    return items.filter((item) => isDateInPeriod(item.target_date, period));
-  }, [items, period]);
+  const projectOptions = useMemo(() => {
+    return Array.from(new Set(items.map((item) => item.project?.trim()).filter((value): value is string => Boolean(value)))).sort((a, b) => a.localeCompare(b));
+  }, [items]);
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return periodItems.filter((item) => {
-      const matchesSearch = !term || [item.title, item.description, item.notes].some((value) => value?.toLowerCase().includes(term));
+    return items.filter((item) => {
+      const category = support.categories.find((categoryItem) => categoryItem.id === item.category_id);
+      const matchesSearch =
+        !term ||
+        [item.title, item.description, item.notes, item.project, category?.name].some((value) => value?.toLowerCase().includes(term));
       const matchesStatus = statusFilter === "all" || item.decision_status === statusFilter;
-      const matchesRisk = riskFilter === "all" || item.risk_level === riskFilter;
-      return matchesSearch && matchesStatus && matchesRisk;
+      const matchesPriority = priorityFilter === "all" || item.risk_level === priorityFilter;
+      const matchesCategory = categoryFilter === "all" || item.category_id === categoryFilter;
+      const matchesProject = projectFilter === "all" || item.project === projectFilter;
+      const matchesPurchaseState =
+        purchaseStateFilter === "all" ||
+        (purchaseStateFilter === "purchased" && Boolean(item.purchase_date)) ||
+        (purchaseStateFilter === "pending" && !item.purchase_date);
+
+      return matchesSearch && matchesStatus && matchesPriority && matchesCategory && matchesProject && matchesPurchaseState;
     });
-  }, [periodItems, riskFilter, search, statusFilter]);
+  }, [categoryFilter, items, priorityFilter, projectFilter, purchaseStateFilter, search, statusFilter, support.categories]);
 
   const summary = useMemo(() => {
-    const active = periodItems.filter((item) => !["purchased", "canceled"].includes(item.decision_status));
-    const highRisk = active.filter((item) => ["high", "critical"].includes(item.risk_level));
-    const approved = active.filter((item) => item.decision_status === "approved");
+    const purchased = filtered.filter((item) => Boolean(item.purchase_date));
+    const pending = filtered.filter((item) => !item.purchase_date && item.decision_status !== "canceled");
+    const totalEstimated = filtered.reduce((sum, item) => sum + Number(item.estimated_amount || 0), 0);
+    const totalPaid = purchased.reduce((sum, item) => sum + Number(item.paid_amount || 0), 0);
+    const difference = totalEstimated - totalPaid;
+
     return {
-      totalActive: active.reduce((sum, item) => sum + Number(item.estimated_amount), 0),
-      highRiskTotal: highRisk.reduce((sum, item) => sum + Number(item.estimated_amount), 0),
-      approvedTotal: approved.reduce((sum, item) => sum + Number(item.estimated_amount), 0),
-      count: active.length,
+      totalEstimated,
+      totalPaid,
+      difference,
+      purchasedCount: purchased.length,
+      pendingCount: pending.length,
     };
-  }, [periodItems]);
+  }, [filtered]);
+
+  const kanbanColumns = useMemo(() => buildKanbanColumns(filtered, support.categories, kanbanGroup), [filtered, kanbanGroup, support.categories]);
 
   async function handleSubmit(values: PlannedPurchaseFormValues) {
     if (!values.title.trim()) {
       setFeedback({ type: "error", message: "Informe o nome da compra ou desejo." });
       return;
     }
-    if (Number(values.estimated_amount) < 0) {
-      setFeedback({ type: "error", message: "O valor estimado deve ser maior ou igual a zero." });
+    if (Number(values.estimated_amount) < 0 || Number(values.paid_amount) < 0) {
+      setFeedback({ type: "error", message: "Valores devem ser maiores ou iguais a zero." });
       return;
     }
     if (values.installment_count && Number(values.installment_count) <= 0) {
@@ -116,12 +140,15 @@ export function PlannedPurchasesCrud() {
       return;
     }
 
+    const preparedValues = preparePurchaseStatusValues(values);
+    if (!preparedValues) return;
+
     setSaving(true);
     try {
       const client = createClient();
       const result = modal?.mode === "edit"
-        ? await updatePlannedPurchase(client, modal.item.id, values)
-        : await createPlannedPurchase(client, userId, values);
+        ? await updatePlannedPurchase(client, modal.item.id, preparedValues)
+        : await createPlannedPurchase(client, userId, preparedValues);
 
       if (result.error) {
         console.error("Erro técnico ao salvar compra planejada:", result.error);
@@ -157,9 +184,14 @@ export function PlannedPurchasesCrud() {
     setFeedback(null);
 
     try {
-      const result = await updatePlannedPurchase(createClient(), item.id, {
+      const nextValues = preparePurchaseStatusValues({
         ...plannedPurchaseToFormValues(item),
         ...patch,
+      });
+      if (!nextValues) return;
+
+      const result = await updatePlannedPurchase(createClient(), item.id, {
+        ...nextValues,
       });
 
       if (result.error) {
@@ -252,6 +284,23 @@ export function PlannedPurchasesCrud() {
     }
   }
 
+  async function handleKanbanDrop(itemId: string, columnValue: string) {
+    const item = items.find((current) => current.id === itemId);
+    if (!item) return;
+
+    const patch: Partial<PlannedPurchaseFormValues> =
+      kanbanGroup === "decision_status"
+        ? { decision_status: columnValue }
+        : kanbanGroup === "risk_level"
+          ? { risk_level: columnValue as PlannedPurchaseFormValues["risk_level"] }
+          : kanbanGroup === "category"
+            ? { category_id: columnValue === "no_category" ? "" : columnValue }
+            : { project: columnValue === "no_project" ? "" : columnValue };
+
+    await handleQuickUpdate(item, patch);
+    setFeedback({ type: "success", message: "Compra atualizada pelo kanban." });
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -261,31 +310,74 @@ export function PlannedPurchasesCrud() {
         action={<ActionButton onClick={() => setModal({ mode: "create", item: null })}>Nova compra</ActionButton>}
       />
       <CrudFeedback feedback={feedback} />
-      <PeriodFilter value={period} onChange={setPeriod} description="Escolha o período de data alvo das compras planejadas." syncUrl />
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Em análise" value={formatCurrency(summary.totalActive)} helper={`${summary.count} itens ativos.`} tone="info" />
-        <StatCard label="Alta prioridade" value={formatCurrency(summary.highRiskTotal)} helper="Pode afetar decisões do mês." tone="warning" />
-        <StatCard label="Aprovadas" value={formatCurrency(summary.approvedTotal)} helper="Tendem a virar obrigação." tone="danger" />
-        <StatCard label="Impacto futuro" value={String(summary.count)} helper="Compras não realizadas ainda." tone="neutral" />
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <StatCard label="Total estimado" value={formatCurrency(summary.totalEstimated)} helper="Itens filtrados." tone="info" />
+        <StatCard label="Total pago" value={formatCurrency(summary.totalPaid)} helper="Somente itens com data de compra." tone="success" />
+        <StatCard
+          label={summary.difference >= 0 ? "Economia" : "Estouro"}
+          value={formatCurrency(Math.abs(summary.difference))}
+          helper={summary.difference >= 0 ? "Estimado menos pago." : "Pago acima do estimado."}
+          tone={summary.difference >= 0 ? "success" : "danger"}
+        />
+        <StatCard label="Comprados" value={String(summary.purchasedCount)} helper="Com data de compra." tone="success" />
+        <StatCard label="Pendentes" value={String(summary.pendingCount)} helper="Sem data de compra." tone="warning" />
       </section>
 
-      <SectionCard title="Lista de compras" description="Compras planejadas não são contas ainda, mas podem virar pressão no caixa.">
-        <div className="mb-4 grid gap-3 md:grid-cols-3">
+      <SectionCard title="Visualização e filtros" description="A data de compra define se o item foi comprado; data alvo é apenas planejamento.">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <FieldShell label="Visualização">
+            <select className={inputClassName} value={viewMode} onChange={(event) => setViewMode(event.target.value as ViewMode)}>
+              <option value="list">Lista</option>
+              <option value="kanban">Kanban</option>
+            </select>
+          </FieldShell>
+          <FieldShell label="Colunas do kanban">
+            <select className={inputClassName} value={kanbanGroup} onChange={(event) => setKanbanGroup(event.target.value as KanbanGroupMode)}>
+              <option value="decision_status">Status</option>
+              <option value="category">Categoria</option>
+              <option value="risk_level">Prioridade</option>
+              <option value="project">Projeto</option>
+            </select>
+          </FieldShell>
           <input value={search} onChange={(event) => setSearch(event.target.value)} className={inputClassName} placeholder="Buscar por nome ou descrição" />
           <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className={inputClassName}>
             <option value="all">Todos os status</option>
             {decisionStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
-          <select value={riskFilter} onChange={(event) => setRiskFilter(event.target.value)} className={inputClassName}>
-            <option value="all">Todos os riscos</option>
+          <select value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)} className={inputClassName}>
+            <option value="all">Todas prioridades</option>
             {priorityOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
+          <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} className={inputClassName}>
+            <option value="all">Todas categorias</option>
+            {support.categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+          </select>
+          <select value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)} className={inputClassName}>
+            <option value="all">Todos projetos</option>
+            {projectOptions.map((project) => <option key={project} value={project}>{project}</option>)}
+          </select>
+          <select value={purchaseStateFilter} onChange={(event) => setPurchaseStateFilter(event.target.value as PurchaseStateFilter)} className={inputClassName}>
+            <option value="all">Comprados e pendentes</option>
+            <option value="purchased">Comprados</option>
+            <option value="pending">Pendentes</option>
+          </select>
         </div>
+        <p className="mt-3 text-sm text-ink-600 dark:text-slate-300">Mostrando {filtered.length} de {items.length} item(ns).</p>
+      </SectionCard>
+
+      <SectionCard title="Compras cadastradas" description="Compras planejadas não são contas ainda, mas podem virar pressão no caixa.">
         {loading ? (
           <p className="text-sm text-ink-600">Carregando compras...</p>
         ) : filtered.length === 0 ? (
-          <EmptyState title="Nenhuma compra no período" description="Ajuste o período ou os filtros para ver outras compras planejadas." />
+          <EmptyState title="Nenhuma compra encontrada" description="Ajuste os filtros para ver outras compras planejadas." />
+        ) : viewMode === "kanban" ? (
+          <PurchasesKanban
+            categories={support.categories}
+            columns={kanbanColumns}
+            onDrop={(itemId, columnValue) => void handleKanbanDrop(itemId, columnValue)}
+            onEdit={(item) => setModal({ mode: "edit", item })}
+          />
         ) : (
           <>
           <BulkActionsBar
@@ -310,11 +402,11 @@ export function PlannedPurchasesCrud() {
               Alterar categoria
             </ActionButton>
             <select className={inputClassName} value={bulkRisk} disabled={deletingSelected || bulkUpdating} onChange={(event) => setBulkRisk(event.target.value)}>
-              <option value="">Risco</option>
+              <option value="">Prioridade</option>
               {priorityOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
-            <ActionButton type="button" variant="secondary" disabled={!bulkRisk || deletingSelected || bulkUpdating} onClick={() => void handleBulkUpdate("Alterar risco", () => ({ risk_level: bulkRisk as PlannedPurchaseFormValues["risk_level"] }))}>
-              Alterar risco
+            <ActionButton type="button" variant="secondary" disabled={!bulkRisk || deletingSelected || bulkUpdating} onClick={() => void handleBulkUpdate("Alterar prioridade", () => ({ risk_level: bulkRisk as PlannedPurchaseFormValues["risk_level"] }))}>
+              Alterar prioridade
             </ActionButton>
           </BulkActionsBar>
           <RowSelectionHint />
@@ -338,12 +430,15 @@ export function PlannedPurchasesCrud() {
                       aria-label="Selecionar todas as compras filtradas"
                     />
                   </th>
-                  <th className="px-4 py-3">Compra</th>
-                  <th className="px-4 py-3">Valor</th>
+                  <th className="px-4 py-3">Item</th>
                   <th className="px-4 py-3">Categoria</th>
-                  <th className="px-4 py-3">Data alvo</th>
+                  <th className="px-4 py-3">Projeto</th>
                   <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Risco</th>
+                  <th className="px-4 py-3">Prioridade</th>
+                  <th className="px-4 py-3">Valor estimado</th>
+                  <th className="px-4 py-3">Valor pago</th>
+                  <th className="px-4 py-3">Diferença</th>
+                  <th className="px-4 py-3">Data compra</th>
                   <th className="px-4 py-3 text-right">Ações</th>
                 </tr>
               </thead>
@@ -381,11 +476,6 @@ export function PlannedPurchasesCrud() {
                       )}
                       <p className="text-xs text-ink-600">{item.description ?? "Sem descrição"}</p>
                     </td>
-                    <td className="px-4 py-3 text-ink-950">
-                      {allowQuickTableEdit ? (
-                        <QuickEditInput type="number" value={String(item.estimated_amount)} onCommit={(value) => void handleQuickUpdate(item, { estimated_amount: value })} />
-                      ) : formatCurrency(Number(item.estimated_amount))}
-                    </td>
                     <td className="px-4 py-3">
                       {allowQuickTableEdit ? (
                         <QuickEditSelect value={item.category_id ?? ""} options={[{ value: "", label: "Sem categoria" }, ...support.categories.map((category) => ({ value: category.id, label: category.name }))]} onCommit={(value) => void handleQuickUpdate(item, { category_id: value })} />
@@ -395,8 +485,8 @@ export function PlannedPurchasesCrud() {
                     </td>
                     <td className="px-4 py-3 text-ink-600">
                       {allowQuickTableEdit ? (
-                        <QuickEditInput type="date" value={item.target_date ?? ""} onCommit={(value) => void handleQuickUpdate(item, { target_date: value })} />
-                      ) : formatDate(item.target_date)}
+                        <QuickEditInput value={item.project ?? ""} onCommit={(value) => void handleQuickUpdate(item, { project: value })} />
+                      ) : item.project || "-"}
                     </td>
                     <td className="px-4 py-3">
                       {allowQuickTableEdit ? (
@@ -409,6 +499,27 @@ export function PlannedPurchasesCrud() {
                       {allowQuickTableEdit ? (
                         <QuickEditSelect value={item.risk_level} options={priorityOptions} onCommit={(value) => void handleQuickUpdate(item, { risk_level: value as PlannedPurchaseFormValues["risk_level"] })} />
                       ) : optionLabel(priorityOptions, item.risk_level)}
+                    </td>
+                    <td className="px-4 py-3 text-ink-950 dark:text-slate-100">
+                      {allowQuickTableEdit ? (
+                        <QuickEditInput type="number" value={String(item.estimated_amount)} onCommit={(value) => void handleQuickUpdate(item, { estimated_amount: value })} />
+                      ) : formatCurrency(Number(item.estimated_amount))}
+                    </td>
+                    <td className="px-4 py-3 text-ink-950 dark:text-slate-100">
+                      {allowQuickTableEdit ? (
+                        <QuickEditInput type="number" value={String(item.paid_amount ?? 0)} onCommit={(value) => void handleQuickUpdate(item, { paid_amount: value })} />
+                      ) : formatCurrency(Number(item.paid_amount ?? 0))}
+                    </td>
+                    <td className="px-4 py-3">
+                      <TextBadge tone={getPurchaseDifference(item) >= 0 ? "success" : "danger"}>
+                        {getPurchaseDifference(item) >= 0 ? "Economia " : "Estouro "}
+                        {formatCurrency(Math.abs(getPurchaseDifference(item)))}
+                      </TextBadge>
+                    </td>
+                    <td className="px-4 py-3 text-ink-600 dark:text-slate-300">
+                      {allowQuickTableEdit ? (
+                        <QuickEditInput type="date" value={item.purchase_date ?? ""} onCommit={(value) => void handleQuickUpdate(item, { purchase_date: value })} />
+                      ) : item.purchase_date ? formatDate(item.purchase_date) : "Pendente"}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-2">
@@ -430,6 +541,100 @@ export function PlannedPurchasesCrud() {
   );
 }
 
+function PurchasesKanban({
+  categories,
+  columns,
+  onDrop,
+  onEdit,
+}: {
+  categories: PlannedPurchaseSupportData["categories"];
+  columns: KanbanColumn[];
+  onDrop: (itemId: string, columnValue: string) => void;
+  onEdit: (item: PlannedPurchaseRow) => void;
+}) {
+  return (
+    <div className="overflow-x-auto pb-2">
+      <div className="grid min-w-[980px] auto-cols-fr grid-flow-col gap-4">
+        {columns.map((column) => (
+          <section
+            key={column.value}
+            className="flex min-h-96 flex-col rounded-lg border border-slate-300 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-950/55"
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              const itemId = event.dataTransfer.getData("text/plain");
+              if (itemId) onDrop(itemId, column.value);
+            }}
+          >
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-ink-950 dark:text-slate-100">{column.label}</h3>
+                <p className="mt-1 text-xs text-ink-600 dark:text-slate-300">{column.items.length} item(ns)</p>
+              </div>
+            </div>
+            <div className="flex flex-1 flex-col gap-3">
+              {column.items.length === 0 ? (
+                <div className="rounded-md border border-dashed border-slate-300 bg-white/70 px-3 py-8 text-center text-sm text-ink-600 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-300">
+                  Nenhuma compra
+                </div>
+              ) : (
+                column.items.map((item) => (
+                  <PurchaseKanbanCard key={item.id} categories={categories} item={item} onEdit={onEdit} />
+                ))
+              )}
+            </div>
+          </section>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PurchaseKanbanCard({
+  categories,
+  item,
+  onEdit,
+}: {
+  categories: PlannedPurchaseSupportData["categories"];
+  item: PlannedPurchaseRow;
+  onEdit: (item: PlannedPurchaseRow) => void;
+}) {
+  const difference = getPurchaseDifference(item);
+
+  return (
+    <article
+      draggable
+      onDragStart={(event) => {
+        event.dataTransfer.setData("text/plain", item.id);
+        event.dataTransfer.effectAllowed = "move";
+      }}
+      className="rounded-lg border border-slate-300 bg-white p-4 text-ink-950 shadow-sm transition hover:border-mint-500 hover:shadow-md dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <button type="button" className="text-left text-sm font-semibold text-ink-950 hover:text-mint-700 dark:text-slate-100 dark:hover:text-mint-200" onClick={() => onEdit(item)}>
+          {item.title}
+        </button>
+        <TextBadge tone={item.purchase_date ? "success" : "warning"}>{item.purchase_date ? "Comprado" : "Pendente"}</TextBadge>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <CategoryBadge category={categories.find((category) => category.id === item.category_id)} />
+        <TextBadge tone={item.risk_level === "critical" || item.risk_level === "high" ? "danger" : "neutral"}>
+          {optionLabel(priorityOptions, item.risk_level)}
+        </TextBadge>
+        <TextBadge tone={item.decision_status === "purchased" ? "success" : item.decision_status === "approved" ? "info" : "neutral"}>
+          {optionLabel(decisionStatusOptions, item.decision_status)}
+        </TextBadge>
+      </div>
+      <div className="mt-4 grid gap-1 text-sm text-ink-700 dark:text-slate-300">
+        <p>Estimado: <strong className="text-ink-950 dark:text-slate-100">{formatCurrency(Number(item.estimated_amount || 0))}</strong></p>
+        <p>Pago: <strong className="text-ink-950 dark:text-slate-100">{formatCurrency(Number(item.paid_amount || 0))}</strong></p>
+        <p>{difference >= 0 ? "Economia" : "Estouro"}: <strong className={difference >= 0 ? "text-mint-700 dark:text-mint-200" : "text-danger-600 dark:text-red-300"}>{formatCurrency(Math.abs(difference))}</strong></p>
+        <p>Projeto: <strong className="text-ink-950 dark:text-slate-100">{item.project || "-"}</strong></p>
+        <p>Data compra: <strong className="text-ink-950 dark:text-slate-100">{item.purchase_date ? formatDate(item.purchase_date) : "Pendente"}</strong></p>
+      </div>
+    </article>
+  );
+}
+
 function PlannedPurchaseModal({ modal, saving, support, onClose, onSubmit }: { modal: ModalState; saving: boolean; support: PlannedPurchaseSupportData; onClose: () => void; onSubmit: (values: PlannedPurchaseFormValues) => void }) {
   const [values, setValues] = useState<PlannedPurchaseFormValues>(modal?.mode === "edit" ? plannedPurchaseToFormValues(modal.item) : emptyPlannedPurchaseForm);
 
@@ -439,15 +644,84 @@ function PlannedPurchaseModal({ modal, saving, support, onClose, onSubmit }: { m
         <div className="md:col-span-2"><FieldShell label="Nome"><input required className={inputClassName} value={values.title} onChange={(event) => setValues({ ...values, title: event.target.value })} /></FieldShell></div>
         <div className="md:col-span-2"><FieldShell label="Descrição"><textarea rows={3} className={inputClassName} value={values.description} onChange={(event) => setValues({ ...values, description: event.target.value })} /></FieldShell></div>
         <FieldShell label="Valor estimado"><input min="0" step="0.01" type="number" className={inputClassName} value={values.estimated_amount} onChange={(event) => setValues({ ...values, estimated_amount: event.target.value })} /></FieldShell>
-        <FieldShell label="Data alvo"><input type="date" className={inputClassName} value={values.target_date} onChange={(event) => setValues({ ...values, target_date: event.target.value })} /></FieldShell>
+        <FieldShell label="Valor pago"><input min="0" step="0.01" type="number" className={inputClassName} value={values.paid_amount} onChange={(event) => setValues({ ...values, paid_amount: event.target.value })} /></FieldShell>
+        <FieldShell label="Data da compra"><input type="date" className={inputClassName} value={values.purchase_date} onChange={(event) => setValues({ ...values, purchase_date: event.target.value })} /></FieldShell>
+        <FieldShell label="Data alvo opcional"><input type="date" className={inputClassName} value={values.target_date} onChange={(event) => setValues({ ...values, target_date: event.target.value })} /></FieldShell>
         <FieldShell label="Categoria"><CategorySelect categories={support.categories} value={values.category_id} onChange={(category_id) => setValues({ ...values, category_id })} /></FieldShell>
+        <FieldShell label="Projeto"><input className={inputClassName} value={values.project} onChange={(event) => setValues({ ...values, project: event.target.value })} /></FieldShell>
         <FieldShell label="Forma planejada"><select className={inputClassName} value={values.payment_method} onChange={(event) => setValues({ ...values, payment_method: event.target.value })}>{paymentMethodOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></FieldShell>
         <FieldShell label="Parcelas"><input min="1" type="number" className={inputClassName} value={values.installment_count} onChange={(event) => setValues({ ...values, installment_count: event.target.value })} /></FieldShell>
         <FieldShell label="Status"><select className={inputClassName} value={values.decision_status} onChange={(event) => setValues({ ...values, decision_status: event.target.value })}>{decisionStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></FieldShell>
-        <FieldShell label="Risco"><select className={inputClassName} value={values.risk_level} onChange={(event) => setValues({ ...values, risk_level: event.target.value as PlannedPurchaseFormValues["risk_level"] })}>{priorityOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></FieldShell>
+        <FieldShell label="Prioridade"><select className={inputClassName} value={values.risk_level} onChange={(event) => setValues({ ...values, risk_level: event.target.value as PlannedPurchaseFormValues["risk_level"] })}>{priorityOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></FieldShell>
         <div className="md:col-span-2"><FieldShell label="Notas"><textarea rows={3} className={inputClassName} value={values.notes} onChange={(event) => setValues({ ...values, notes: event.target.value })} /></FieldShell></div>
         <div className="flex justify-end gap-2 md:col-span-2"><ActionButton type="button" variant="secondary" onClick={onClose}>Cancelar</ActionButton><ActionButton type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar"}</ActionButton></div>
       </form>
     </Modal>
   );
+}
+
+function buildKanbanColumns(
+  items: PlannedPurchaseRow[],
+  categories: PlannedPurchaseSupportData["categories"],
+  groupMode: KanbanGroupMode,
+): KanbanColumn[] {
+  const definitions = getKanbanColumnDefinitions(items, categories, groupMode);
+
+  return definitions.map((definition) => ({
+    ...definition,
+    items: items.filter((item) => getKanbanValue(item, groupMode) === definition.value),
+  }));
+}
+
+function getKanbanColumnDefinitions(
+  items: PlannedPurchaseRow[],
+  categories: PlannedPurchaseSupportData["categories"],
+  groupMode: KanbanGroupMode,
+) {
+  if (groupMode === "decision_status") return decisionStatusOptions;
+  if (groupMode === "risk_level") return priorityOptions;
+  if (groupMode === "category") {
+    const usedCategoryIds = new Set(items.map((item) => item.category_id).filter((id): id is string => Boolean(id)));
+    return [
+      ...categories.filter((category) => usedCategoryIds.has(category.id)).map((category) => ({ value: category.id, label: category.name })),
+      { value: "no_category", label: "Sem categoria" },
+    ];
+  }
+
+  const projects = Array.from(new Set(items.map((item) => item.project?.trim()).filter((project): project is string => Boolean(project)))).sort((a, b) => a.localeCompare(b));
+  return [
+    ...projects.map((project) => ({ value: project, label: project })),
+    { value: "no_project", label: "Sem projeto" },
+  ];
+}
+
+function getKanbanValue(item: PlannedPurchaseRow, groupMode: KanbanGroupMode) {
+  if (groupMode === "decision_status") return item.decision_status;
+  if (groupMode === "risk_level") return item.risk_level;
+  if (groupMode === "category") return item.category_id ?? "no_category";
+  return item.project?.trim() || "no_project";
+}
+
+function preparePurchaseStatusValues(values: PlannedPurchaseFormValues) {
+  const nextValues = { ...values };
+  const today = new Date().toISOString().slice(0, 10);
+
+  if (nextValues.decision_status === "purchased" && !nextValues.purchase_date) {
+    if (!window.confirm("Você marcou como comprado sem data da compra. Preencher com a data de hoje?")) {
+      return null;
+    }
+    nextValues.purchase_date = today;
+  }
+
+  if (nextValues.purchase_date && nextValues.decision_status !== "purchased") {
+    if (window.confirm("Há data de compra preenchida. Alterar status para Comprada?")) {
+      nextValues.decision_status = "purchased";
+    }
+  }
+
+  return nextValues;
+}
+
+function getPurchaseDifference(item: PlannedPurchaseRow) {
+  return Number(item.estimated_amount || 0) - Number(item.paid_amount || 0);
 }

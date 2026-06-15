@@ -14,14 +14,14 @@ type FieldShellProps = {
 export function FieldShell({ label, children }: FieldShellProps) {
   return (
     <label className="block">
-      <span className="text-sm font-medium text-ink-800">{label}</span>
+      <span className="text-sm font-medium text-ink-800 dark:text-slate-200">{label}</span>
       <div className="mt-2">{children}</div>
     </label>
   );
 }
 
 export const inputClassName =
-  "hub-input w-full rounded-md border border-ink-950/10 bg-white px-3 py-2.5 text-sm text-ink-950 outline-none transition focus:border-mint-500 focus:ring-4 focus:ring-mint-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-ink-600";
+  "hub-input w-full rounded-md border border-ink-950/10 bg-white px-3 py-2.5 text-sm text-ink-950 outline-none transition focus:border-mint-500 focus:ring-4 focus:ring-mint-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-ink-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-400 dark:focus:border-mint-400 dark:focus:ring-mint-400/20 dark:disabled:bg-slate-800 dark:disabled:text-slate-500";
 
 export function CrudFeedback({
   feedback,

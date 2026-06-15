@@ -3,7 +3,7 @@ import { archiveRecord, restoreArchivedRecord } from "@/features/shared/archive"
 import type { AppSupabaseClient } from "@/features/shared/types";
 
 export async function listPlannedPurchases(client: AppSupabaseClient) {
-  return client.from("planned_purchases").select("*").is("archived_at", null).order("target_date", { ascending: true });
+  return client.from("planned_purchases").select("*").is("archived_at", null).order("purchase_date", { ascending: false });
 }
 
 export async function listPlannedPurchaseSupportData(client: AppSupabaseClient) {
@@ -35,8 +35,11 @@ function toPayload(userId: string | undefined, values: PlannedPurchaseFormValues
     title: values.title.trim(),
     description: values.description.trim() || null,
     estimated_amount: Number(values.estimated_amount || 0),
+    paid_amount: Number(values.paid_amount || 0),
     target_date: values.target_date || null,
+    purchase_date: values.purchase_date || null,
     category_id: values.category_id || null,
+    project: values.project.trim() || null,
     payment_method: values.payment_method,
     installment_count: installmentCount,
     decision_status: values.decision_status,

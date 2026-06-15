@@ -126,8 +126,8 @@ export function InvoiceTransactionsCrud({ invoiceId }: { invoiceId: string }) {
   }, [loadData]);
 
   async function handleSubmit(values: TransactionFormValues) {
-    if (!values.credit_card_id || !values.invoice_id || !values.transaction_date || !values.description.trim()) {
-      setFeedback({ type: "error", message: "Cartão, fatura, data e descrição são obrigatórios." });
+    if (!values.credit_card_id || !values.transaction_date || !values.description.trim()) {
+      setFeedback({ type: "error", message: "Cartão, data e descrição são obrigatórios." });
       return;
     }
     if (Number(values.amount) < 0) {
@@ -557,13 +557,16 @@ function TransactionModal({
         </FieldShell>
         <FieldShell label="Fatura">
           <select
-            required
             className={inputClassName}
             value={values.invoice_id}
             onChange={(event) => setValues({ ...values, invoice_id: event.target.value })}
             disabled={!values.credit_card_id}
           >
-            <option value="">{values.credit_card_id ? "Selecione" : "Selecione um cartão primeiro"}</option>
+            <option value="">
+              {values.credit_card_id
+                ? "Criar/encontrar automaticamente pela data"
+                : "Selecione um cartão primeiro"}
+            </option>
             {filteredInvoices.map((invoice) => (
               <option key={invoice.id} value={invoice.id}>
                 {cards.find((card) => card.id === invoice.credit_card_id)?.name ?? "Cartão"} - {invoice.reference_month.slice(0, 7)} - vence {formatDate(invoice.due_date)} - {invoice.status}
@@ -572,7 +575,9 @@ function TransactionModal({
           </select>
           {!values.credit_card_id ? (
             <p className="mt-2 text-xs text-ink-600">Selecione um cartão para listar as faturas correspondentes.</p>
-          ) : null}
+          ) : (
+            <p className="mt-2 text-xs text-ink-600 dark:text-slate-300">Sem fatura selecionada, o sistema cria ou encontra a fatura correta pela data do lançamento.</p>
+          )}
         </FieldShell>
         <FieldShell label="Data">
           <input
