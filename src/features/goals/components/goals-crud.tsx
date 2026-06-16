@@ -20,10 +20,12 @@ import {
   shouldToggleRowSelection,
   TextBadge,
   TitleButton,
+  ViewPreferenceActions,
 } from "@/features/shared/crud-ui";
 import { formatCurrency, formatDate } from "@/features/shared/format";
 import { getQuickTableEditPreference } from "@/features/shared/quick-edit";
 import type { FeedbackState } from "@/features/shared/types";
+import { clearViewPreference, loadViewPreference, preferenceString, preferenceText, saveViewPreference } from "@/features/shared/view-preferences";
 import {
   archiveGoal,
   createGoal,
@@ -68,6 +70,31 @@ const goalStatusOptions = [
   { value: "paused", label: "Pausada" },
   { value: "canceled", label: "Cancelada" },
 ];
+const goalViewModeOptions = ["list", "kanban"] as const;
+const goalKanbanGroupOptions = ["status", "goal_category", "category", "deadline", "progress"] as const;
+const deadlineFilterOptions = ["all", "overdue", "next_30", "future", "no_target"] as const;
+const urgencyFilterOptions = ["all", "urgent", "attention", "comfortable", "no_target"] as const;
+type GoalsViewPreference = {
+  viewMode?: ViewMode;
+  kanbanGroup?: KanbanGroupMode;
+  search?: string;
+  statusFilter?: string;
+  kindFilter?: string;
+  categoryFilter?: string;
+  deadlineFilter?: DeadlineFilter;
+  urgencyFilter?: UrgencyFilter;
+};
+
+const goalsDefaultViewPreference: Required<GoalsViewPreference> = {
+  viewMode: "list",
+  kanbanGroup: "status",
+  search: "",
+  statusFilter: "all",
+  kindFilter: "all",
+  categoryFilter: "all",
+  deadlineFilter: "all",
+  urgencyFilter: "all",
+};
 
 export function GoalsCrud() {
   const [goals, setGoals] = useState<Goal[]>([]);
@@ -150,6 +177,51 @@ export function GoalsCrud() {
   useEffect(() => {
     void loadData();
   }, []);
+
+  useEffect(() => {
+    if (!userId) return;
+    const preference = loadViewPreference<GoalsViewPreference>("goals", userId);
+    if (!preference) return;
+
+    setViewMode(preferenceString(preference.viewMode, goalViewModeOptions, "list"));
+    setKanbanGroup(preferenceString(preference.kanbanGroup, goalKanbanGroupOptions, "status"));
+    setSearch(preferenceText(preference.search));
+    setStatusFilter(preferenceText(preference.statusFilter, "all"));
+    setKindFilter(preferenceText(preference.kindFilter, "all"));
+    setCategoryFilter(preferenceText(preference.categoryFilter, "all"));
+    setDeadlineFilter(preferenceString(preference.deadlineFilter, deadlineFilterOptions, "all"));
+    setUrgencyFilter(preferenceString(preference.urgencyFilter, urgencyFilterOptions, "all"));
+  }, [userId]);
+
+  function handleSaveViewPreference() {
+    const saved = saveViewPreference("goals", userId, {
+      viewMode,
+      kanbanGroup,
+      search,
+      statusFilter,
+      kindFilter,
+      categoryFilter,
+      deadlineFilter,
+      urgencyFilter,
+    });
+    setFeedback({
+      type: saved ? "success" : "error",
+      message: saved ? "Visualização padrão de metas salva." : "Não foi possível salvar a visualização padrão.",
+    });
+  }
+
+  function handleRestoreViewPreference() {
+    clearViewPreference("goals", userId);
+    setViewMode(goalsDefaultViewPreference.viewMode);
+    setKanbanGroup(goalsDefaultViewPreference.kanbanGroup);
+    setSearch(goalsDefaultViewPreference.search);
+    setStatusFilter(goalsDefaultViewPreference.statusFilter);
+    setKindFilter(goalsDefaultViewPreference.kindFilter);
+    setCategoryFilter(goalsDefaultViewPreference.categoryFilter);
+    setDeadlineFilter(goalsDefaultViewPreference.deadlineFilter);
+    setUrgencyFilter(goalsDefaultViewPreference.urgencyFilter);
+    setFeedback({ type: "success", message: "Visualização padrão de metas restaurada." });
+  }
 
   async function handleSubmit(values: GoalFormValues) {
     if (!values.name.trim()) {
@@ -344,6 +416,9 @@ export function GoalsCrud() {
         <p className="mt-3 text-sm text-ink-600 dark:text-slate-300">
           Mostrando {filteredGoals.length} de {goals.length} metas. Arrastar cards altera dados somente nos agrupamentos por status ou tipo/categoria.
         </p>
+        <div className="mt-4">
+          <ViewPreferenceActions onSave={handleSaveViewPreference} onRestore={handleRestoreViewPreference} />
+        </div>
       </SectionCard>
 
       <SectionCard title="Metas cadastradas">

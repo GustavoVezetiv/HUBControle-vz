@@ -7,7 +7,7 @@ export async function listPlannedPurchases(client: AppSupabaseClient) {
 }
 
 export async function listPlannedPurchaseSupportData(client: AppSupabaseClient) {
-  const categories = await client.from("categories").select("id,name,type,color,icon").in("type", ["purchase", "expense", "other"]).order("name", { ascending: true });
+  const categories = await client.from("categories").select("id,name,type,color,icon").order("name", { ascending: true });
   return { categories };
 }
 

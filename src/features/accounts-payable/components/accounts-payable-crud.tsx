@@ -20,6 +20,7 @@ import {
   shouldToggleRowSelection,
   TextBadge,
   TitleButton,
+  ViewPreferenceActions,
 } from "@/features/shared/crud-ui";
 import { formatCurrency, formatDate, todayISO } from "@/features/shared/format";
 import {
@@ -29,8 +30,9 @@ import {
   priorityOptions,
 } from "@/features/shared/options";
 import { PeriodFilter } from "@/features/shared/period-filter";
-import { isDateInPeriod, parsePeriodSearchParams } from "@/features/shared/period";
+import { isDateInPeriod, parsePeriodSearchParams, type PeriodValue } from "@/features/shared/period";
 import type { FeedbackState } from "@/features/shared/types";
+import { clearViewPreference, loadViewPreference, preferenceRecord, preferenceText, saveViewPreference } from "@/features/shared/view-preferences";
 import {
   archiveAccountPayable,
   createAccountPayable,
@@ -59,6 +61,23 @@ type ModalState =
   | { mode: "edit"; account: AccountPayableRow }
   | null;
 type CardPaymentModalState = { account: AccountPayableRow } | null;
+type AccountsViewPreference = {
+  search?: string;
+  statusFilter?: string;
+  priorityFilter?: string;
+  categoryFilter?: string;
+  personFilter?: string;
+  period?: PeriodValue;
+};
+
+const accountsDefaultViewPreference: Required<AccountsViewPreference> = {
+  search: "",
+  statusFilter: "all",
+  priorityFilter: "all",
+  categoryFilter: "all",
+  personFilter: "all",
+  period: parsePeriodSearchParams({}),
+};
 
 export function AccountsPayableCrud() {
   const searchParams = useSearchParams();
@@ -222,6 +241,45 @@ export function AccountsPayableCrud() {
   useEffect(() => {
     void loadAccounts();
   }, []);
+
+  useEffect(() => {
+    if (!userId) return;
+    const preference = loadViewPreference<AccountsViewPreference>("accounts", userId);
+    if (!preference) return;
+
+    setSearch(preferenceText(preference.search));
+    setStatusFilter(preferenceText(preference.statusFilter, "all"));
+    setPriorityFilter(preferenceText(preference.priorityFilter, "all"));
+    setCategoryFilter(preferenceText(preference.categoryFilter, "all"));
+    setPersonFilter(preferenceText(preference.personFilter, "all"));
+    setPeriod(preferenceRecord(preference.period, accountsDefaultViewPreference.period));
+  }, [userId]);
+
+  function handleSaveViewPreference() {
+    const saved = saveViewPreference("accounts", userId, {
+      search,
+      statusFilter,
+      priorityFilter,
+      categoryFilter,
+      personFilter,
+      period,
+    });
+    setFeedback({
+      type: saved ? "success" : "error",
+      message: saved ? "Visualização padrão de contas salva." : "Não foi possível salvar a visualização padrão.",
+    });
+  }
+
+  function handleRestoreViewPreference() {
+    clearViewPreference("accounts", userId);
+    setSearch(accountsDefaultViewPreference.search);
+    setStatusFilter(accountsDefaultViewPreference.statusFilter);
+    setPriorityFilter(accountsDefaultViewPreference.priorityFilter);
+    setCategoryFilter(accountsDefaultViewPreference.categoryFilter);
+    setPersonFilter(accountsDefaultViewPreference.personFilter);
+    setPeriod(accountsDefaultViewPreference.period);
+    setFeedback({ type: "success", message: "Visualização padrão de contas restaurada." });
+  }
 
   async function handleSubmit(values: AccountPayableFormValues) {
     const amount = Number(values.amount);
@@ -551,6 +609,9 @@ export function AccountsPayableCrud() {
             <option value="none">Sem pessoa</option>
             {people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
           </select>
+        </div>
+        <div className="mt-4">
+          <ViewPreferenceActions onSave={handleSaveViewPreference} onRestore={handleRestoreViewPreference} />
         </div>
       </SectionCard>
 

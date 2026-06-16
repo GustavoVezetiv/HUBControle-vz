@@ -327,6 +327,18 @@ select {
   --hub-badge-border: color-mix(in srgb, var(--category-color, #64748b) 58%, white);
 }
 
+:root.dark .hub-shell[data-category-badge-style="soft"] {
+  --hub-badge-bg: color-mix(in srgb, var(--category-color, #2dd4bf) 24%, #0f172a);
+  --hub-badge-color: #f8fafc;
+  --hub-badge-border: color-mix(in srgb, var(--category-color, #2dd4bf) 38%, #0f172a);
+}
+
+:root.dark .hub-shell[data-category-badge-style="outline"] {
+  --hub-badge-bg: transparent;
+  --hub-badge-color: color-mix(in srgb, var(--category-color, #2dd4bf) 62%, #f8fafc);
+  --hub-badge-border: color-mix(in srgb, var(--category-color, #2dd4bf) 55%, #0f172a);
+}
+
 :root.dark .bg-white,
 :root.dark .bg-white\/70,
 :root.dark .bg-white\/82,
@@ -424,6 +436,31 @@ select {
   background-color: rgba(127, 29, 29, 0.42) !important;
   border-color: rgba(248, 113, 113, 0.32) !important;
   color: #fca5a5 !important;
+}
+
+:root.dark .hub-card .text-ink-950,
+:root.dark .hub-modal .text-ink-950,
+:root.dark table .text-ink-950 {
+  color: #f8fafc !important;
+}
+
+:root.dark .hub-card .text-ink-800,
+:root.dark .hub-modal .text-ink-800,
+:root.dark table .text-ink-800 {
+  color: #e2e8f0 !important;
+}
+
+:root.dark .hub-card .text-ink-700,
+:root.dark .hub-modal .text-ink-700,
+:root.dark table .text-ink-700,
+:root.dark .hub-card .text-ink-600,
+:root.dark .hub-modal .text-ink-600,
+:root.dark table .text-ink-600 {
+  color: #cbd5e1 !important;
+}
+
+:root.dark thead.bg-slate-50 {
+  background-color: #0f172a !important;
 }
 
 :root.dark .text-white {

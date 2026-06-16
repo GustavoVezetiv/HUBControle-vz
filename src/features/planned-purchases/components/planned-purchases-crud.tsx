@@ -8,11 +8,12 @@ import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
 import { archivePlannedPurchase, createPlannedPurchase, listPlannedPurchases, listPlannedPurchaseSupportData, updatePlannedPurchase } from "@/features/planned-purchases/queries";
 import { decisionStatusOptions, emptyPlannedPurchaseForm, plannedPurchaseToFormValues, type PlannedPurchaseFormValues, type PlannedPurchaseRow, type PlannedPurchaseSupportData } from "@/features/planned-purchases/types";
-import { ActionButton, BulkActionsBar, CategoryBadge, CategorySelect, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, RowSelectionHint, shouldToggleRowSelection, TextBadge, TitleButton } from "@/features/shared/crud-ui";
+import { ActionButton, BulkActionsBar, CategoryBadge, CategorySelect, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, RowSelectionHint, shouldToggleRowSelection, TextBadge, TitleButton, ViewPreferenceActions } from "@/features/shared/crud-ui";
 import { formatCurrency, formatDate } from "@/features/shared/format";
 import { optionLabel, paymentMethodOptions, priorityOptions } from "@/features/shared/options";
 import { getQuickTableEditPreference } from "@/features/shared/quick-edit";
 import type { FeedbackState } from "@/features/shared/types";
+import { clearViewPreference, loadViewPreference, preferenceString, preferenceText, saveViewPreference } from "@/features/shared/view-preferences";
 import { createClient } from "@/lib/supabase/client";
 
 type ModalState = { mode: "create"; item: null } | { mode: "edit"; item: PlannedPurchaseRow } | null;
@@ -23,6 +24,30 @@ type KanbanColumn = {
   value: string;
   label: string;
   items: PlannedPurchaseRow[];
+};
+type PlannedPurchasesViewPreference = {
+  search?: string;
+  statusFilter?: string;
+  priorityFilter?: string;
+  categoryFilter?: string;
+  projectFilter?: string;
+  purchaseStateFilter?: PurchaseStateFilter;
+  viewMode?: ViewMode;
+  kanbanGroup?: KanbanGroupMode;
+};
+
+const purchaseViewModeOptions = ["list", "kanban"] as const;
+const purchaseKanbanGroupOptions = ["decision_status", "category", "risk_level", "project"] as const;
+const purchaseStateFilterOptions = ["all", "purchased", "pending"] as const;
+const purchasesDefaultViewPreference: Required<PlannedPurchasesViewPreference> = {
+  search: "",
+  statusFilter: "all",
+  priorityFilter: "all",
+  categoryFilter: "all",
+  projectFilter: "all",
+  purchaseStateFilter: "all",
+  viewMode: "list",
+  kanbanGroup: "decision_status",
 };
 
 export function PlannedPurchasesCrud() {
@@ -80,9 +105,62 @@ export function PlannedPurchasesCrud() {
     void loadData();
   }, [loadData]);
 
+  useEffect(() => {
+    if (!userId) return;
+    const preference = loadViewPreference<PlannedPurchasesViewPreference>("purchases", userId);
+    if (!preference) return;
+
+    setSearch(preferenceText(preference.search));
+    setStatusFilter(preferenceText(preference.statusFilter, "all"));
+    setPriorityFilter(preferenceText(preference.priorityFilter, "all"));
+    setCategoryFilter(preferenceText(preference.categoryFilter, "all"));
+    setProjectFilter(preferenceText(preference.projectFilter, "all"));
+    setPurchaseStateFilter(preferenceString(preference.purchaseStateFilter, purchaseStateFilterOptions, "all"));
+    setViewMode(preferenceString(preference.viewMode, purchaseViewModeOptions, "list"));
+    setKanbanGroup(preferenceString(preference.kanbanGroup, purchaseKanbanGroupOptions, "decision_status"));
+  }, [userId]);
+
+  function handleSaveViewPreference() {
+    const saved = saveViewPreference("purchases", userId, {
+      search,
+      statusFilter,
+      priorityFilter,
+      categoryFilter,
+      projectFilter,
+      purchaseStateFilter,
+      viewMode,
+      kanbanGroup,
+    });
+    setFeedback({
+      type: saved ? "success" : "error",
+      message: saved ? "Visualização padrão de compras salva." : "Não foi possível salvar a visualização padrão.",
+    });
+  }
+
+  function handleRestoreViewPreference() {
+    clearViewPreference("purchases", userId);
+    setSearch(purchasesDefaultViewPreference.search);
+    setStatusFilter(purchasesDefaultViewPreference.statusFilter);
+    setPriorityFilter(purchasesDefaultViewPreference.priorityFilter);
+    setCategoryFilter(purchasesDefaultViewPreference.categoryFilter);
+    setProjectFilter(purchasesDefaultViewPreference.projectFilter);
+    setPurchaseStateFilter(purchasesDefaultViewPreference.purchaseStateFilter);
+    setViewMode(purchasesDefaultViewPreference.viewMode);
+    setKanbanGroup(purchasesDefaultViewPreference.kanbanGroup);
+    setFeedback({ type: "success", message: "Visualização padrão de compras restaurada." });
+  }
+
   const projectOptions = useMemo(() => {
     return Array.from(new Set(items.map((item) => item.project?.trim()).filter((value): value is string => Boolean(value)))).sort((a, b) => a.localeCompare(b));
   }, [items]);
+  const purchaseCategories = useMemo(() => support.categories.filter(isPurchaseCategory), [support.categories]);
+
+  useEffect(() => {
+    if (categoryFilter === "all") return;
+    if (!purchaseCategories.some((category) => category.id === categoryFilter)) {
+      setCategoryFilter("all");
+    }
+  }, [categoryFilter, purchaseCategories]);
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -120,7 +198,10 @@ export function PlannedPurchasesCrud() {
     };
   }, [filtered]);
 
-  const kanbanColumns = useMemo(() => buildKanbanColumns(filtered, support.categories, kanbanGroup), [filtered, kanbanGroup, support.categories]);
+  const kanbanColumns = useMemo(
+    () => buildKanbanColumns(filtered, support.categories, purchaseCategories, kanbanGroup),
+    [filtered, kanbanGroup, purchaseCategories, support.categories],
+  );
 
   async function handleSubmit(values: PlannedPurchaseFormValues) {
     if (!values.title.trim()) {
@@ -288,6 +369,11 @@ export function PlannedPurchasesCrud() {
     const item = items.find((current) => current.id === itemId);
     if (!item) return;
 
+    if (kanbanGroup === "category" && columnValue === "out_of_scope_category") {
+      setFeedback({ type: "error", message: "Categoria fora do escopo é apenas visual. Edite a compra para escolher uma categoria válida." });
+      return;
+    }
+
     const patch: Partial<PlannedPurchaseFormValues> =
       kanbanGroup === "decision_status"
         ? { decision_status: columnValue }
@@ -351,7 +437,7 @@ export function PlannedPurchasesCrud() {
           </select>
           <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} className={inputClassName}>
             <option value="all">Todas categorias</option>
-            {support.categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+            {purchaseCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
           </select>
           <select value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)} className={inputClassName}>
             <option value="all">Todos projetos</option>
@@ -364,6 +450,9 @@ export function PlannedPurchasesCrud() {
           </select>
         </div>
         <p className="mt-3 text-sm text-ink-600 dark:text-slate-300">Mostrando {filtered.length} de {items.length} item(ns).</p>
+        <div className="mt-4">
+          <ViewPreferenceActions onSave={handleSaveViewPreference} onRestore={handleRestoreViewPreference} />
+        </div>
       </SectionCard>
 
       <SectionCard title="Compras cadastradas" description="Compras planejadas não são contas ainda, mas podem virar pressão no caixa.">
@@ -396,7 +485,7 @@ export function PlannedPurchasesCrud() {
             <select className={inputClassName} value={bulkCategoryId} disabled={deletingSelected || bulkUpdating} onChange={(event) => setBulkCategoryId(event.target.value)}>
               <option value="">Categoria</option>
               <option value="__none">Sem categoria</option>
-              {support.categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+              {purchaseCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
             </select>
             <ActionButton type="button" variant="secondary" disabled={!bulkCategoryId || deletingSelected || bulkUpdating} onClick={() => void handleBulkUpdate("Alterar categoria", () => ({ category_id: bulkCategoryId === "__none" ? "" : bulkCategoryId }))}>
               Alterar categoria
@@ -478,9 +567,9 @@ export function PlannedPurchasesCrud() {
                     </td>
                     <td className="px-4 py-3">
                       {allowQuickTableEdit ? (
-                        <QuickEditSelect value={item.category_id ?? ""} options={[{ value: "", label: "Sem categoria" }, ...support.categories.map((category) => ({ value: category.id, label: category.name }))]} onCommit={(value) => void handleQuickUpdate(item, { category_id: value })} />
+                        <QuickEditSelect value={item.category_id ?? ""} options={buildPurchaseCategoryOptions(support.categories, purchaseCategories, item.category_id)} onCommit={(value) => void handleQuickUpdate(item, { category_id: value })} />
                       ) : (
-                        <CategoryBadge category={support.categories.find((category) => category.id === item.category_id)} />
+                        <PurchaseCategoryBadge categories={support.categories} item={item} />
                       )}
                     </td>
                     <td className="px-4 py-3 text-ink-600">
@@ -536,7 +625,7 @@ export function PlannedPurchasesCrud() {
         )}
       </SectionCard>
 
-      {modal ? <PlannedPurchaseModal modal={modal} saving={saving} support={support} onClose={() => setModal(null)} onSubmit={(values) => void handleSubmit(values)} /> : null}
+      {modal ? <PlannedPurchaseModal modal={modal} saving={saving} support={support} purchaseCategories={purchaseCategories} onClose={() => setModal(null)} onSubmit={(values) => void handleSubmit(values)} /> : null}
     </div>
   );
 }
@@ -617,6 +706,9 @@ function PurchaseKanbanCard({
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
         <CategoryBadge category={categories.find((category) => category.id === item.category_id)} />
+        {isOutOfScopePurchaseCategory(categories.find((category) => category.id === item.category_id)) ? (
+          <TextBadge tone="warning">Categoria fora do escopo de compras</TextBadge>
+        ) : null}
         <TextBadge tone={item.risk_level === "critical" || item.risk_level === "high" ? "danger" : "neutral"}>
           {optionLabel(priorityOptions, item.risk_level)}
         </TextBadge>
@@ -635,8 +727,42 @@ function PurchaseKanbanCard({
   );
 }
 
-function PlannedPurchaseModal({ modal, saving, support, onClose, onSubmit }: { modal: ModalState; saving: boolean; support: PlannedPurchaseSupportData; onClose: () => void; onSubmit: (values: PlannedPurchaseFormValues) => void }) {
+function PurchaseCategoryBadge({
+  categories,
+  item,
+}: {
+  categories: PlannedPurchaseSupportData["categories"];
+  item: PlannedPurchaseRow;
+}) {
+  const category = categories.find((currentCategory) => currentCategory.id === item.category_id);
+  const outOfScope = isOutOfScopePurchaseCategory(category);
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      <CategoryBadge category={category} />
+      {outOfScope ? <TextBadge tone="warning">Categoria fora do escopo de compras</TextBadge> : null}
+    </div>
+  );
+}
+
+function PlannedPurchaseModal({
+  modal,
+  saving,
+  support,
+  purchaseCategories,
+  onClose,
+  onSubmit,
+}: {
+  modal: ModalState;
+  saving: boolean;
+  support: PlannedPurchaseSupportData;
+  purchaseCategories: PlannedPurchaseSupportData["categories"];
+  onClose: () => void;
+  onSubmit: (values: PlannedPurchaseFormValues) => void;
+}) {
   const [values, setValues] = useState<PlannedPurchaseFormValues>(modal?.mode === "edit" ? plannedPurchaseToFormValues(modal.item) : emptyPlannedPurchaseForm);
+  const selectedCategory = support.categories.find((category) => category.id === values.category_id);
+  const selectedCategoryOutOfScope = isOutOfScopePurchaseCategory(selectedCategory);
 
   return (
     <Modal title={modal?.mode === "edit" ? "Editar compra" : "Nova compra"} description="Use para simular desejos antes que virem gasto real." onClose={onClose}>
@@ -647,7 +773,14 @@ function PlannedPurchaseModal({ modal, saving, support, onClose, onSubmit }: { m
         <FieldShell label="Valor pago"><input min="0" step="0.01" type="number" className={inputClassName} value={values.paid_amount} onChange={(event) => setValues({ ...values, paid_amount: event.target.value })} /></FieldShell>
         <FieldShell label="Data da compra"><input type="date" className={inputClassName} value={values.purchase_date} onChange={(event) => setValues({ ...values, purchase_date: event.target.value })} /></FieldShell>
         <FieldShell label="Data alvo opcional"><input type="date" className={inputClassName} value={values.target_date} onChange={(event) => setValues({ ...values, target_date: event.target.value })} /></FieldShell>
-        <FieldShell label="Categoria"><CategorySelect categories={support.categories} value={values.category_id} onChange={(category_id) => setValues({ ...values, category_id })} /></FieldShell>
+        <FieldShell label="Categoria">
+          <CategorySelect categories={purchaseCategories} value={selectedCategoryOutOfScope ? "" : values.category_id} onChange={(category_id) => setValues({ ...values, category_id })} />
+          {selectedCategoryOutOfScope ? (
+            <div className="mt-2 rounded-md border border-amber-500/30 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-400/30 dark:bg-amber-950/35 dark:text-amber-100">
+              Categoria atual: <strong>{selectedCategory?.name}</strong>. Categoria fora do escopo de compras.
+            </div>
+          ) : null}
+        </FieldShell>
         <FieldShell label="Projeto"><input className={inputClassName} value={values.project} onChange={(event) => setValues({ ...values, project: event.target.value })} /></FieldShell>
         <FieldShell label="Forma planejada"><select className={inputClassName} value={values.payment_method} onChange={(event) => setValues({ ...values, payment_method: event.target.value })}>{paymentMethodOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></FieldShell>
         <FieldShell label="Parcelas"><input min="1" type="number" className={inputClassName} value={values.installment_count} onChange={(event) => setValues({ ...values, installment_count: event.target.value })} /></FieldShell>
@@ -663,27 +796,31 @@ function PlannedPurchaseModal({ modal, saving, support, onClose, onSubmit }: { m
 function buildKanbanColumns(
   items: PlannedPurchaseRow[],
   categories: PlannedPurchaseSupportData["categories"],
+  purchaseCategories: PlannedPurchaseSupportData["categories"],
   groupMode: KanbanGroupMode,
 ): KanbanColumn[] {
-  const definitions = getKanbanColumnDefinitions(items, categories, groupMode);
+  const definitions = getKanbanColumnDefinitions(items, categories, purchaseCategories, groupMode);
 
   return definitions.map((definition) => ({
     ...definition,
-    items: items.filter((item) => getKanbanValue(item, groupMode) === definition.value),
+    items: items.filter((item) => getKanbanValue(item, categories, groupMode) === definition.value),
   }));
 }
 
 function getKanbanColumnDefinitions(
   items: PlannedPurchaseRow[],
   categories: PlannedPurchaseSupportData["categories"],
+  purchaseCategories: PlannedPurchaseSupportData["categories"],
   groupMode: KanbanGroupMode,
 ) {
   if (groupMode === "decision_status") return decisionStatusOptions;
   if (groupMode === "risk_level") return priorityOptions;
   if (groupMode === "category") {
     const usedCategoryIds = new Set(items.map((item) => item.category_id).filter((id): id is string => Boolean(id)));
+    const hasOutOfScope = items.some((item) => isOutOfScopePurchaseCategory(categories.find((category) => category.id === item.category_id)));
     return [
-      ...categories.filter((category) => usedCategoryIds.has(category.id)).map((category) => ({ value: category.id, label: category.name })),
+      ...purchaseCategories.filter((category) => usedCategoryIds.has(category.id)).map((category) => ({ value: category.id, label: category.name })),
+      ...(hasOutOfScope ? [{ value: "out_of_scope_category", label: "Categoria fora do escopo" }] : []),
       { value: "no_category", label: "Sem categoria" },
     ];
   }
@@ -695,10 +832,18 @@ function getKanbanColumnDefinitions(
   ];
 }
 
-function getKanbanValue(item: PlannedPurchaseRow, groupMode: KanbanGroupMode) {
+function getKanbanValue(
+  item: PlannedPurchaseRow,
+  categories: PlannedPurchaseSupportData["categories"],
+  groupMode: KanbanGroupMode,
+) {
   if (groupMode === "decision_status") return item.decision_status;
   if (groupMode === "risk_level") return item.risk_level;
-  if (groupMode === "category") return item.category_id ?? "no_category";
+  if (groupMode === "category") {
+    const category = categories.find((currentCategory) => currentCategory.id === item.category_id);
+    if (isOutOfScopePurchaseCategory(category)) return "out_of_scope_category";
+    return item.category_id ?? "no_category";
+  }
   return item.project?.trim() || "no_project";
 }
 
@@ -724,4 +869,28 @@ function preparePurchaseStatusValues(values: PlannedPurchaseFormValues) {
 
 function getPurchaseDifference(item: PlannedPurchaseRow) {
   return Number(item.estimated_amount || 0) - Number(item.paid_amount || 0);
+}
+
+function buildPurchaseCategoryOptions(
+  categories: PlannedPurchaseSupportData["categories"],
+  purchaseCategories: PlannedPurchaseSupportData["categories"],
+  currentCategoryId: string | null,
+) {
+  const currentCategory = categories.find((category) => category.id === currentCategoryId);
+
+  return [
+    { value: "", label: "Sem categoria" },
+    ...(isOutOfScopePurchaseCategory(currentCategory)
+      ? [{ value: currentCategory?.id ?? "", label: `${currentCategory?.name ?? "Categoria atual"} (fora do escopo)` }]
+      : []),
+    ...purchaseCategories.map((category) => ({ value: category.id, label: category.name })),
+  ];
+}
+
+function isPurchaseCategory(category: PlannedPurchaseSupportData["categories"][number]) {
+  return ["purchase", "planned_purchase", "wishlist", "shopping"].includes(category.type);
+}
+
+function isOutOfScopePurchaseCategory(category: PlannedPurchaseSupportData["categories"][number] | undefined) {
+  return category ? !isPurchaseCategory(category) : false;
 }

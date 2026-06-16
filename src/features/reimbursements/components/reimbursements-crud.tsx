@@ -45,18 +45,39 @@ import {
   type ReimbursementRow,
   type ReimbursementTransaction,
 } from "@/features/reimbursements/types";
-import { ActionButton, BulkActionsBar, CategoryBadge, CategorySelect, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, RowSelectionHint, shouldToggleRowSelection, TextBadge, TitleButton } from "@/features/shared/crud-ui";
+import { ActionButton, BulkActionsBar, CategoryBadge, CategorySelect, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, RowSelectionHint, shouldToggleRowSelection, TextBadge, TitleButton, ViewPreferenceActions } from "@/features/shared/crud-ui";
 import { formatCurrency, formatDate } from "@/features/shared/format";
 import { invoiceStatusOptions, optionLabel, reimbursementStatusOptions } from "@/features/shared/options";
 import { PeriodFilter } from "@/features/shared/period-filter";
 import { isAnyDateInPeriod, parsePeriodSearchParams, type PeriodValue } from "@/features/shared/period";
 import { getQuickTableEditPreference } from "@/features/shared/quick-edit";
 import type { FeedbackState } from "@/features/shared/types";
+import { clearViewPreference, loadViewPreference, preferenceRecord, preferenceString, preferenceText, saveViewPreference } from "@/features/shared/view-preferences";
 import { createClient } from "@/lib/supabase/client";
 
 type ModalState = { mode: "create"; reimbursement: null } | { mode: "edit"; reimbursement: ReimbursementRow } | null;
 type LinkModalState = { reimbursement: ReimbursementRow } | null;
 type RenegotiationModalState = { reimbursements: ReimbursementRow[]; person: ReimbursementPerson | null } | null;
+type ReimbursementsViewPreference = {
+  search?: string;
+  personFilter?: string;
+  statusFilter?: string;
+  linkedFilter?: string;
+  categoryFilter?: string;
+  peopleSummaryView?: PersonDebtViewMode;
+  period?: PeriodValue;
+};
+
+const reimbursementSummaryViews = ["open_period", "late", "all_debt", "all_history", "hide_settled"] as const;
+const reimbursementsDefaultViewPreference: Required<ReimbursementsViewPreference> = {
+  search: "",
+  personFilter: "all",
+  statusFilter: "all",
+  linkedFilter: "all",
+  categoryFilter: "all",
+  peopleSummaryView: "open_period",
+  period: parsePeriodSearchParams({}),
+};
 
 export function ReimbursementsCrud() {
   const searchParams = useSearchParams();
@@ -194,6 +215,48 @@ export function ReimbursementsCrud() {
   useEffect(() => {
     void loadData();
   }, []);
+
+  useEffect(() => {
+    if (!userId) return;
+    const preference = loadViewPreference<ReimbursementsViewPreference>("reimbursements", userId);
+    if (!preference) return;
+
+    setSearch(preferenceText(preference.search));
+    setPersonFilter(preferenceText(preference.personFilter, "all"));
+    setStatusFilter(preferenceText(preference.statusFilter, "all"));
+    setLinkedFilter(preferenceText(preference.linkedFilter, "all"));
+    setCategoryFilter(preferenceText(preference.categoryFilter, "all"));
+    setPeopleSummaryView(preferenceString(preference.peopleSummaryView, reimbursementSummaryViews, "open_period"));
+    setPeriod(preferenceRecord(preference.period, reimbursementsDefaultViewPreference.period));
+  }, [userId]);
+
+  function handleSaveViewPreference() {
+    const saved = saveViewPreference("reimbursements", userId, {
+      search,
+      personFilter,
+      statusFilter,
+      linkedFilter,
+      categoryFilter,
+      peopleSummaryView,
+      period,
+    });
+    setFeedback({
+      type: saved ? "success" : "error",
+      message: saved ? "Visualização padrão de reembolsos salva." : "Não foi possível salvar a visualização padrão.",
+    });
+  }
+
+  function handleRestoreViewPreference() {
+    clearViewPreference("reimbursements", userId);
+    setSearch(reimbursementsDefaultViewPreference.search);
+    setPersonFilter(reimbursementsDefaultViewPreference.personFilter);
+    setStatusFilter(reimbursementsDefaultViewPreference.statusFilter);
+    setLinkedFilter(reimbursementsDefaultViewPreference.linkedFilter);
+    setCategoryFilter(reimbursementsDefaultViewPreference.categoryFilter);
+    setPeopleSummaryView(reimbursementsDefaultViewPreference.peopleSummaryView);
+    setPeriod(reimbursementsDefaultViewPreference.period);
+    setFeedback({ type: "success", message: "Visualização padrão de reembolsos restaurada." });
+  }
 
   async function handleSubmit(values: ReimbursementFormValues) {
     if (!values.person_id || Number(values.expected_amount) < 0 || Number(values.received_amount) < 0) {
@@ -676,7 +739,7 @@ export function ReimbursementsCrud() {
 
       <SectionCard title="Filtros">
         {selectedPerson ? (
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-mint-500/30 bg-mint-50 px-3 py-2 text-sm text-ink-700">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-mint-500/30 bg-mint-50 px-3 py-2 text-sm text-ink-700 dark:border-mint-400/30 dark:bg-mint-950/30 dark:text-slate-100">
             <span>Filtro de pessoa ativo: <strong>{selectedPerson.name}</strong></span>
             <ActionButton variant="secondary" onClick={() => setPersonFilter("all")}>Limpar filtro de pessoa</ActionButton>
           </div>
@@ -702,6 +765,9 @@ export function ReimbursementsCrud() {
             <option value="linked">Com lançamento</option>
             <option value="manual">Manual</option>
           </select>
+        </div>
+        <div className="mt-4">
+          <ViewPreferenceActions onSave={handleSaveViewPreference} onRestore={handleRestoreViewPreference} />
         </div>
       </SectionCard>
 
