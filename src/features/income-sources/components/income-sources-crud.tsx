@@ -22,6 +22,7 @@ import {
   shouldToggleRowSelection,
   TextBadge,
   TitleButton,
+  ViewPreferenceActions,
 } from "@/features/shared/crud-ui";
 import { formatCurrency, formatDate } from "@/features/shared/format";
 import {
@@ -31,9 +32,10 @@ import {
   optionLabel,
 } from "@/features/shared/options";
 import { PeriodFilter } from "@/features/shared/period-filter";
-import { isAnyDateInPeriod, parsePeriodSearchParams } from "@/features/shared/period";
+import { isAnyDateInPeriod, parsePeriodSearchParams, type PeriodValue } from "@/features/shared/period";
 import { getQuickTableEditPreference } from "@/features/shared/quick-edit";
 import type { FeedbackState } from "@/features/shared/types";
+import { clearViewPreference, loadViewPreference, preferenceRecord, preferenceText, saveViewPreference } from "@/features/shared/view-preferences";
 import {
   archiveIncomeSource,
   createIncomeSource,
@@ -56,6 +58,23 @@ type ModalState =
   | { mode: "create"; income: null }
   | { mode: "edit"; income: IncomeSourceRow }
   | null;
+type IncomeViewPreference = {
+  search?: string;
+  statusFilter?: string;
+  typeFilter?: string;
+  confidenceFilter?: string;
+  categoryFilter?: string;
+  period?: PeriodValue;
+};
+
+const incomeDefaultViewPreference: Required<IncomeViewPreference> = {
+  search: "",
+  statusFilter: "all",
+  typeFilter: "all",
+  confidenceFilter: "all",
+  categoryFilter: "all",
+  period: parsePeriodSearchParams({}),
+};
 
 export function IncomeSourcesCrud() {
   const searchParams = useSearchParams();
@@ -205,6 +224,45 @@ export function IncomeSourcesCrud() {
   useEffect(() => {
     void loadIncomeSources();
   }, []);
+
+  useEffect(() => {
+    if (!userId) return;
+    const preference = loadViewPreference<IncomeViewPreference>("income-sources", userId);
+    if (!preference) return;
+
+    setSearch(preferenceText(preference.search));
+    setStatusFilter(preferenceText(preference.statusFilter, "all"));
+    setTypeFilter(preferenceText(preference.typeFilter, "all"));
+    setConfidenceFilter(preferenceText(preference.confidenceFilter, "all"));
+    setCategoryFilter(preferenceText(preference.categoryFilter, "all"));
+    setPeriod(preferenceRecord(preference.period, incomeDefaultViewPreference.period));
+  }, [userId]);
+
+  function handleSaveViewPreference() {
+    const saved = saveViewPreference("income-sources", userId, {
+      search,
+      statusFilter,
+      typeFilter,
+      confidenceFilter,
+      categoryFilter,
+      period,
+    });
+    setFeedback({
+      type: saved ? "success" : "error",
+      message: saved ? "Visualização padrão de receitas salva." : "Não foi possível salvar a visualização padrão.",
+    });
+  }
+
+  function handleRestoreViewPreference() {
+    clearViewPreference("income-sources", userId);
+    setSearch(incomeDefaultViewPreference.search);
+    setStatusFilter(incomeDefaultViewPreference.statusFilter);
+    setTypeFilter(incomeDefaultViewPreference.typeFilter);
+    setConfidenceFilter(incomeDefaultViewPreference.confidenceFilter);
+    setCategoryFilter(incomeDefaultViewPreference.categoryFilter);
+    setPeriod(incomeDefaultViewPreference.period);
+    setFeedback({ type: "success", message: "Visualização padrão de receitas restaurada." });
+  }
 
   async function handleSubmit(values: IncomeSourceFormValues) {
     const amount = Number(values.amount);
@@ -496,6 +554,9 @@ export function IncomeSourcesCrud() {
             placeholder="Todas categorias"
             onChange={(value) => setCategoryFilter(value || "all")}
           />
+        </div>
+        <div className="mt-4">
+          <ViewPreferenceActions onSave={handleSaveViewPreference} onRestore={handleRestoreViewPreference} />
         </div>
       </SectionCard>
 

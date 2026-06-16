@@ -8,11 +8,12 @@ import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
 import { calculateInvoiceSummary, type InvoiceCard, type InvoiceReimbursementRow, type InvoiceRow } from "@/features/invoices/types";
-import { ActionButton, BooleanBadge, CategoryBadge, CategorySelect, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, TextBadge } from "@/features/shared/crud-ui";
+import { ActionButton, BooleanBadge, CategoryBadge, CategorySelect, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, TextBadge, ViewPreferenceActions } from "@/features/shared/crud-ui";
 import { formatCurrency, formatDate } from "@/features/shared/format";
 import { optionLabel, ownershipTypeOptions } from "@/features/shared/options";
 import { getQuickTableEditPreference } from "@/features/shared/quick-edit";
 import type { FeedbackState } from "@/features/shared/types";
+import { clearViewPreference, loadViewPreference, preferenceText, saveViewPreference } from "@/features/shared/view-preferences";
 import {
   createExpectedReimbursementForTransaction,
   createTransaction,
@@ -35,6 +36,23 @@ import { createClient } from "@/lib/supabase/client";
 import type { OwnershipType } from "@/lib/supabase/types";
 
 type ModalState = { mode: "create"; transaction: null } | { mode: "edit"; transaction: TransactionRow } | null;
+type TransactionsViewPreference = {
+  search?: string;
+  categoryFilter?: string;
+  personFilter?: string;
+  ownershipFilter?: string;
+  reimbursableFilter?: string;
+  installmentFilter?: string;
+};
+
+const transactionsDefaultViewPreference: Required<TransactionsViewPreference> = {
+  search: "",
+  categoryFilter: "all",
+  personFilter: "all",
+  ownershipFilter: "all",
+  reimbursableFilter: "all",
+  installmentFilter: "all",
+};
 
 export function InvoiceTransactionsCrud({ invoiceId }: { invoiceId: string }) {
   const [invoice, setInvoice] = useState<InvoiceRow | null>(null);
@@ -124,6 +142,45 @@ export function InvoiceTransactionsCrud({ invoiceId }: { invoiceId: string }) {
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    if (!userId) return;
+    const preference = loadViewPreference<TransactionsViewPreference>("transactions", userId);
+    if (!preference) return;
+
+    setSearch(preferenceText(preference.search));
+    setCategoryFilter(preferenceText(preference.categoryFilter, "all"));
+    setPersonFilter(preferenceText(preference.personFilter, "all"));
+    setOwnershipFilter(preferenceText(preference.ownershipFilter, "all"));
+    setReimbursableFilter(preferenceText(preference.reimbursableFilter, "all"));
+    setInstallmentFilter(preferenceText(preference.installmentFilter, "all"));
+  }, [userId]);
+
+  function handleSaveViewPreference() {
+    const saved = saveViewPreference("transactions", userId, {
+      search,
+      categoryFilter,
+      personFilter,
+      ownershipFilter,
+      reimbursableFilter,
+      installmentFilter,
+    });
+    setFeedback({
+      type: saved ? "success" : "error",
+      message: saved ? "Visualização padrão de lançamentos salva." : "Não foi possível salvar a visualização padrão.",
+    });
+  }
+
+  function handleRestoreViewPreference() {
+    clearViewPreference("transactions", userId);
+    setSearch(transactionsDefaultViewPreference.search);
+    setCategoryFilter(transactionsDefaultViewPreference.categoryFilter);
+    setPersonFilter(transactionsDefaultViewPreference.personFilter);
+    setOwnershipFilter(transactionsDefaultViewPreference.ownershipFilter);
+    setReimbursableFilter(transactionsDefaultViewPreference.reimbursableFilter);
+    setInstallmentFilter(transactionsDefaultViewPreference.installmentFilter);
+    setFeedback({ type: "success", message: "Visualização padrão de lançamentos restaurada." });
+  }
 
   async function handleSubmit(values: TransactionFormValues) {
     if (!values.credit_card_id || !values.transaction_date || !values.description.trim()) {
@@ -361,6 +418,9 @@ export function InvoiceTransactionsCrud({ invoiceId }: { invoiceId: string }) {
             <option value="true">Sim</option>
             <option value="false">Não</option>
           </select>
+        </div>
+        <div className="mt-4">
+          <ViewPreferenceActions onSave={handleSaveViewPreference} onRestore={handleRestoreViewPreference} />
         </div>
       </SectionCard>
 

@@ -8,12 +8,13 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
-import { ActionButton, CrudFeedback, FieldShell, inputClassName, Modal, TitleButton } from "@/features/shared/crud-ui";
+import { ActionButton, CrudFeedback, FieldShell, inputClassName, Modal, TitleButton, ViewPreferenceActions } from "@/features/shared/crud-ui";
 import { formatCurrency, formatDate } from "@/features/shared/format";
 import { invoiceStatusOptions, optionLabel } from "@/features/shared/options";
 import { PeriodFilter } from "@/features/shared/period-filter";
-import { getPeriodValue, isAnyDateInPeriod, parsePeriodSearchParams } from "@/features/shared/period";
+import { getPeriodValue, isAnyDateInPeriod, parsePeriodSearchParams, type PeriodValue } from "@/features/shared/period";
 import type { FeedbackState } from "@/features/shared/types";
+import { clearViewPreference, loadViewPreference, preferenceRecord, preferenceText, saveViewPreference } from "@/features/shared/view-preferences";
 import { calculateInvoiceCycleForReferenceMonth, generateFutureInvoicesForCard } from "@/features/invoices/auto-invoices";
 import { archiveInvoice, createInvoice, listInvoiceCards, listInvoices, updateInvoice } from "@/features/invoices/queries";
 import { emptyInvoiceForm, invoiceToFormValues, type InvoiceCard, type InvoiceFormValues, type InvoiceRow } from "@/features/invoices/types";
@@ -25,6 +26,19 @@ type ModalState =
   | { mode: "edit"; invoice: InvoiceRow }
   | { mode: "payment"; invoice: InvoiceRow }
   | null;
+type InvoicesViewPreference = {
+  search?: string;
+  cardFilter?: string;
+  statusFilter?: string;
+  period?: PeriodValue;
+};
+
+const invoicesDefaultViewPreference: Required<InvoicesViewPreference> = {
+  search: "",
+  cardFilter: "all",
+  statusFilter: "all",
+  period: parsePeriodSearchParams({}),
+};
 
 export function InvoicesCrud() {
   const searchParams = useSearchParams();
@@ -123,6 +137,39 @@ export function InvoicesCrud() {
   }
 
   useEffect(() => { void loadData(); }, []);
+
+  useEffect(() => {
+    if (!userId) return;
+    const preference = loadViewPreference<InvoicesViewPreference>("invoices", userId);
+    if (!preference) return;
+
+    setSearch(preferenceText(preference.search));
+    setCardFilter(preferenceText(preference.cardFilter, "all"));
+    setStatusFilter(preferenceText(preference.statusFilter, "all"));
+    setPeriod(preferenceRecord(preference.period, invoicesDefaultViewPreference.period));
+  }, [userId]);
+
+  function handleSaveViewPreference() {
+    const saved = saveViewPreference("invoices", userId, {
+      search,
+      cardFilter,
+      statusFilter,
+      period,
+    });
+    setFeedback({
+      type: saved ? "success" : "error",
+      message: saved ? "Visualização padrão de faturas salva." : "Não foi possível salvar a visualização padrão.",
+    });
+  }
+
+  function handleRestoreViewPreference() {
+    clearViewPreference("invoices", userId);
+    setSearch(invoicesDefaultViewPreference.search);
+    setCardFilter(invoicesDefaultViewPreference.cardFilter);
+    setStatusFilter(invoicesDefaultViewPreference.statusFilter);
+    setPeriod(invoicesDefaultViewPreference.period);
+    setFeedback({ type: "success", message: "Visualização padrão de faturas restaurada." });
+  }
 
   async function handleSubmit(values: InvoiceFormValues) {
     if (!values.credit_card_id || !values.reference_month || !values.due_date) {
@@ -305,7 +352,7 @@ export function InvoicesCrud() {
           <select className={inputClassName} value={cardFilter} onChange={(e) => setCardFilter(e.target.value)}><option value="all">Todos cartões</option>{cards.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
           <select className={inputClassName} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}><option value="all">Todos status</option>{invoiceStatusOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
         </div>
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-ink-950/10 bg-slate-50 px-4 py-3 text-sm text-ink-700">
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-ink-950/10 bg-slate-50 px-4 py-3 text-sm text-ink-700 dark:border-slate-700 dark:bg-slate-900/75 dark:text-slate-200">
           <span>
             Mostrando <strong>{filteredInvoices.length}</strong> de <strong>{invoices.length}</strong> faturas carregadas.
             {period.preset !== "all" ? " O período também filtra por vencimento ou mês de referência." : " Período em Todos."}
@@ -318,6 +365,9 @@ export function InvoicesCrud() {
               Mostrar todas
             </ActionButton>
           </div>
+        </div>
+        <div className="mt-4">
+          <ViewPreferenceActions onSave={handleSaveViewPreference} onRestore={handleRestoreViewPreference} />
         </div>
       </SectionCard>
       <SectionCard title="Faturas cadastradas">
@@ -344,20 +394,20 @@ export function InvoicesCrud() {
               const total = group.rows.reduce((sum, invoice) => sum + Number(invoice.total_amount), 0);
 
               return (
-                <div key={group.month} className="rounded-md border border-ink-950/10">
+                <div key={group.month} className="rounded-md border border-ink-950/10 dark:border-slate-700">
                   <button
                     type="button"
-                    className="flex w-full items-center justify-between gap-3 bg-slate-50 px-4 py-3 text-left transition hover:bg-mint-100"
+                    className="flex w-full items-center justify-between gap-3 bg-slate-50 px-4 py-3 text-left transition hover:bg-mint-100 dark:bg-slate-900/75 dark:hover:bg-slate-800"
                     onClick={() => toggleMonth(group.month)}
                     aria-expanded={!collapsed}
                   >
                     <span>
-                      <span className="block text-sm font-semibold text-ink-950">{group.label}</span>
-                      <span className="mt-1 block text-xs text-ink-600">
+                      <span className="block text-sm font-semibold text-ink-950 dark:text-slate-100">{group.label}</span>
+                      <span className="mt-1 block text-xs text-ink-600 dark:text-slate-300">
                         {group.rows.length} fatura(s) · {formatCurrency(total)}
                       </span>
                     </span>
-                    <span className="text-sm font-semibold text-mint-600">{collapsed ? "Expandir" : "Recolher"}</span>
+                    <span className="text-sm font-semibold text-mint-600 dark:text-mint-300">{collapsed ? "Expandir" : "Recolher"}</span>
                   </button>
                   {collapsed ? null : (
                     <div className="overflow-x-auto">

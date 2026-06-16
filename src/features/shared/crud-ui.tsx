@@ -62,6 +62,19 @@ export function Modal({ title, description, children, onClose, headerAction }: M
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         onClose();
+        return;
+      }
+
+      if (event.key === "Enter" && shouldSubmitModalForm(event)) {
+        const form = findTargetForm(event.target, sectionRef.current);
+        const submitButton = form?.querySelector<HTMLButtonElement>('button[type="submit"]');
+
+        if (!form || submitButton?.disabled || form.getAttribute("aria-busy") === "true") {
+          return;
+        }
+
+        event.preventDefault();
+        form.requestSubmit();
       }
     }
 
@@ -148,6 +161,27 @@ export function ActionButton({
     >
       {children}
     </button>
+  );
+}
+
+export function ViewPreferenceActions({
+  onSave,
+  onRestore,
+  disabled = false,
+}: {
+  onSave: () => void;
+  onRestore: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      <ActionButton type="button" variant="secondary" onClick={onSave} disabled={disabled}>
+        Salvar visualização padrão
+      </ActionButton>
+      <ActionButton type="button" variant="secondary" onClick={onRestore} disabled={disabled}>
+        Restaurar padrão
+      </ActionButton>
+    </div>
   );
 }
 
@@ -244,13 +278,13 @@ export function CategorySelect({
       {open ? (
         <div
           role="listbox"
-          className="absolute z-30 mt-2 max-h-72 w-full overflow-y-auto rounded-md border border-ink-950/10 bg-white p-1 shadow-soft"
+          className="absolute z-30 mt-2 max-h-72 w-full overflow-y-auto rounded-md border border-ink-950/10 bg-white p-1 shadow-soft dark:border-slate-700 dark:bg-slate-900"
         >
           <button
             type="button"
             role="option"
             aria-selected={!value}
-            className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm text-ink-700 hover:bg-slate-50"
+            className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm text-ink-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
             onClick={() => selectCategory("")}
           >
             <CategoryOptionContent category={null} placeholder={placeholder} />
@@ -261,7 +295,7 @@ export function CategorySelect({
               type="button"
               role="option"
               aria-selected={category.id === value}
-              className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm text-ink-800 hover:bg-slate-50"
+              className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm text-ink-800 hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-800"
               onClick={() => selectCategory(category.id)}
             >
               <CategoryOptionContent category={category} placeholder={placeholder} />
@@ -307,7 +341,7 @@ export function TitleButton({
     <button
       type="button"
       onClick={onClick}
-      className="text-left font-medium text-ink-950 underline-offset-4 transition hover:text-mint-600 hover:underline"
+      className="text-left font-medium text-ink-950 underline-offset-4 transition hover:text-mint-600 hover:underline dark:text-slate-100 dark:hover:text-mint-300"
     >
       {children}
     </button>
@@ -336,8 +370,8 @@ export function BulkActionsBar({
   }
 
   return (
-    <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-ink-950/10 bg-slate-50 px-4 py-3">
-      <p className="text-sm font-medium text-ink-800">
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-ink-950/10 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-900/75">
+      <p className="text-sm font-medium text-ink-800 dark:text-slate-200">
         {selectedCount} item(ns) selecionado(s)
       </p>
       <div className="flex flex-wrap gap-2">
@@ -355,7 +389,7 @@ export function BulkActionsBar({
 
 export function RowSelectionHint() {
   return (
-    <p className="mb-3 text-xs font-medium text-ink-600">
+    <p className="mb-3 text-xs font-medium text-ink-600 dark:text-slate-300">
       Use Ctrl + clique na linha para selecionar rapidamente.
     </p>
   );
@@ -396,7 +430,7 @@ export function QuickEditInput({
 
   return (
     <input
-      className="hub-input w-full min-w-28 rounded-md border border-ink-950/10 bg-white px-2 py-1 text-sm text-ink-950"
+      className="hub-input w-full min-w-28 rounded-md border border-ink-950/10 bg-white px-2 py-1 text-sm text-ink-950 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
       type={type}
       value={draft}
       onBlur={commit}
@@ -420,7 +454,7 @@ export function QuickEditSelect({
 }) {
   return (
     <select
-      className="hub-input w-full min-w-32 rounded-md border border-ink-950/10 bg-white px-2 py-1 text-sm text-ink-950"
+      className="hub-input w-full min-w-32 rounded-md border border-ink-950/10 bg-white px-2 py-1 text-sm text-ink-950 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
       value={value}
       onChange={(event) => onCommit(event.target.value)}
     >
@@ -453,4 +487,34 @@ function normalizeHex(hex: string) {
   }
 
   return hex;
+}
+
+function shouldSubmitModalForm(event: KeyboardEvent) {
+  if (event.defaultPrevented || event.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
+    return false;
+  }
+
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return false;
+  if (target.closest("[data-confirmation-modal='true']")) return false;
+  if (target instanceof HTMLTextAreaElement) return false;
+  if (target instanceof HTMLButtonElement) return false;
+
+  if (target instanceof HTMLInputElement) {
+    return !["button", "checkbox", "file", "radio", "reset", "submit"].includes(target.type);
+  }
+
+  return target instanceof HTMLSelectElement;
+}
+
+function findTargetForm(target: EventTarget | null, root: HTMLElement | null) {
+  if (target instanceof HTMLElement) {
+    const closestForm = target.closest("form");
+    if (closestForm && root?.contains(closestForm)) {
+      return closestForm;
+    }
+  }
+
+  return root?.querySelector("form") ?? null;
 }
