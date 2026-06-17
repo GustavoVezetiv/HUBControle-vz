@@ -6,6 +6,8 @@ import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
+import { ExportBackupPanel } from "@/features/settings/components/export-backup-panel";
+import { FinancialRecalculationPanel } from "@/features/settings/components/financial-recalculation-panel";
 import { getProfile, upsertProfile } from "@/features/settings/queries";
 import {
   animationLevelOptions,
@@ -189,6 +191,9 @@ export function SettingsPanel() {
           <p><strong className="text-ink-950">Escopo:</strong> Web privado, sem integrações externas</p>
         </div>
       </SectionCard>
+
+      <FinancialRecalculationPanel userId={userId} />
+      <ExportBackupPanel userId={userId} email={email} />
     </div>
   );
 }

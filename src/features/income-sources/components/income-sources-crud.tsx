@@ -231,12 +231,14 @@ export function IncomeSourcesCrud() {
     if (!preference) return;
 
     setSearch(preferenceText(preference.search));
-    setStatusFilter(preferenceText(preference.statusFilter, "all"));
+    if (!searchParams.get("status")) setStatusFilter(preferenceText(preference.statusFilter, "all"));
     setTypeFilter(preferenceText(preference.typeFilter, "all"));
     setConfidenceFilter(preferenceText(preference.confidenceFilter, "all"));
     setCategoryFilter(preferenceText(preference.categoryFilter, "all"));
-    setPeriod(preferenceRecord(preference.period, incomeDefaultViewPreference.period));
-  }, [userId]);
+    if (!searchParams.get("period") && !searchParams.get("start") && !searchParams.get("end")) {
+      setPeriod(preferenceRecord(preference.period, incomeDefaultViewPreference.period));
+    }
+  }, [searchParams, userId]);
 
   function handleSaveViewPreference() {
     const saved = saveViewPreference("income-sources", userId, {
@@ -255,13 +257,17 @@ export function IncomeSourcesCrud() {
 
   function handleRestoreViewPreference() {
     clearViewPreference("income-sources", userId);
+    handleClearFilters();
+    setFeedback({ type: "success", message: "Visualização padrão de receitas restaurada." });
+  }
+
+  function handleClearFilters() {
     setSearch(incomeDefaultViewPreference.search);
     setStatusFilter(incomeDefaultViewPreference.statusFilter);
     setTypeFilter(incomeDefaultViewPreference.typeFilter);
     setConfidenceFilter(incomeDefaultViewPreference.confidenceFilter);
     setCategoryFilter(incomeDefaultViewPreference.categoryFilter);
     setPeriod(incomeDefaultViewPreference.period);
-    setFeedback({ type: "success", message: "Visualização padrão de receitas restaurada." });
   }
 
   async function handleSubmit(values: IncomeSourceFormValues) {
@@ -556,7 +562,7 @@ export function IncomeSourcesCrud() {
           />
         </div>
         <div className="mt-4">
-          <ViewPreferenceActions onSave={handleSaveViewPreference} onRestore={handleRestoreViewPreference} />
+          <ViewPreferenceActions onSave={handleSaveViewPreference} onRestore={handleRestoreViewPreference} onClearFilters={handleClearFilters} />
         </div>
       </SectionCard>
 

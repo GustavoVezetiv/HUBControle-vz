@@ -1,4 +1,5 @@
 import type { AppSupabaseClient } from "@/features/shared/types";
+import { safeLogCreate, safeLogFieldDiffs } from "@/features/audit/logger";
 import { archiveRecord, restoreArchivedRecord } from "@/features/shared/archive";
 import type { Goal } from "@/lib/supabase/types";
 
@@ -58,11 +59,25 @@ export async function listGoalCategories(client: AppSupabaseClient) {
 }
 
 export async function createGoal(client: AppSupabaseClient, userId: string, values: GoalFormValues) {
-  return client.from("goals").insert(toPayload(userId, values)).select("*").single();
+  const result = await client.from("goals").insert(toPayload(userId, values)).select("*").single();
+  if (!result.error && result.data) {
+    await safeLogCreate(client, userId, "goals", result.data.id, result.data);
+  }
+  return result;
 }
 
 export async function updateGoal(client: AppSupabaseClient, id: string, values: GoalFormValues) {
-  return client.from("goals").update(toPayload(undefined, values)).eq("id", id).select("*").single();
+  const currentResult = await client.from("goals").select("*").eq("id", id).single();
+  if (currentResult.error || !currentResult.data) {
+    console.error("Erro técnico ao carregar meta atual para auditoria:", currentResult.error);
+    return { data: null, error: { message: "Não foi possível carregar a meta atual." } };
+  }
+
+  const result = await client.from("goals").update(toPayload(undefined, values)).eq("id", id).select("*").single();
+  if (!result.error && result.data) {
+    await safeLogFieldDiffs(client, result.data.user_id, "goals", result.data.id, currentResult.data, result.data);
+  }
+  return result;
 }
 
 export async function archiveGoal(client: AppSupabaseClient, id: string, userId: string, reason?: string) {

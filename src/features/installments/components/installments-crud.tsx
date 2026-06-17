@@ -31,16 +31,30 @@ import {
   type InstallmentRow,
   type InstallmentTransaction,
 } from "@/features/installments/types";
-import { ActionButton, CategoryBadge, CategorySelect, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, TextBadge, TitleButton } from "@/features/shared/crud-ui";
+import { ActionButton, CategoryBadge, CategorySelect, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, TextBadge, TitleButton, ViewPreferenceActions } from "@/features/shared/crud-ui";
 import { formatCurrency, formatDate } from "@/features/shared/format";
 import { installmentStatusOptions, optionLabel } from "@/features/shared/options";
 import { PeriodFilter } from "@/features/shared/period-filter";
-import { isDateRangeInPeriod, parsePeriodSearchParams } from "@/features/shared/period";
+import { isDateRangeInPeriod, parsePeriodSearchParams, type PeriodValue } from "@/features/shared/period";
 import { getQuickTableEditPreference } from "@/features/shared/quick-edit";
 import type { FeedbackState } from "@/features/shared/types";
+import { clearViewPreference, loadViewPreference, preferenceRecord, preferenceText, saveViewPreference } from "@/features/shared/view-preferences";
 import { createClient } from "@/lib/supabase/client";
 
 type ModalState = { mode: "create"; installment: null } | { mode: "edit"; installment: InstallmentRow } | null;
+type InstallmentsViewPreference = {
+  search?: string;
+  statusFilter?: string;
+  cardFilter?: string;
+  period?: PeriodValue;
+};
+
+const installmentsDefaultViewPreference: Required<InstallmentsViewPreference> = {
+  search: "",
+  statusFilter: "all",
+  cardFilter: "all",
+  period: parsePeriodSearchParams({}),
+};
 
 export function InstallmentsCrud() {
   const searchParams = useSearchParams();
@@ -126,6 +140,45 @@ export function InstallmentsCrud() {
   useEffect(() => {
     void loadData();
   }, []);
+
+  useEffect(() => {
+    if (!userId) return;
+    const preference = loadViewPreference<InstallmentsViewPreference>("installments", userId);
+    if (!preference) return;
+
+    setSearch(preferenceText(preference.search));
+    if (!searchParams.get("status")) setStatusFilter(preferenceText(preference.statusFilter, "all"));
+    setCardFilter(preferenceText(preference.cardFilter, "all"));
+    if (!searchParams.get("period") && !searchParams.get("start") && !searchParams.get("end")) {
+      setPeriod(preferenceRecord(preference.period, installmentsDefaultViewPreference.period));
+    }
+  }, [searchParams, userId]);
+
+  function handleSaveViewPreference() {
+    const saved = saveViewPreference("installments", userId, {
+      search,
+      statusFilter,
+      cardFilter,
+      period,
+    });
+    setFeedback({
+      type: saved ? "success" : "error",
+      message: saved ? "Visualização padrão de parcelamentos salva." : "Não foi possível salvar a visualização padrão.",
+    });
+  }
+
+  function handleRestoreViewPreference() {
+    clearViewPreference("installments", userId);
+    handleClearFilters();
+    setFeedback({ type: "success", message: "Visualização padrão de parcelamentos restaurada." });
+  }
+
+  function handleClearFilters() {
+    setSearch(installmentsDefaultViewPreference.search);
+    setStatusFilter(installmentsDefaultViewPreference.statusFilter);
+    setCardFilter(installmentsDefaultViewPreference.cardFilter);
+    setPeriod(installmentsDefaultViewPreference.period);
+  }
 
   async function handleSubmit(values: InstallmentFormValues) {
     if (!values.description.trim() || !values.start_date) {
@@ -327,6 +380,9 @@ export function InstallmentsCrud() {
             <option value="all">Todos cartões</option>
             {cards.map((card) => <option key={card.id} value={card.id}>{card.name}</option>)}
           </select>
+        </div>
+        <div className="mt-4">
+          <ViewPreferenceActions onSave={handleSaveViewPreference} onRestore={handleRestoreViewPreference} onClearFilters={handleClearFilters} />
         </div>
       </SectionCard>
       <SectionCard title="Parcelamentos cadastrados">

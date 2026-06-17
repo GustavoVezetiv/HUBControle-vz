@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
+import { AuditRecordHistory } from "@/features/audit/components/audit-record-history";
 import { calculateInvoiceSummary, type InvoiceCard, type InvoiceReimbursementRow, type InvoiceRow } from "@/features/invoices/types";
 import { ActionButton, BooleanBadge, CategoryBadge, CategorySelect, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, TextBadge, ViewPreferenceActions } from "@/features/shared/crud-ui";
 import { formatCurrency, formatDate } from "@/features/shared/format";
@@ -21,11 +22,13 @@ import {
   generateInstallmentTransactions,
   generateRecurringTransactions,
   listTransactionSupportData,
+  moveTransactionToInvoice,
   updateTransaction,
 } from "@/features/transactions/queries";
 import {
   emptyTransactionForm,
   transactionToFormValues,
+  type MoveTransactionInvoiceValues,
   type TransactionCategory,
   type TransactionFormValues,
   type TransactionInvoice,
@@ -36,6 +39,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { OwnershipType } from "@/lib/supabase/types";
 
 type ModalState = { mode: "create"; transaction: null } | { mode: "edit"; transaction: TransactionRow } | null;
+type MoveModalState = { transaction: TransactionRow } | null;
 type TransactionsViewPreference = {
   search?: string;
   categoryFilter?: string;
@@ -71,8 +75,10 @@ export function InvoiceTransactionsCrud({ invoiceId }: { invoiceId: string }) {
   const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [moving, setMoving] = useState(false);
   const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [modal, setModal] = useState<ModalState>(null);
+  const [moveModal, setMoveModal] = useState<MoveModalState>(null);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [allowQuickTableEdit, setAllowQuickTableEdit] = useState(false);
 
@@ -173,13 +179,17 @@ export function InvoiceTransactionsCrud({ invoiceId }: { invoiceId: string }) {
 
   function handleRestoreViewPreference() {
     clearViewPreference("transactions", userId);
+    handleClearFilters();
+    setFeedback({ type: "success", message: "Visualização padrão de lançamentos restaurada." });
+  }
+
+  function handleClearFilters() {
     setSearch(transactionsDefaultViewPreference.search);
     setCategoryFilter(transactionsDefaultViewPreference.categoryFilter);
     setPersonFilter(transactionsDefaultViewPreference.personFilter);
     setOwnershipFilter(transactionsDefaultViewPreference.ownershipFilter);
     setReimbursableFilter(transactionsDefaultViewPreference.reimbursableFilter);
     setInstallmentFilter(transactionsDefaultViewPreference.installmentFilter);
-    setFeedback({ type: "success", message: "Visualização padrão de lançamentos restaurada." });
   }
 
   async function handleSubmit(values: TransactionFormValues) {
@@ -331,6 +341,35 @@ export function InvoiceTransactionsCrud({ invoiceId }: { invoiceId: string }) {
     await loadData();
   }
 
+  async function handleMoveTransaction(transaction: TransactionRow, values: MoveTransactionInvoiceValues) {
+    if (!userId) {
+      setFeedback({ type: "error", message: "Sessão não encontrada." });
+      return;
+    }
+
+    setMoving(true);
+    setFeedback(null);
+
+    try {
+      const result = await moveTransactionToInvoice(createClient(), userId, transaction.id, values);
+
+      if (result.error) {
+        console.error("Erro técnico ao mover lançamento:", result.error);
+        setFeedback({ type: "error", message: result.error.message });
+        return;
+      }
+
+      setFeedback({ type: "success", message: "Lançamento movido para outra fatura." });
+      setMoveModal(null);
+      await loadData();
+    } catch (error) {
+      console.error("Erro técnico ao mover lançamento:", error);
+      setFeedback({ type: "error", message: "Não foi possível mover o lançamento." });
+    } finally {
+      setMoving(false);
+    }
+  }
+
   async function handleGenerateRecurring(transaction: TransactionRow) {
     if (!userId) {
       setFeedback({ type: "error", message: "Sessão não encontrada." });
@@ -420,7 +459,7 @@ export function InvoiceTransactionsCrud({ invoiceId }: { invoiceId: string }) {
           </select>
         </div>
         <div className="mt-4">
-          <ViewPreferenceActions onSave={handleSaveViewPreference} onRestore={handleRestoreViewPreference} />
+          <ViewPreferenceActions onSave={handleSaveViewPreference} onRestore={handleRestoreViewPreference} onClearFilters={handleClearFilters} />
         </div>
       </SectionCard>
 
@@ -517,6 +556,9 @@ export function InvoiceTransactionsCrud({ invoiceId }: { invoiceId: string }) {
                         <ActionButton variant="secondary" onClick={() => setModal({ mode: "edit", transaction })}>
                           Editar
                         </ActionButton>
+                        <ActionButton variant="secondary" onClick={() => setMoveModal({ transaction })}>
+                          Mover para outra fatura
+                        </ActionButton>
                         <ActionButton variant="danger" onClick={() => void handleDelete(transaction)}>
                           Arquivar
                         </ActionButton>
@@ -529,6 +571,7 @@ export function InvoiceTransactionsCrud({ invoiceId }: { invoiceId: string }) {
           </div>
         )}
       </SectionCard>
+      <AuditRecordHistory userId={userId} module="credit_card_invoices" recordId={invoiceId} title="Histórico da fatura" />
 
       <Link className="text-sm font-semibold text-mint-600 hover:text-mint-700" href="/dashboard/invoices">
         Voltar para faturas
@@ -542,9 +585,24 @@ export function InvoiceTransactionsCrud({ invoiceId }: { invoiceId: string }) {
           modal={modal}
           people={people}
           saving={saving}
+          userId={userId}
           selectedInvoiceId={invoiceId}
           onClose={() => setModal(null)}
+          onMove={(transaction) => {
+            setModal(null);
+            setMoveModal({ transaction });
+          }}
           onSubmit={(values) => void handleSubmit(values)}
+        />
+      ) : null}
+      {moveModal ? (
+        <MoveTransactionInvoiceModal
+          cards={cards}
+          invoices={invoices}
+          moving={moving}
+          transaction={moveModal.transaction}
+          onClose={() => setMoveModal(null)}
+          onSubmit={(values) => void handleMoveTransaction(moveModal.transaction, values)}
         />
       ) : null}
     </div>
@@ -558,8 +616,10 @@ function TransactionModal({
   modal,
   people,
   saving,
+  userId,
   selectedInvoiceId,
   onClose,
+  onMove,
   onSubmit,
 }: {
   categories: TransactionCategory[];
@@ -568,8 +628,10 @@ function TransactionModal({
   modal: ModalState;
   people: TransactionPerson[];
   saving: boolean;
+  userId: string | null;
   selectedInvoiceId: string;
   onClose: () => void;
+  onMove: (transaction: TransactionRow) => void;
   onSubmit: (values: TransactionFormValues) => void;
 }) {
   const selectedInvoice = invoices.find((item) => item.id === selectedInvoiceId);
@@ -849,10 +911,216 @@ function TransactionModal({
           </FieldShell>
         </div>
         <div className="flex justify-end gap-2 md:col-span-2">
+          {modal?.mode === "edit" ? (
+            <ActionButton type="button" variant="secondary" onClick={() => onMove(modal.transaction)}>
+              Mover para outra fatura
+            </ActionButton>
+          ) : null}
           <ActionButton type="button" variant="secondary" onClick={onClose}>Cancelar</ActionButton>
           <ActionButton type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar"}</ActionButton>
+        </div>
+        {modal?.mode === "edit" ? (
+          <div className="md:col-span-2">
+            <AuditRecordHistory userId={userId} module="credit_card_transactions" recordId={modal.transaction.id} title="Histórico do lançamento" />
+          </div>
+        ) : null}
+      </form>
+    </Modal>
+  );
+}
+
+function MoveTransactionInvoiceModal({
+  cards,
+  invoices,
+  moving,
+  transaction,
+  onClose,
+  onSubmit,
+}: {
+  cards: InvoiceCard[];
+  invoices: TransactionInvoice[];
+  moving: boolean;
+  transaction: TransactionRow;
+  onClose: () => void;
+  onSubmit: (values: MoveTransactionInvoiceValues) => void;
+}) {
+  const [values, setValues] = useState<MoveTransactionInvoiceValues>({
+    credit_card_id: transaction.credit_card_id,
+    invoice_id: "",
+    confirm_card_change: false,
+    confirm_paid_invoice_move: false,
+  });
+  const [paidConfirmation, setPaidConfirmation] = useState("");
+
+  const currentInvoice = invoices.find((item) => item.id === transaction.invoice_id) ?? null;
+  const destinationInvoice = invoices.find((item) => item.id === values.invoice_id) ?? null;
+  const selectableInvoices = invoices.filter(
+    (invoice) =>
+      invoice.credit_card_id === values.credit_card_id &&
+      invoice.id !== transaction.invoice_id &&
+      !isCancelledInvoiceStatus(invoice.status),
+  );
+  const isCardChange = values.credit_card_id !== transaction.credit_card_id;
+  const involvesPaidInvoice = isPaidInvoiceStatus(currentInvoice?.status) || isPaidInvoiceStatus(destinationInvoice?.status);
+  const paidMoveConfirmed = !involvesPaidInvoice || paidConfirmation.trim().toUpperCase() === "MOVER";
+  const cardChangeConfirmed = !isCardChange || values.confirm_card_change;
+  const canSubmit = Boolean(values.credit_card_id && values.invoice_id && cardChangeConfirmed && paidMoveConfirmed && !moving);
+
+  function submitMove(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!canSubmit) {
+      return;
+    }
+
+    onSubmit({
+      ...values,
+      confirm_paid_invoice_move: paidMoveConfirmed,
+    });
+  }
+
+  return (
+    <Modal
+      title="Mover para outra fatura"
+      description="Altere a fatura do lançamento sem excluir nem recriar o registro."
+      onClose={onClose}
+    >
+      <form className="grid gap-4" onSubmit={submitMove} aria-busy={moving}>
+        <div className="rounded-md border border-ink-950/10 bg-slate-50 px-4 py-3 text-sm leading-6 text-ink-700 dark:border-white/10 dark:bg-slate-900/70 dark:text-slate-200">
+          <p className="font-semibold text-ink-950 dark:text-slate-100">{transaction.description}</p>
+          <p>{formatCurrency(Number(transaction.amount))} em {formatDate(transaction.transaction_date)}</p>
+          <p>
+            Fatura atual:{" "}
+            {currentInvoice ? formatInvoiceOption(currentInvoice, cards) : "Fatura atual não encontrada na lista ativa"}
+          </p>
+          {transaction.reimbursement_id || transaction.is_reimbursable ? (
+            <p className="mt-2 text-amber-800 dark:text-amber-100">
+              Se houver reembolso vinculado a este lançamento, o vínculo será mantido e apontará para a nova fatura.
+            </p>
+          ) : null}
+        </div>
+
+        <FieldShell label="Cartão destino">
+          <select
+            required
+            className={inputClassName}
+            value={values.credit_card_id}
+            onChange={(event) =>
+              setValues({
+                credit_card_id: event.target.value,
+                invoice_id: "",
+                confirm_card_change: false,
+                confirm_paid_invoice_move: false,
+              })
+            }
+          >
+            <option value="">Selecione</option>
+            {cards.map((card) => (
+              <option key={card.id} value={card.id}>
+                {card.name}
+              </option>
+            ))}
+          </select>
+        </FieldShell>
+
+        <FieldShell label="Fatura destino">
+          <select
+            required
+            className={inputClassName}
+            value={values.invoice_id}
+            onChange={(event) =>
+              setValues({
+                ...values,
+                invoice_id: event.target.value,
+                confirm_paid_invoice_move: false,
+              })
+            }
+            disabled={!values.credit_card_id}
+          >
+            <option value="">
+              {values.credit_card_id ? "Selecione a fatura destino" : "Selecione um cartão primeiro"}
+            </option>
+            {selectableInvoices.map((invoice) => (
+              <option key={invoice.id} value={invoice.id}>
+                {formatInvoiceOption(invoice, cards)}
+              </option>
+            ))}
+          </select>
+          {values.credit_card_id && selectableInvoices.length === 0 ? (
+            <p className="mt-2 text-xs text-ink-600 dark:text-slate-300">
+              Não há faturas ativas e não canceladas para este cartão.
+            </p>
+          ) : null}
+        </FieldShell>
+
+        {isCardChange ? (
+          <label className="flex items-start gap-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900 dark:border-amber-300/20 dark:bg-amber-950/40 dark:text-amber-100">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={values.confirm_card_change}
+              onChange={(event) => setValues({ ...values, confirm_card_change: event.target.checked })}
+            />
+            <span>
+              Confirmo que este lançamento deve trocar de cartão e será vinculado a uma fatura compatível do cartão destino.
+            </span>
+          </label>
+        ) : null}
+
+        {involvesPaidInvoice ? (
+          <div className="rounded-md border border-danger-600/20 bg-danger-100 px-4 py-3 text-sm leading-6 text-danger-600 dark:border-danger-600/40 dark:bg-slate-900 dark:text-slate-100">
+            <p className="font-semibold">Esta movimentação envolve fatura paga.</p>
+            <p>Digite MOVER para confirmar que o total das faturas pagas pode ser recalculado.</p>
+            <input
+              className={`${inputClassName} mt-3`}
+              value={paidConfirmation}
+              onChange={(event) => setPaidConfirmation(event.target.value)}
+              placeholder="Digite MOVER"
+            />
+          </div>
+        ) : null}
+
+        <div className="flex justify-end gap-2">
+          <ActionButton type="button" variant="secondary" onClick={onClose}>
+            Cancelar
+          </ActionButton>
+          <ActionButton type="submit" disabled={!canSubmit}>
+            {moving ? "Movendo..." : "Confirmar alteração"}
+          </ActionButton>
         </div>
       </form>
     </Modal>
   );
+}
+
+function formatInvoiceOption(invoice: TransactionInvoice, cards: InvoiceCard[]) {
+  const cardName = cards.find((card) => card.id === invoice.credit_card_id)?.name ?? "Cartão";
+
+  return `${cardName} - ${formatReferenceMonth(invoice.reference_month)} - vence ${formatDate(invoice.due_date)} - ${invoiceStatusLabel(invoice.status)}`;
+}
+
+function formatReferenceMonth(referenceMonth: string) {
+  return referenceMonth.slice(0, 7);
+}
+
+function invoiceStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    open: "Aberta",
+    closed: "Fechada",
+    paid: "Paga",
+    partial: "Parcial",
+    overdue: "Atrasada",
+    canceled: "Cancelada",
+    cancelled: "Cancelada",
+  };
+
+  return labels[status] ?? status;
+}
+
+function isPaidInvoiceStatus(status: string | null | undefined) {
+  return status === "paid";
+}
+
+function isCancelledInvoiceStatus(status: string | null | undefined) {
+  return status === "cancelled" || status === "canceled";
 }

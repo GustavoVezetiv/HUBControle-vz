@@ -2,6 +2,7 @@ import type {
   IncomeSourceFormValues,
   IncomeSourceRow,
 } from "@/features/income-sources/types";
+import { safeLogCreate, safeLogFieldDiffs } from "@/features/audit/logger";
 import { inflowKindFromType } from "@/features/income-sources/types";
 import type { AppSupabaseClient } from "@/features/shared/types";
 import { archiveRecord, restoreArchivedRecord } from "@/features/shared/archive";
@@ -21,7 +22,13 @@ export async function createIncomeSource(
   userId: string,
   values: IncomeSourceFormValues,
 ) {
-  return client.from("income_sources").insert(toPayload(userId, values)).select("*").single();
+  const result = await client.from("income_sources").insert(toPayload(userId, values)).select("*").single();
+
+  if (!result.error && result.data) {
+    await safeLogCreate(client, userId, "income_sources", result.data.id, result.data);
+  }
+
+  return result;
 }
 
 export async function updateIncomeSource(
@@ -29,12 +36,24 @@ export async function updateIncomeSource(
   id: string,
   values: IncomeSourceFormValues,
 ) {
-  return client
+  const currentResult = await client.from("income_sources").select("*").eq("id", id).single();
+  if (currentResult.error || !currentResult.data) {
+    console.error("Erro técnico ao carregar receita atual para auditoria:", currentResult.error);
+    return { data: null, error: { message: "Não foi possível carregar a receita atual." } };
+  }
+
+  const result = await client
     .from("income_sources")
     .update(toPayload(undefined, values))
     .eq("id", id)
     .select("*")
     .single();
+
+  if (!result.error && result.data) {
+    await safeLogFieldDiffs(client, result.data.user_id, "income_sources", result.data.id, currentResult.data, result.data);
+  }
+
+  return result;
 }
 
 export async function archiveIncomeSource(client: AppSupabaseClient, id: string, userId: string, reason?: string) {

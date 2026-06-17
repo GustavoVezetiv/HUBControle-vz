@@ -18,6 +18,8 @@ export const navigationItems: NavigationItem[] = [
   { label: "Plano de pagamento", href: "/dashboard/payment-plans" },
   { label: "Compras e desejos", href: "/dashboard/purchases" },
   { label: "Metas", href: "/dashboard/goals" },
+  { label: "Diagnóstico financeiro", href: "/dashboard/diagnostics" },
+  { label: "Histórico", href: "/dashboard/history" },
   { label: "Arquivados", href: "/dashboard/archived" },
   { label: "Importações", href: "/dashboard/imports" },
   { label: "Anotações", href: "/dashboard/notes" },

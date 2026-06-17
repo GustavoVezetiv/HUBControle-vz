@@ -1,5 +1,6 @@
 import type { AppSupabaseClient } from "@/features/shared/types";
-import type { TransactionFormValues, TransactionRow } from "@/features/transactions/types";
+import type { MoveTransactionInvoiceValues, TransactionFormValues, TransactionRow } from "@/features/transactions/types";
+import { safeLogAction, safeLogCreate, safeLogFieldDiffs } from "@/features/audit/logger";
 import { archiveRecord, restoreArchivedRecord } from "@/features/shared/archive";
 import {
   ensureInvoicesForTransactionDates,
@@ -65,6 +66,10 @@ export async function createTransaction(
     await recalculateInvoiceTotal(client, userId, insertResult.data.invoice_id);
   }
 
+  if (!insertResult.error && insertResult.data) {
+    await safeLogCreate(client, userId, "credit_card_transactions", insertResult.data.id, insertResult.data);
+  }
+
   return insertResult;
 }
 
@@ -73,7 +78,7 @@ export async function updateTransaction(
   id: string,
   values: TransactionFormValues,
 ) {
-  const currentResult = await client.from("credit_card_transactions").select("invoice_id,user_id").eq("id", id).single();
+  const currentResult = await client.from("credit_card_transactions").select("*").eq("id", id).single();
   const userId = currentResult.data?.user_id;
   const payloadResult = userId ? await buildPayloadWithResolvedInvoice(client, userId, values) : { payload: toPayload(undefined, values), error: null };
   if (payloadResult.error) return { data: null, error: payloadResult.error };
@@ -92,9 +97,163 @@ export async function updateTransaction(
     for (const invoiceId of invoiceIds) {
       await recalculateInvoiceTotal(client, userId, invoiceId);
     }
+    if (currentResult.data) {
+      await safeLogFieldDiffs(client, userId, "credit_card_transactions", updateResult.data.id, currentResult.data, updateResult.data);
+    }
   }
 
   return updateResult;
+}
+
+export async function moveTransactionToInvoice(
+  client: AppSupabaseClient,
+  userId: string,
+  transactionId: string,
+  values: MoveTransactionInvoiceValues,
+) {
+  if (!values.credit_card_id || !values.invoice_id) {
+    return { data: null, error: { message: "Selecione o cartão e a fatura destino." } };
+  }
+
+  const currentResult = await client
+    .from("credit_card_transactions")
+    .select("id,user_id,credit_card_id,invoice_id")
+    .eq("user_id", userId)
+    .eq("id", transactionId)
+    .is("archived_at", null)
+    .single();
+
+  if (currentResult.error || !currentResult.data) {
+    console.error("Erro técnico ao buscar lançamento para mover:", currentResult.error);
+    return { data: null, error: { message: "Não foi possível encontrar o lançamento." } };
+  }
+
+  const destinationResult = await client
+    .from("credit_card_invoices")
+    .select("id,credit_card_id,status,archived_at,reference_month,due_date")
+    .eq("user_id", userId)
+    .eq("id", values.invoice_id)
+    .single();
+
+  if (destinationResult.error || !destinationResult.data) {
+    console.error("Erro técnico ao buscar fatura destino:", destinationResult.error);
+    return { data: null, error: { message: "Não foi possível encontrar a fatura destino." } };
+  }
+
+  const destinationInvoice = destinationResult.data;
+
+  if (destinationInvoice.archived_at) {
+    return { data: null, error: { message: "Não é possível mover para uma fatura arquivada." } };
+  }
+
+  if (isCancelledInvoiceStatus(destinationInvoice.status)) {
+    return { data: null, error: { message: "Não é possível mover para uma fatura cancelada." } };
+  }
+
+  if (destinationInvoice.credit_card_id !== values.credit_card_id) {
+    return { data: null, error: { message: "A fatura selecionada não pertence ao cartão escolhido." } };
+  }
+
+  if (currentResult.data.invoice_id === destinationInvoice.id) {
+    return { data: null, error: { message: "Selecione uma fatura diferente da atual." } };
+  }
+
+  const sourceInvoiceResult = currentResult.data.invoice_id
+    ? await client
+        .from("credit_card_invoices")
+        .select("id,credit_card_id,status,archived_at,reference_month,due_date")
+        .eq("user_id", userId)
+        .eq("id", currentResult.data.invoice_id)
+        .single()
+    : null;
+
+  if (sourceInvoiceResult?.error) {
+    console.error("Erro técnico ao buscar fatura atual do lançamento:", sourceInvoiceResult.error);
+    return { data: null, error: { message: "Não foi possível validar a fatura atual do lançamento." } };
+  }
+
+  const sourceInvoice = sourceInvoiceResult?.data ?? null;
+  const isCardChange = currentResult.data.credit_card_id !== destinationInvoice.credit_card_id;
+
+  if (isCardChange && !values.confirm_card_change) {
+    return { data: null, error: { message: "Confirme explicitamente a troca de cartão antes de mover." } };
+  }
+
+  const involvesPaidInvoice =
+    isPaidInvoiceStatus(sourceInvoice?.status) || isPaidInvoiceStatus(destinationInvoice.status);
+
+  if (involvesPaidInvoice && !values.confirm_paid_invoice_move) {
+    return { data: null, error: { message: "Mover lançamento de fatura paga exige confirmação forte." } };
+  }
+
+  const updateResult = await client
+    .from("credit_card_transactions")
+    .update({
+      credit_card_id: destinationInvoice.credit_card_id,
+      invoice_id: destinationInvoice.id,
+    })
+    .eq("user_id", userId)
+    .eq("id", transactionId)
+    .select("*")
+    .single();
+
+  if (updateResult.error) {
+    console.error("Erro técnico ao mover lançamento entre faturas:", updateResult.error);
+    return { data: null, error: { message: "Não foi possível mover o lançamento." } };
+  }
+
+  const reimbursementResult = await client
+    .from("reimbursements")
+    .update({ credit_card_invoice_id: destinationInvoice.id })
+    .eq("user_id", userId)
+    .eq("credit_card_transaction_id", transactionId)
+    .is("archived_at", null);
+
+  if (reimbursementResult.error) {
+    console.error("Erro técnico ao atualizar reembolso vinculado ao mover lançamento:", reimbursementResult.error);
+    return {
+      data: updateResult.data,
+      error: { message: "Lançamento movido, mas não foi possível atualizar o reembolso vinculado." },
+    };
+  }
+
+  const affectedInvoiceIds = new Set(
+    [sourceInvoice?.id ?? currentResult.data.invoice_id, destinationInvoice.id].filter(
+      (invoiceId): invoiceId is string => Boolean(invoiceId),
+    ),
+  );
+
+  for (const invoiceId of affectedInvoiceIds) {
+    const recalculateResult = await recalculateInvoiceTotal(client, userId, invoiceId, {
+      includePaid: values.confirm_paid_invoice_move,
+    });
+
+    if (recalculateResult.error) {
+      console.error("Erro técnico ao recalcular fatura após mover lançamento:", recalculateResult.error);
+      return {
+        data: updateResult.data,
+        error: { message: "Lançamento movido, mas não foi possível recalcular uma das faturas." },
+      };
+    }
+  }
+
+  await safeLogAction(client, {
+    user_id: userId,
+    module: "credit_card_transactions",
+    record_id: transactionId,
+    action: "move_invoice",
+    field_name: "invoice_id",
+    old_value: currentResult.data.invoice_id,
+    new_value: destinationInvoice.id,
+    metadata: {
+      from_credit_card_id: currentResult.data.credit_card_id,
+      to_credit_card_id: destinationInvoice.credit_card_id,
+      source_invoice_id: sourceInvoice?.id ?? null,
+      destination_invoice_id: destinationInvoice.id,
+    },
+  });
+
+  return { data: updateResult.data, error: null };
 }
 
 async function buildPayloadWithResolvedInvoice(
@@ -529,6 +688,14 @@ async function generateLinkedRecurringReimbursements(
 
 function emptyGenerationResult(message: string): GenerateRecurringTransactionsResult {
   return { created: 0, skipped: 0, reimbursementCreated: 0, reimbursementSkipped: 0, error: { message } };
+}
+
+function isPaidInvoiceStatus(status: string | null | undefined) {
+  return status === "paid";
+}
+
+function isCancelledInvoiceStatus(status: string | null | undefined) {
+  return status === "cancelled" || status === "canceled";
 }
 
 function buildMonthlyCandidateDates(baseDate: string, endDate: string | null, occurrences: number) {

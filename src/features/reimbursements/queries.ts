@@ -4,6 +4,7 @@ import type {
   ReimbursementRenegotiationValues,
   ReimbursementRow,
 } from "@/features/reimbursements/types";
+import { safeLogAction, safeLogCreate, safeLogFieldDiffs } from "@/features/audit/logger";
 import type { AppSupabaseClient } from "@/features/shared/types";
 import { archiveRecord, restoreArchivedRecord } from "@/features/shared/archive";
 import { findOrCreateInvoiceForTransactionDate } from "@/features/invoices/auto-invoices";
@@ -53,7 +54,11 @@ export async function createReimbursement(
   userId: string,
   values: ReimbursementFormValues,
 ) {
-  return client.from("reimbursements").insert(toPayload(userId, values)).select("*").single();
+  const result = await client.from("reimbursements").insert(toPayload(userId, values)).select("*").single();
+  if (!result.error && result.data) {
+    await safeLogCreate(client, userId, "reimbursements", result.data.id, result.data);
+  }
+  return result;
 }
 
 export async function updateReimbursement(
@@ -68,12 +73,30 @@ export async function updateReimbursement(
     return { data: null, error: { message: "Não foi possível carregar o reembolso atual." } };
   }
 
-  return client
+  const result = await client
     .from("reimbursements")
     .update(toPayload(undefined, values, current.data))
     .eq("id", id)
     .select("*")
     .single();
+
+  if (!result.error && result.data) {
+    await safeLogFieldDiffs(client, result.data.user_id, "reimbursements", result.data.id, current.data, result.data);
+    if (current.data.status !== "received" && result.data.status === "received") {
+      await safeLogAction(client, {
+        user_id: result.data.user_id,
+        module: "reimbursements",
+        record_id: result.data.id,
+        action: "reimbursement_received",
+        field_name: "status",
+        old_value: current.data.status,
+        new_value: result.data.status,
+        metadata: { received_amount: result.data.received_amount },
+      });
+    }
+  }
+
+  return result;
 }
 
 export async function archiveReimbursement(client: AppSupabaseClient, id: string, userId: string, reason?: string) {
@@ -181,6 +204,17 @@ export async function renegotiateReimbursements(
     await client.from("reimbursements").delete().eq("user_id", userId).eq("id", insertResult.data.id);
     return { error: { message: "O novo título foi criado, mas os títulos antigos não puderam ser marcados como renegociados. A criação foi desfeita." } };
   }
+
+  await safeLogAction(client, {
+    user_id: userId,
+    module: "reimbursements",
+    record_id: insertResult.data.id,
+    action: "renegotiation",
+    field_name: null,
+    old_value: sourceIds,
+    new_value: { new_reimbursement_id: insertResult.data.id, expected_amount: openTotal },
+    metadata: { source_ids: sourceIds, count: sourceIds.length },
+  });
 
   return { error: null, created: insertResult.data, count: sourceIds.length };
 }

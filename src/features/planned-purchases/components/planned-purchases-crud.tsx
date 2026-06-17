@@ -6,6 +6,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
+import { AuditRecordHistory } from "@/features/audit/components/audit-record-history";
 import { archivePlannedPurchase, createPlannedPurchase, listPlannedPurchases, listPlannedPurchaseSupportData, updatePlannedPurchase } from "@/features/planned-purchases/queries";
 import { decisionStatusOptions, emptyPlannedPurchaseForm, plannedPurchaseToFormValues, type PlannedPurchaseFormValues, type PlannedPurchaseRow, type PlannedPurchaseSupportData } from "@/features/planned-purchases/types";
 import { ActionButton, BulkActionsBar, CategoryBadge, CategorySelect, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, RowSelectionHint, shouldToggleRowSelection, TextBadge, TitleButton, ViewPreferenceActions } from "@/features/shared/crud-ui";
@@ -139,6 +140,11 @@ export function PlannedPurchasesCrud() {
 
   function handleRestoreViewPreference() {
     clearViewPreference("purchases", userId);
+    handleClearFilters();
+    setFeedback({ type: "success", message: "Visualização padrão de compras restaurada." });
+  }
+
+  function handleClearFilters() {
     setSearch(purchasesDefaultViewPreference.search);
     setStatusFilter(purchasesDefaultViewPreference.statusFilter);
     setPriorityFilter(purchasesDefaultViewPreference.priorityFilter);
@@ -147,7 +153,6 @@ export function PlannedPurchasesCrud() {
     setPurchaseStateFilter(purchasesDefaultViewPreference.purchaseStateFilter);
     setViewMode(purchasesDefaultViewPreference.viewMode);
     setKanbanGroup(purchasesDefaultViewPreference.kanbanGroup);
-    setFeedback({ type: "success", message: "Visualização padrão de compras restaurada." });
   }
 
   const projectOptions = useMemo(() => {
@@ -451,7 +456,7 @@ export function PlannedPurchasesCrud() {
         </div>
         <p className="mt-3 text-sm text-ink-600 dark:text-slate-300">Mostrando {filtered.length} de {items.length} item(ns).</p>
         <div className="mt-4">
-          <ViewPreferenceActions onSave={handleSaveViewPreference} onRestore={handleRestoreViewPreference} />
+          <ViewPreferenceActions onSave={handleSaveViewPreference} onRestore={handleRestoreViewPreference} onClearFilters={handleClearFilters} />
         </div>
       </SectionCard>
 
@@ -625,7 +630,7 @@ export function PlannedPurchasesCrud() {
         )}
       </SectionCard>
 
-      {modal ? <PlannedPurchaseModal modal={modal} saving={saving} support={support} purchaseCategories={purchaseCategories} onClose={() => setModal(null)} onSubmit={(values) => void handleSubmit(values)} /> : null}
+      {modal ? <PlannedPurchaseModal modal={modal} saving={saving} support={support} purchaseCategories={purchaseCategories} userId={userId} onClose={() => setModal(null)} onSubmit={(values) => void handleSubmit(values)} /> : null}
     </div>
   );
 }
@@ -750,6 +755,7 @@ function PlannedPurchaseModal({
   saving,
   support,
   purchaseCategories,
+  userId,
   onClose,
   onSubmit,
 }: {
@@ -757,6 +763,7 @@ function PlannedPurchaseModal({
   saving: boolean;
   support: PlannedPurchaseSupportData;
   purchaseCategories: PlannedPurchaseSupportData["categories"];
+  userId: string | null;
   onClose: () => void;
   onSubmit: (values: PlannedPurchaseFormValues) => void;
 }) {
@@ -788,6 +795,11 @@ function PlannedPurchaseModal({
         <FieldShell label="Prioridade"><select className={inputClassName} value={values.risk_level} onChange={(event) => setValues({ ...values, risk_level: event.target.value as PlannedPurchaseFormValues["risk_level"] })}>{priorityOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></FieldShell>
         <div className="md:col-span-2"><FieldShell label="Notas"><textarea rows={3} className={inputClassName} value={values.notes} onChange={(event) => setValues({ ...values, notes: event.target.value })} /></FieldShell></div>
         <div className="flex justify-end gap-2 md:col-span-2"><ActionButton type="button" variant="secondary" onClick={onClose}>Cancelar</ActionButton><ActionButton type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar"}</ActionButton></div>
+        {modal?.mode === "edit" ? (
+          <div className="md:col-span-2">
+            <AuditRecordHistory userId={userId} module="planned_purchases" recordId={modal.item.id} title="Histórico da compra" />
+          </div>
+        ) : null}
       </form>
     </Modal>
   );

@@ -872,3 +872,87 @@ Os módulos de contas, receitas, faturas, lançamentos de fatura, reembolsos, co
 - A restauração fica disponível em `/dashboard/archived`
 
 Se a migration `supabase/migrations/202606080002_soft_archive_core_modules.sql` ainda não foi rodada, execute primeiro no Supabase SQL Editor antes de testar a tela de arquivados.
+
+## Histórico de alterações
+
+O Hub VZ agora possui histórico de auditoria para alterações importantes. A estrutura usa a tabela `audit_logs` com RLS por `user_id`.
+
+Eventos registrados nesta etapa:
+
+- criação
+- edição
+- arquivamento
+- restauração
+- mudança de fatura de lançamento
+- mudança de status
+- pagamento de fatura
+- reembolso recebido
+- renegociação
+- importação confirmada
+- recálculo financeiro
+
+Interface disponível:
+
+- rota `/dashboard/history` com filtros por módulo, ação, data, texto e registro
+- blocos de histórico em fatura, lançamento, reembolso, compra e meta
+
+Migration necessária antes de testar:
+
+- `supabase/migrations/202606170001_add_audit_logs.sql`
+
+## Exportação e backup
+
+O painel de Configurações agora possui a seção `Exportação e backup`.
+
+Formatos disponíveis:
+
+- `Exportar XLSX`: gera um arquivo `.xlsx` com aba `Metadata` e uma aba por módulo exportado
+- `Exportar JSON`: gera um arquivo `.json` com metadata e dados separados por módulo
+
+## Diagnóstico financeiro
+
+Existe uma rota dedicada em `/dashboard/diagnostics` para revisar inconsistências sem usar SQL manual.
+
+Blocos monitorados:
+- lançamentos sem fatura válida
+- faturas com total divergente
+- reembolsos com vínculo quebrado
+- reembolsos renegociados inconsistentes
+- faturas vazias
+- parcelamentos incompletos
+- categorias fora do escopo
+
+Ações seguras disponíveis:
+- recalcular fatura
+- abrir item relacionado
+- criar/vincular fatura correta com confirmação
+- ignorar alerta
+
+Migration necessária antes de testar:
+- `supabase/migrations/202606170002_add_diagnostic_alert_ignores.sql`
+
+Essa migration cria a tabela `diagnostic_alert_ignores`, usada para ocultar alertas revisados sem apagar dados financeiros.
+- `Exportar módulo específico`: permite exportar apenas um módulo em XLSX ou JSON
+
+Módulos cobertos:
+
+- contas
+- receitas
+- pessoas
+- categorias
+- cartões
+- faturas
+- lançamentos
+- reembolsos
+- parcelamentos
+- compras e desejos
+- metas
+- arquivados
+- importações
+
+Regras:
+
+- exporta apenas dados do usuário logado
+- não exporta tokens, senhas ou segredos de autenticação
+- o JSON inclui `versao`, `data_exportacao` e `usuario`
+- o XLSX inclui a coluna `exportado_em` e datas legíveis em `dd/mm/aaaa`

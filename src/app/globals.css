@@ -467,6 +467,143 @@ select {
   color: #f8fafc !important;
 }
 
+/* Global theme contracts. Keep shared surfaces readable regardless of local Tailwind utility mixes. */
+:root:not(.dark) .hub-shell {
+  color: #121417;
+}
+
+:root:not(.dark) .hub-shell .hub-card,
+:root:not(.dark) .hub-modal {
+  background: var(--hub-card-bg) !important;
+  border-color: var(--hub-card-border) !important;
+  color: #121417;
+}
+
+:root.dark .hub-shell .hub-card,
+:root.dark .hub-modal {
+  background: var(--hub-card-bg) !important;
+  border-color: var(--hub-card-border) !important;
+  color: #f8fafc;
+}
+
+.hub-modal-header {
+  background: var(--hub-surface) !important;
+  border-color: var(--hub-card-border) !important;
+  color: rgb(var(--hub-ink-950));
+}
+
+:root.dark .hub-modal-header {
+  background: #111827 !important;
+  color: #f8fafc;
+}
+
+:root:not(.dark) .hub-input,
+:root:not(.dark) input:not([type="checkbox"]):not([type="radio"]),
+:root:not(.dark) textarea,
+:root:not(.dark) select {
+  background-color: #ffffff !important;
+  border-color: rgba(15, 23, 42, 0.16) !important;
+  color: #121417 !important;
+  color-scheme: light;
+}
+
+:root:not(.dark) .hub-input::placeholder,
+:root:not(.dark) input::placeholder,
+:root:not(.dark) textarea::placeholder {
+  color: #64748b !important;
+}
+
+:root:not(.dark) select option {
+  background: #ffffff;
+  color: #121417;
+}
+
+:root:not(.dark) input[type="checkbox"],
+:root:not(.dark) input[type="radio"] {
+  accent-color: rgb(var(--hub-mint-600));
+  color-scheme: light;
+}
+
+:root.dark input[type="checkbox"],
+:root.dark input[type="radio"] {
+  accent-color: #2dd4bf;
+  background-color: initial !important;
+  color-scheme: dark;
+}
+
+:root.dark .bg-ink-950 {
+  background-color: #0f172a !important;
+}
+
+:root.dark .bg-ink-950\/5,
+:root.dark .bg-ink-950\/6 {
+  background-color: rgba(148, 163, 184, 0.1) !important;
+}
+
+:root.dark .hover\:bg-ink-800:hover {
+  background-color: #1e293b !important;
+}
+
+:root:not(.dark) .hub-action-primary {
+  background-color: #0f172a !important;
+  border-color: #0f172a !important;
+  color: #ffffff !important;
+}
+
+:root:not(.dark) .hub-action-secondary {
+  background-color: #ffffff !important;
+  border-color: rgba(15, 23, 42, 0.14) !important;
+  color: #121417 !important;
+}
+
+:root:not(.dark) .hub-action-danger {
+  background-color: #fff1f2 !important;
+  border-color: rgba(194, 65, 49, 0.22) !important;
+  color: rgb(var(--hub-danger-600)) !important;
+}
+
+.hub-shell table {
+  color: rgb(var(--hub-ink-950));
+}
+
+.hub-shell table thead {
+  background-color: var(--hub-surface-muted) !important;
+  color: rgb(var(--hub-ink-600)) !important;
+}
+
+.hub-shell table tbody {
+  color: rgb(var(--hub-ink-800));
+}
+
+.hub-shell table tbody tr {
+  border-color: rgba(15, 23, 42, 0.1);
+}
+
+.hub-shell table tbody tr:hover {
+  background-color: rgba(15, 23, 42, 0.025);
+}
+
+:root.dark .hub-shell table thead {
+  background-color: #0f172a !important;
+  color: #cbd5e1 !important;
+}
+
+:root.dark .hub-shell table tbody {
+  color: #e2e8f0;
+}
+
+:root.dark .hub-shell table tbody tr {
+  border-color: rgba(148, 163, 184, 0.16);
+}
+
+:root.dark .hub-shell table tbody tr:hover {
+  background-color: rgba(148, 163, 184, 0.06);
+}
+
+:root:not(.dark) .hub-status-badge {
+  border-color: transparent;
+}
+
 .hub-shell[data-animation-level="modern"] .hub-action:hover,
 .hub-shell[data-animation-level="flashy"] .hub-action:hover {
   transform: translateY(-1px);

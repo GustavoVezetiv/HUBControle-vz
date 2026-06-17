@@ -3,6 +3,7 @@ import type {
   AccountPayableFormValues,
   AccountPayableRow,
 } from "@/features/accounts-payable/types";
+import { safeLogAction, safeLogCreate, safeLogFieldDiffs } from "@/features/audit/logger";
 import type { AppSupabaseClient } from "@/features/shared/types";
 import { archiveRecord, restoreArchivedRecord } from "@/features/shared/archive";
 
@@ -21,11 +22,17 @@ export async function createAccountPayable(
   userId: string,
   values: AccountPayableFormValues,
 ) {
-  return client
+  const result = await client
     .from("accounts_payable")
     .insert(toPayload(userId, values))
     .select("*")
     .single();
+
+  if (!result.error && result.data) {
+    await safeLogCreate(client, userId, "accounts_payable", result.data.id, result.data);
+  }
+
+  return result;
 }
 
 export async function updateAccountPayable(
@@ -33,6 +40,12 @@ export async function updateAccountPayable(
   id: string,
   values: AccountPayableFormValues,
 ) {
+  const currentResult = await client.from("accounts_payable").select("*").eq("id", id).single();
+  if (currentResult.error || !currentResult.data) {
+    console.error("Erro técnico ao carregar conta atual para auditoria:", currentResult.error);
+    return { data: null, error: { message: "Não foi possível carregar a conta atual." } };
+  }
+
   const result = await client
     .from("accounts_payable")
     .update(toPayload(undefined, values))
@@ -46,6 +59,10 @@ export async function updateAccountPayable(
     if (syncResult.error) {
       console.error("Erro técnico ao sincronizar progresso do parcelamento:", syncResult.error);
     }
+  }
+
+  if (!result.error && result.data) {
+    await safeLogFieldDiffs(client, result.data.user_id, "accounts_payable", result.data.id, currentResult.data, result.data);
   }
 
   return result;
@@ -276,6 +293,20 @@ export async function payAccountWithCard(
     console.error("Erro técnico ao atualizar total da fatura:", invoiceUpdateResult.error);
     return { data: accountResult.data, error: { message: "Conta movida, mas não foi possível atualizar o total da fatura." } };
   }
+
+  await safeLogAction(client, {
+    user_id: userId,
+    module: "accounts_payable",
+    record_id: account.id,
+    action: "status_change",
+    field_name: "payment_method_planned",
+    old_value: account.payment_method_planned,
+    new_value: "credit_card",
+    metadata: {
+      target_invoice_id: values.invoice_id,
+      transaction_id: transactionResult.data.id,
+    },
+  });
 
   return { data: accountResult.data, error: null };
 }

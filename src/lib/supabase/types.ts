@@ -357,6 +357,30 @@ export type ImportRow = UserOwnedRow & {
   target_entity_id: string | null;
 };
 
+export type DiagnosticAlertIgnore = {
+  id: string;
+  user_id: string;
+  alert_key: string;
+  alert_type: string;
+  subject_type: string | null;
+  subject_id: string | null;
+  reason: string | null;
+  created_at: string;
+};
+
+export type AuditLog = {
+  id: string;
+  user_id: string;
+  module: string;
+  record_id: string | null;
+  action: string;
+  field_name: string | null;
+  old_value: Json | null;
+  new_value: Json | null;
+  metadata: Json;
+  created_at: string;
+};
+
 export type DashboardUser = {
   id: string;
   email: string | null;
@@ -389,6 +413,8 @@ export type Database = {
       notes: SupabaseTable<Note>;
       import_batches: SupabaseTable<ImportBatch>;
       import_rows: SupabaseTable<ImportRow>;
+      diagnostic_alert_ignores: SupabaseTable<DiagnosticAlertIgnore>;
+      audit_logs: SupabaseTable<AuditLog>;
     };
     Views: Record<string, never>;
     Functions: {

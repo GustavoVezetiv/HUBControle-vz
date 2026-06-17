@@ -145,9 +145,11 @@ export function InvoicesCrud() {
 
     setSearch(preferenceText(preference.search));
     setCardFilter(preferenceText(preference.cardFilter, "all"));
-    setStatusFilter(preferenceText(preference.statusFilter, "all"));
-    setPeriod(preferenceRecord(preference.period, invoicesDefaultViewPreference.period));
-  }, [userId]);
+    if (!searchParams.get("status")) setStatusFilter(preferenceText(preference.statusFilter, "all"));
+    if (!searchParams.get("period") && !searchParams.get("start") && !searchParams.get("end")) {
+      setPeriod(preferenceRecord(preference.period, invoicesDefaultViewPreference.period));
+    }
+  }, [searchParams, userId]);
 
   function handleSaveViewPreference() {
     const saved = saveViewPreference("invoices", userId, {
@@ -164,11 +166,15 @@ export function InvoicesCrud() {
 
   function handleRestoreViewPreference() {
     clearViewPreference("invoices", userId);
+    handleClearFilters();
+    setFeedback({ type: "success", message: "Visualização padrão de faturas restaurada." });
+  }
+
+  function handleClearFilters() {
     setSearch(invoicesDefaultViewPreference.search);
     setCardFilter(invoicesDefaultViewPreference.cardFilter);
     setStatusFilter(invoicesDefaultViewPreference.statusFilter);
     setPeriod(invoicesDefaultViewPreference.period);
-    setFeedback({ type: "success", message: "Visualização padrão de faturas restaurada." });
   }
 
   async function handleSubmit(values: InvoiceFormValues) {
@@ -367,7 +373,7 @@ export function InvoicesCrud() {
           </div>
         </div>
         <div className="mt-4">
-          <ViewPreferenceActions onSave={handleSaveViewPreference} onRestore={handleRestoreViewPreference} />
+          <ViewPreferenceActions onSave={handleSaveViewPreference} onRestore={handleRestoreViewPreference} onClearFilters={handleClearFilters} />
         </div>
       </SectionCard>
       <SectionCard title="Faturas cadastradas">

@@ -5,10 +5,11 @@ import { useEffect, useMemo, useState } from "react";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
-import { ActionButton, CrudFeedback, inputClassName, TextBadge } from "@/features/shared/crud-ui";
+import { ActionButton, CrudFeedback, inputClassName, TextBadge, ViewPreferenceActions } from "@/features/shared/crud-ui";
 import { restoreArchivedRecord, type ArchiveTarget } from "@/features/shared/archive";
 import { formatCurrency, formatDate } from "@/features/shared/format";
 import type { FeedbackState } from "@/features/shared/types";
+import { clearViewPreference, loadViewPreference, preferenceText, saveViewPreference } from "@/features/shared/view-preferences";
 import { createClient } from "@/lib/supabase/client";
 
 type ModuleOption = {
@@ -36,6 +37,10 @@ const moduleOptions: ModuleOption[] = [
   { value: "planned_purchases", label: "Compras e desejos" },
   { value: "goals", label: "Metas" },
 ];
+
+type ArchivedViewPreference = {
+  moduleFilter?: ArchiveTarget | "all";
+};
 
 export function ArchivedRecords() {
   const [rows, setRows] = useState<ArchivedRow[]>([]);
@@ -180,6 +185,31 @@ export function ArchivedRecords() {
     void loadData();
   }, []);
 
+  useEffect(() => {
+    if (!userId) return;
+    const preference = loadViewPreference<ArchivedViewPreference>("archived", userId);
+    if (!preference) return;
+    setModuleFilter(preferenceText(preference.moduleFilter, "all") as ArchiveTarget | "all");
+  }, [userId]);
+
+  function handleSaveViewPreference() {
+    const saved = saveViewPreference("archived", userId, { moduleFilter });
+    setFeedback({
+      type: saved ? "success" : "error",
+      message: saved ? "Visualização padrão de arquivados salva." : "Não foi possível salvar a visualização padrão.",
+    });
+  }
+
+  function handleRestoreViewPreference() {
+    clearViewPreference("archived", userId);
+    handleClearFilters();
+    setFeedback({ type: "success", message: "Visualização padrão de arquivados restaurada." });
+  }
+
+  function handleClearFilters() {
+    setModuleFilter("all");
+  }
+
   async function handleRestore(row: ArchivedRow) {
     if (!userId) return;
 
@@ -232,6 +262,9 @@ export function ArchivedRecords() {
               </option>
             ))}
           </select>
+        </div>
+        <div className="mt-4">
+          <ViewPreferenceActions onSave={handleSaveViewPreference} onRestore={handleRestoreViewPreference} onClearFilters={handleClearFilters} />
         </div>
       </SectionCard>
 

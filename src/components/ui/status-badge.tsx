@@ -9,7 +9,7 @@ export function StatusBadge({ children, tone = "neutral" }: StatusBadgeProps) {
   return (
     <span
       className={[
-        "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
+        "hub-status-badge inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
         toneClassName[tone],
       ].join(" ")}
     >

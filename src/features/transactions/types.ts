@@ -36,6 +36,13 @@ export type TransactionFormValues = {
   recurrence_occurrences: string;
 };
 
+export type MoveTransactionInvoiceValues = {
+  credit_card_id: string;
+  invoice_id: string;
+  confirm_card_change: boolean;
+  confirm_paid_invoice_move: boolean;
+};
+
 export const emptyTransactionForm: TransactionFormValues = {
   credit_card_id: "",
   invoice_id: "",
