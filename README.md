@@ -932,6 +932,104 @@ Migration necessária antes de testar:
 - `supabase/migrations/202606170002_add_diagnostic_alert_ignores.sql`
 
 Essa migration cria a tabela `diagnostic_alert_ignores`, usada para ocultar alertas revisados sem apagar dados financeiros.
+
+## Revisão semanal com Google Tasks
+
+A rota `/dashboard/weekly-review` adiciona uma camada de leitura e histórico sobre o Google Tasks.
+O Hub VZ não edita, move ou conclui tarefas no Google; ele apenas lê, sincroniza, categoriza internamente e gera eventos/relatórios.
+
+Configuração OAuth:
+- Crie um OAuth Client no Google Cloud Console.
+- Ative a Google Tasks API.
+- Configure o redirect URI: `https://SEU_DOMINIO/api/routine/google-tasks/callback`
+- Em desenvolvimento local: `http://localhost:3000/api/routine/google-tasks/callback`
+- Configure as variáveis server-side:
+  - `GOOGLE_TASKS_CLIENT_ID`
+  - `GOOGLE_TASKS_CLIENT_SECRET`
+  - `GOOGLE_TASKS_TOKEN_ENCRYPTION_KEY`
+  - `GEMINI_API_KEY` para gerar a análise textual da semana
+  - `CRON_SECRET` para proteger a sincronização automática
+  - `SUPABASE_SERVICE_ROLE_KEY` somente no servidor, usado pelo cron para processar usuários conectados
+
+Escopo usado:
+- `https://www.googleapis.com/auth/tasks.readonly`
+
+Migrations necessárias:
+- `supabase/migrations/202606180001_routine_weekly_review_google_tasks.sql`
+- `supabase/migrations/202606180002_routine_ai_summaries.sql`
+- `supabase/migrations/202606180003_routine_auto_sync_runs.sql`
+
+Como testar sincronização manual:
+1. Rode a migration no Supabase.
+2. Configure as variáveis OAuth no ambiente local/Vercel.
+3. Abra `/dashboard/weekly-review`.
+4. Clique em `Conectar Google Tasks`.
+5. Autorize a conta Google.
+6. Clique em `Sincronizar agora`.
+7. Confira listas, tarefas abertas/concluídas, eventos da semana, contagens por lista/categoria e visão mensal.
+8. Selecione a semana desejada.
+9. Clique em `Gerar análise da semana`.
+10. Confira status, data da última análise e texto salvo.
+
+A análise com Gemini:
+
+- roda somente após clique explícito do usuário
+- usa chamada server-side, sem expor `GEMINI_API_KEY` no frontend
+- envia apenas um JSON resumido com contagens, títulos, datas, listas, categorias e eventos
+- não envia `raw_json`, tokens, IDs internos sensíveis ou dados desnecessários
+- não cria, edita, move ou conclui tarefas no Google Tasks
+- salva o resultado em `routine_ai_summaries` por semana
+
+Sincronização automática:
+
+- endpoint: `/api/routine/sync/google-tasks`
+- protegido por `CRON_SECRET`
+- configurado em `vercel.json` para rodar a cada 1 hora
+- usa o mesmo motor da sincronização manual
+- registra execuções em `routine_sync_runs`
+- atualiza `last_sync_attempt_at`, `last_successful_sync_at` e `last_sync_error`
+- não chama Gemini
+- não edita, move, cria ou conclui tarefas no Google Tasks
+- deduplica eventos por assinatura de tarefa, tipo, valor antigo e valor novo
+
+Teste local do cron:
+
+```bash
+curl -X POST "http://localhost:3000/api/routine/sync/google-tasks?secret=SEU_CRON_SECRET"
+```
+
+Teste em produção:
+
+```bash
+curl -X POST "https://SEU_DOMINIO/api/routine/sync/google-tasks" \
+  -H "Authorization: Bearer SEU_CRON_SECRET"
+```
+
+Variáveis necessárias na Vercel para o cron:
+
+```bash
+CRON_SECRET=
+SUPABASE_SERVICE_ROLE_KEY=
+GOOGLE_TASKS_CLIENT_ID=
+GOOGLE_TASKS_CLIENT_SECRET=
+GOOGLE_TASKS_TOKEN_ENCRYPTION_KEY=
+```
+
+`SUPABASE_SERVICE_ROLE_KEY` é usado apenas por rota server-side protegida. Nunca use essa chave em código client-side nem em variável `NEXT_PUBLIC_`.
+
+Eventos detectados no MVP:
+- `CREATED`
+- `MOVED_LIST`
+- `PRIORITIZED`
+- `COMPLETED`
+- `REOPENED`
+- `TITLE_CHANGED`
+- `NOTES_CHANGED`
+- `DUE_DATE_CHANGED`
+
+Pendências para sync automático:
+- definir janela de sincronização automática e retenção de snapshots
+- avaliar versionamento de múltiplas análises por semana, se houver necessidade histórica
 - `Exportar módulo específico`: permite exportar apenas um módulo em XLSX ou JSON
 
 Módulos cobertos:
