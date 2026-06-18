@@ -24,11 +24,17 @@ import {
   getImportTargetConfig,
 } from "@/features/imports/templates";
 import type { ImportDateFormat, ImportTarget, PreviewRow } from "@/features/imports/types";
-import { ActionButton, CrudFeedback, inputClassName, TextBadge } from "@/features/shared/crud-ui";
+import { ActionButton, CrudFeedback, inputClassName, TextBadge, ViewPreferenceActions } from "@/features/shared/crud-ui";
 import { formatDate } from "@/features/shared/format";
 import type { FeedbackState } from "@/features/shared/types";
+import { clearViewPreference, loadViewPreference, preferenceString, saveViewPreference } from "@/features/shared/view-preferences";
 import { createClient } from "@/lib/supabase/client";
 import type { ImportBatch } from "@/lib/supabase/types";
+
+type ImportsViewPreference = {
+  target?: ImportTarget;
+  dateFormat?: ImportDateFormat;
+};
 
 export function ImportsWorkbench() {
   const [target, setTarget] = useState<ImportTarget>("people");
@@ -70,6 +76,40 @@ export function ImportsWorkbench() {
   useEffect(() => {
     void loadHistory();
   }, []);
+
+  useEffect(() => {
+    if (!userId) return;
+    const preference = loadViewPreference<ImportsViewPreference>("imports", userId);
+    if (!preference) return;
+
+    setTarget(
+      preferenceString(
+        preference.target,
+        ["people", "categories", "accounts_payable", "income_sources", "system_goals_purchases"] as const,
+        "people",
+      ),
+    );
+    setDateFormat(preferenceString(preference.dateFormat, ["br", "iso", "auto"] as const, "br"));
+  }, [userId]);
+
+  function handleSaveViewPreference() {
+    const saved = saveViewPreference("imports", userId, { target, dateFormat });
+    setFeedback({
+      type: saved ? "success" : "error",
+      message: saved ? "Visualização padrão de importações salva." : "Não foi possível salvar a visualização padrão.",
+    });
+  }
+
+  function handleRestoreViewPreference() {
+    clearViewPreference("imports", userId);
+    handleClearFilters();
+    setFeedback({ type: "success", message: "Visualização padrão de importações restaurada." });
+  }
+
+  function handleClearFilters() {
+    setTarget("people");
+    setDateFormat("br");
+  }
 
   async function handleParse() {
     if (!file) {
@@ -469,6 +509,9 @@ export function ImportsWorkbench() {
         <p className="mt-2 text-sm leading-6 text-ink-600">
           Datas podem ser lidas como <strong>dd/mm/aaaa</strong>, <strong>dd-mm-aaaa</strong> ou <strong>aaaa-mm-dd</strong>, conforme o formato escolhido.
         </p>
+        <div className="mt-4">
+          <ViewPreferenceActions onSave={handleSaveViewPreference} onRestore={handleRestoreViewPreference} onClearFilters={handleClearFilters} />
+        </div>
       </SectionCard>
 
       <SectionCard title="Prévia" description="Revise erros e ignore linhas antes de confirmar.">

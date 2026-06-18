@@ -1,4 +1,5 @@
 import type { AppSupabaseClient } from "@/features/shared/types";
+import { safeLogAction } from "@/features/audit/logger";
 
 export type ArchiveTarget =
   | "reimbursements"
@@ -16,7 +17,7 @@ export async function archiveRecord(
   userId: string,
   reason?: string,
 ) {
-  return client
+  const result = await client
     .from(table)
     .update({
       archived_at: new Date().toISOString(),
@@ -28,6 +29,21 @@ export async function archiveRecord(
     .is("archived_at", null)
     .select("*")
     .single();
+
+  if (!result.error && result.data) {
+    await safeLogAction(client, {
+      user_id: userId,
+      module: table,
+      record_id: id,
+      action: "archive",
+      field_name: null,
+      old_value: null,
+      new_value: { archived_at: result.data.archived_at, archive_reason: result.data.archive_reason },
+      metadata: reason?.trim() ? { reason: reason.trim() } : {},
+    });
+  }
+
+  return result;
 }
 
 export async function restoreArchivedRecord(
@@ -36,7 +52,7 @@ export async function restoreArchivedRecord(
   id: string,
   userId: string,
 ) {
-  return client
+  const result = await client
     .from(table)
     .update({
       archived_at: null,
@@ -48,4 +64,19 @@ export async function restoreArchivedRecord(
     .not("archived_at", "is", null)
     .select("*")
     .single();
+
+  if (!result.error && result.data) {
+    await safeLogAction(client, {
+      user_id: userId,
+      module: table,
+      record_id: id,
+      action: "restore",
+      field_name: null,
+      old_value: null,
+      new_value: { restored: true },
+      metadata: {},
+    });
+  }
+
+  return result;
 }

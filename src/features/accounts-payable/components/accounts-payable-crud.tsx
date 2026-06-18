@@ -248,12 +248,14 @@ export function AccountsPayableCrud() {
     if (!preference) return;
 
     setSearch(preferenceText(preference.search));
-    setStatusFilter(preferenceText(preference.statusFilter, "all"));
-    setPriorityFilter(preferenceText(preference.priorityFilter, "all"));
+    if (!searchParams.get("status")) setStatusFilter(preferenceText(preference.statusFilter, "all"));
+    if (!searchParams.get("priority")) setPriorityFilter(preferenceText(preference.priorityFilter, "all"));
     setCategoryFilter(preferenceText(preference.categoryFilter, "all"));
     setPersonFilter(preferenceText(preference.personFilter, "all"));
-    setPeriod(preferenceRecord(preference.period, accountsDefaultViewPreference.period));
-  }, [userId]);
+    if (!searchParams.get("period") && !searchParams.get("start") && !searchParams.get("end")) {
+      setPeriod(preferenceRecord(preference.period, accountsDefaultViewPreference.period));
+    }
+  }, [searchParams, userId]);
 
   function handleSaveViewPreference() {
     const saved = saveViewPreference("accounts", userId, {
@@ -272,13 +274,17 @@ export function AccountsPayableCrud() {
 
   function handleRestoreViewPreference() {
     clearViewPreference("accounts", userId);
+    handleClearFilters();
+    setFeedback({ type: "success", message: "Visualização padrão de contas restaurada." });
+  }
+
+  function handleClearFilters() {
     setSearch(accountsDefaultViewPreference.search);
     setStatusFilter(accountsDefaultViewPreference.statusFilter);
     setPriorityFilter(accountsDefaultViewPreference.priorityFilter);
     setCategoryFilter(accountsDefaultViewPreference.categoryFilter);
     setPersonFilter(accountsDefaultViewPreference.personFilter);
     setPeriod(accountsDefaultViewPreference.period);
-    setFeedback({ type: "success", message: "Visualização padrão de contas restaurada." });
   }
 
   async function handleSubmit(values: AccountPayableFormValues) {
@@ -611,7 +617,7 @@ export function AccountsPayableCrud() {
           </select>
         </div>
         <div className="mt-4">
-          <ViewPreferenceActions onSave={handleSaveViewPreference} onRestore={handleRestoreViewPreference} />
+          <ViewPreferenceActions onSave={handleSaveViewPreference} onRestore={handleRestoreViewPreference} onClearFilters={handleClearFilters} />
         </div>
       </SectionCard>
 

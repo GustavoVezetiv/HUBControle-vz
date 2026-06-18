@@ -357,6 +357,158 @@ export type ImportRow = UserOwnedRow & {
   target_entity_id: string | null;
 };
 
+export type DiagnosticAlertIgnore = {
+  id: string;
+  user_id: string;
+  alert_key: string;
+  alert_type: string;
+  subject_type: string | null;
+  subject_id: string | null;
+  reason: string | null;
+  created_at: string;
+};
+
+export type RoutineGoogleConnection = UserOwnedRow & {
+  provider: string;
+  status: string;
+  scope: string;
+  encrypted_access_token: string | null;
+  encrypted_refresh_token: string | null;
+  token_expires_at: string | null;
+  connected_at: string | null;
+  last_sync_at: string | null;
+  last_sync_attempt_at: string | null;
+  last_successful_sync_at: string | null;
+  last_sync_error: string | null;
+  auto_sync_enabled: boolean;
+  raw_json: Json;
+};
+
+export type RoutineCategory = UserOwnedRow & {
+  name: string;
+  color: string | null;
+  is_default: boolean;
+};
+
+export type RoutineTaskList = UserOwnedRow & {
+  google_task_list_id: string;
+  title: string;
+  is_priority_queue: boolean;
+  updated_at_google: string | null;
+  last_seen_at: string;
+  raw_json: Json;
+};
+
+export type RoutineTask = UserOwnedRow & {
+  google_task_id: string;
+  google_task_list_id: string;
+  routine_task_list_id: string | null;
+  title: string;
+  notes: string | null;
+  status: string;
+  due_date: string | null;
+  completed_at: string | null;
+  updated_at_google: string | null;
+  last_seen_at: string;
+  detected_category_id: string | null;
+  confirmed_category_id: string | null;
+  parent_google_task_id: string | null;
+  position: string | null;
+  is_hidden: boolean;
+  raw_json: Json;
+};
+
+export type RoutineTaskSnapshot = {
+  id: string;
+  user_id: string;
+  routine_task_id: string;
+  google_task_id: string;
+  google_task_list_id: string;
+  title: string;
+  notes: string | null;
+  status: string;
+  due_date: string | null;
+  completed_at: string | null;
+  detected_category_id: string | null;
+  confirmed_category_id: string | null;
+  raw_json: Json;
+  snapshot_at: string;
+};
+
+export type RoutineTaskEvent = {
+  id: string;
+  user_id: string;
+  routine_task_id: string | null;
+  google_task_id: string;
+  event_type: string;
+  previous_value: Json | null;
+  new_value: Json | null;
+  event_at: string;
+  metadata: Json;
+  sync_run_id: string | null;
+  event_signature: string | null;
+  created_at: string;
+};
+
+export type RoutineWeeklyReport = {
+  id: string;
+  user_id: string;
+  week_start_date: string;
+  week_end_date: string;
+  completed_count: number;
+  prioritized_count: number;
+  open_count: number;
+  stale_count: number;
+  events_count: number;
+  summary_json: Json;
+  future_ai_summary: string | null;
+  generated_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type RoutineAiSummary = {
+  id: string;
+  user_id: string;
+  week_start: string;
+  week_end: string;
+  provider: string;
+  model: string;
+  input_summary_json: Json;
+  summary_text: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type RoutineSyncRun = {
+  id: string;
+  user_id: string;
+  provider: string;
+  started_at: string;
+  finished_at: string | null;
+  status: string;
+  tasks_seen: number;
+  tasks_created: number;
+  tasks_updated: number;
+  events_created: number;
+  error_message: string | null;
+  created_at: string;
+};
+
+export type AuditLog = {
+  id: string;
+  user_id: string;
+  module: string;
+  record_id: string | null;
+  action: string;
+  field_name: string | null;
+  old_value: Json | null;
+  new_value: Json | null;
+  metadata: Json;
+  created_at: string;
+};
+
 export type DashboardUser = {
   id: string;
   email: string | null;
@@ -389,6 +541,17 @@ export type Database = {
       notes: SupabaseTable<Note>;
       import_batches: SupabaseTable<ImportBatch>;
       import_rows: SupabaseTable<ImportRow>;
+      diagnostic_alert_ignores: SupabaseTable<DiagnosticAlertIgnore>;
+      routine_google_connections: SupabaseTable<RoutineGoogleConnection>;
+      routine_categories: SupabaseTable<RoutineCategory>;
+      routine_task_lists: SupabaseTable<RoutineTaskList>;
+      routine_tasks: SupabaseTable<RoutineTask>;
+      routine_task_snapshots: SupabaseTable<RoutineTaskSnapshot>;
+      routine_task_events: SupabaseTable<RoutineTaskEvent>;
+      routine_weekly_reports: SupabaseTable<RoutineWeeklyReport>;
+      routine_ai_summaries: SupabaseTable<RoutineAiSummary>;
+      routine_sync_runs: SupabaseTable<RoutineSyncRun>;
+      audit_logs: SupabaseTable<AuditLog>;
     };
     Views: Record<string, never>;
     Functions: {

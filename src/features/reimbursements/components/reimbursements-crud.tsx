@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
+import { AuditRecordHistory } from "@/features/audit/components/audit-record-history";
 import {
   buildPersonDebtSummaries,
   filterPersonDebtSummaries,
@@ -223,12 +224,14 @@ export function ReimbursementsCrud() {
 
     setSearch(preferenceText(preference.search));
     setPersonFilter(preferenceText(preference.personFilter, "all"));
-    setStatusFilter(preferenceText(preference.statusFilter, "all"));
+    if (!searchParams.get("status")) setStatusFilter(preferenceText(preference.statusFilter, "all"));
     setLinkedFilter(preferenceText(preference.linkedFilter, "all"));
     setCategoryFilter(preferenceText(preference.categoryFilter, "all"));
     setPeopleSummaryView(preferenceString(preference.peopleSummaryView, reimbursementSummaryViews, "open_period"));
-    setPeriod(preferenceRecord(preference.period, reimbursementsDefaultViewPreference.period));
-  }, [userId]);
+    if (!searchParams.get("period") && !searchParams.get("start") && !searchParams.get("end")) {
+      setPeriod(preferenceRecord(preference.period, reimbursementsDefaultViewPreference.period));
+    }
+  }, [searchParams, userId]);
 
   function handleSaveViewPreference() {
     const saved = saveViewPreference("reimbursements", userId, {
@@ -248,6 +251,11 @@ export function ReimbursementsCrud() {
 
   function handleRestoreViewPreference() {
     clearViewPreference("reimbursements", userId);
+    handleClearFilters();
+    setFeedback({ type: "success", message: "Visualização padrão de reembolsos restaurada." });
+  }
+
+  function handleClearFilters() {
     setSearch(reimbursementsDefaultViewPreference.search);
     setPersonFilter(reimbursementsDefaultViewPreference.personFilter);
     setStatusFilter(reimbursementsDefaultViewPreference.statusFilter);
@@ -255,7 +263,6 @@ export function ReimbursementsCrud() {
     setCategoryFilter(reimbursementsDefaultViewPreference.categoryFilter);
     setPeopleSummaryView(reimbursementsDefaultViewPreference.peopleSummaryView);
     setPeriod(reimbursementsDefaultViewPreference.period);
-    setFeedback({ type: "success", message: "Visualização padrão de reembolsos restaurada." });
   }
 
   async function handleSubmit(values: ReimbursementFormValues) {
@@ -767,7 +774,7 @@ export function ReimbursementsCrud() {
           </select>
         </div>
         <div className="mt-4">
-          <ViewPreferenceActions onSave={handleSaveViewPreference} onRestore={handleRestoreViewPreference} />
+          <ViewPreferenceActions onSave={handleSaveViewPreference} onRestore={handleRestoreViewPreference} onClearFilters={handleClearFilters} />
         </div>
       </SectionCard>
 
@@ -1027,6 +1034,7 @@ export function ReimbursementsCrud() {
           people={people}
           saving={saving}
           transactions={transactions}
+          userId={userId}
           onClose={() => setModal(null)}
           onSubmit={(values) => void handleSubmit(values)}
         />
@@ -1079,6 +1087,7 @@ function ReimbursementModal({
   people,
   saving,
   transactions,
+  userId,
   onClose,
   onSubmit,
 }: {
@@ -1091,6 +1100,7 @@ function ReimbursementModal({
   people: ReimbursementPerson[];
   saving: boolean;
   transactions: ReimbursementTransaction[];
+  userId: string | null;
   onClose: () => void;
   onSubmit: (values: ReimbursementFormValues) => void;
 }) {
@@ -1511,6 +1521,11 @@ function ReimbursementModal({
           <ActionButton type="button" variant="secondary" onClick={onClose}>Cancelar</ActionButton>
           <ActionButton type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar"}</ActionButton>
         </div>
+        {modal?.mode === "edit" ? (
+          <div className="md:col-span-2">
+            <AuditRecordHistory userId={userId} module="reimbursements" recordId={modal.reimbursement.id} title="Histórico do reembolso" />
+          </div>
+        ) : null}
       </form>
     </Modal>
   );

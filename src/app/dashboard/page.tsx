@@ -4,10 +4,10 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
+import { DashboardViewPreferences } from "@/features/dashboard/components/dashboard-view-preferences";
 import { buildFinancialSummary, type DecisionItem } from "@/features/decision/financial-summary";
 import { calculatePaymentPlanScenario } from "@/features/payment-plans/simulator";
 import { formatCurrency, formatDate, todayISO } from "@/features/shared/format";
-import { PeriodFilter } from "@/features/shared/period-filter";
 import {
   isAnyDateInPeriod,
   isDateInPeriod,
@@ -193,11 +193,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         description="Um ponto de partida visual para entender contas, entradas, reembolsos, faturas e riscos do mês."
       />
 
-      <PeriodFilter
-        value={period}
-        syncUrl
-        description="Escolha o período usado nos cards, listas e resumo financeiro do dashboard."
-      />
+      <DashboardViewPreferences initialPeriod={period} />
 
       <SmartSuggestions suggestions={smartSuggestions} />
 

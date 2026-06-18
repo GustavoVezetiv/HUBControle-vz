@@ -1,4 +1,5 @@
 import type { InvoiceFormValues, InvoiceRow } from "@/features/invoices/types";
+import { safeLogAction, safeLogCreate, safeLogFieldDiffs } from "@/features/audit/logger";
 import { archiveRecord, restoreArchivedRecord } from "@/features/shared/archive";
 import type { AppSupabaseClient } from "@/features/shared/types";
 
@@ -11,11 +12,39 @@ export async function listInvoiceCards(client: AppSupabaseClient) {
 }
 
 export async function createInvoice(client: AppSupabaseClient, userId: string, values: InvoiceFormValues) {
-  return client.from("credit_card_invoices").insert(toPayload(userId, values)).select("*").single();
+  const result = await client.from("credit_card_invoices").insert(toPayload(userId, values)).select("*").single();
+  if (!result.error && result.data) {
+    await safeLogCreate(client, userId, "credit_card_invoices", result.data.id, result.data);
+  }
+  return result;
 }
 
 export async function updateInvoice(client: AppSupabaseClient, id: string, values: InvoiceFormValues) {
-  return client.from("credit_card_invoices").update(toPayload(undefined, values)).eq("id", id).select("*").single();
+  const currentResult = await client.from("credit_card_invoices").select("*").eq("id", id).single();
+  if (currentResult.error || !currentResult.data) {
+    console.error("Erro técnico ao carregar fatura atual para auditoria:", currentResult.error);
+    return { data: null, error: { message: "Não foi possível carregar a fatura atual." } };
+  }
+
+  const result = await client.from("credit_card_invoices").update(toPayload(undefined, values)).eq("id", id).select("*").single();
+
+  if (!result.error && result.data) {
+    await safeLogFieldDiffs(client, result.data.user_id, "credit_card_invoices", result.data.id, currentResult.data, result.data);
+    if (currentResult.data.status !== "paid" && result.data.status === "paid") {
+      await safeLogAction(client, {
+        user_id: result.data.user_id,
+        module: "credit_card_invoices",
+        record_id: result.data.id,
+        action: "invoice_paid",
+        field_name: "status",
+        old_value: currentResult.data.status,
+        new_value: result.data.status,
+        metadata: { paid_amount: result.data.paid_amount },
+      });
+    }
+  }
+
+  return result;
 }
 
 export async function archiveInvoice(client: AppSupabaseClient, id: string, userId: string, reason?: string) {

@@ -6,6 +6,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
+import { AuditRecordHistory } from "@/features/audit/components/audit-record-history";
 import {
   ActionButton,
   BulkActionsBar,
@@ -212,6 +213,11 @@ export function GoalsCrud() {
 
   function handleRestoreViewPreference() {
     clearViewPreference("goals", userId);
+    handleClearFilters();
+    setFeedback({ type: "success", message: "Visualização padrão de metas restaurada." });
+  }
+
+  function handleClearFilters() {
     setViewMode(goalsDefaultViewPreference.viewMode);
     setKanbanGroup(goalsDefaultViewPreference.kanbanGroup);
     setSearch(goalsDefaultViewPreference.search);
@@ -220,7 +226,6 @@ export function GoalsCrud() {
     setCategoryFilter(goalsDefaultViewPreference.categoryFilter);
     setDeadlineFilter(goalsDefaultViewPreference.deadlineFilter);
     setUrgencyFilter(goalsDefaultViewPreference.urgencyFilter);
-    setFeedback({ type: "success", message: "Visualização padrão de metas restaurada." });
   }
 
   async function handleSubmit(values: GoalFormValues) {
@@ -417,7 +422,7 @@ export function GoalsCrud() {
           Mostrando {filteredGoals.length} de {goals.length} metas. Arrastar cards altera dados somente nos agrupamentos por status ou tipo/categoria.
         </p>
         <div className="mt-4">
-          <ViewPreferenceActions onSave={handleSaveViewPreference} onRestore={handleRestoreViewPreference} />
+          <ViewPreferenceActions onSave={handleSaveViewPreference} onRestore={handleRestoreViewPreference} onClearFilters={handleClearFilters} />
         </div>
       </SectionCard>
 
@@ -551,7 +556,7 @@ export function GoalsCrud() {
         )}
       </SectionCard>
 
-      {modal ? <GoalModal modal={modal} saving={saving} onClose={() => setModal(null)} onSubmit={(values) => void handleSubmit(values)} /> : null}
+      {modal ? <GoalModal modal={modal} saving={saving} userId={userId} onClose={() => setModal(null)} onSubmit={(values) => void handleSubmit(values)} /> : null}
     </div>
   );
 }
@@ -661,7 +666,7 @@ function GoalKanbanCard({
   );
 }
 
-function GoalModal({ modal, saving, onClose, onSubmit }: { modal: ModalState; saving: boolean; onClose: () => void; onSubmit: (values: GoalFormValues) => void }) {
+function GoalModal({ modal, saving, userId, onClose, onSubmit }: { modal: ModalState; saving: boolean; userId: string | null; onClose: () => void; onSubmit: (values: GoalFormValues) => void }) {
   const [values, setValues] = useState<GoalFormValues>(modal?.mode === "edit" ? goalToFormValues(modal.goal) : emptyGoalForm);
   const isFinancial = values.goal_kind === "financial";
   const submitValues = isFinancial
@@ -698,6 +703,11 @@ function GoalModal({ modal, saving, onClose, onSubmit }: { modal: ModalState; sa
           <ActionButton type="button" variant="secondary" onClick={onClose}>Cancelar</ActionButton>
           <ActionButton type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar"}</ActionButton>
         </div>
+        {modal?.mode === "edit" ? (
+          <div className="md:col-span-2">
+            <AuditRecordHistory userId={userId} module="goals" recordId={modal.goal.id} title="Histórico da meta" />
+          </div>
+        ) : null}
       </form>
     </Modal>
   );

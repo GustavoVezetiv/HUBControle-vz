@@ -161,7 +161,12 @@ export async function ensureInvoicesForTransactionDates(
   return { invoicesByDate, error: null };
 }
 
-export async function recalculateInvoiceTotal(client: AppSupabaseClient, userId: string, invoiceId: string) {
+export async function recalculateInvoiceTotal(
+  client: AppSupabaseClient,
+  userId: string,
+  invoiceId: string,
+  options: { includePaid?: boolean } = {},
+) {
   const invoiceResult = await client
     .from("credit_card_invoices")
     .select("id,status")
@@ -175,7 +180,7 @@ export async function recalculateInvoiceTotal(client: AppSupabaseClient, userId:
     return { totalAmount: 0, error: invoiceResult.error ?? { message: "Fatura não encontrada." } };
   }
 
-  if (invoiceResult.data.status === "paid") {
+  if (invoiceResult.data.status === "paid" && !options.includePaid) {
     return { totalAmount: 0, error: null, skipped: true };
   }
 

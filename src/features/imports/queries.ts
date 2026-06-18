@@ -1,4 +1,5 @@
 import { buildInsertPayload } from "@/features/imports/import-engine";
+import { safeLogAction } from "@/features/audit/logger";
 import { isActiveImportTarget } from "@/features/imports/templates";
 import type { ImportTarget, PreviewRow, ReferenceData } from "@/features/imports/types";
 import type { AppSupabaseClient } from "@/features/shared/types";
@@ -243,6 +244,26 @@ export async function confirmImportRows(
       invalid_rows: results.filter((row) => ["invalid", "failed"].includes(row.status)).length,
     })
     .eq("id", batchId);
+
+  await safeLogAction(client, {
+    user_id: userId,
+    module: "import_batches",
+    record_id: batchId,
+    action: "import_confirmed",
+    field_name: null,
+    old_value: null,
+    new_value: {
+      target,
+      imported_rows: importedCount,
+      failed_rows: failedCount,
+    },
+    metadata: {
+      target,
+      total_rows: rows.length,
+      imported_rows: importedCount,
+      failed_rows: failedCount,
+    },
+  });
 
   return results;
 }

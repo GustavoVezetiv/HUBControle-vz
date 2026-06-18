@@ -167,10 +167,12 @@ export function ActionButton({
 export function ViewPreferenceActions({
   onSave,
   onRestore,
+  onClearFilters,
   disabled = false,
 }: {
   onSave: () => void;
   onRestore: () => void;
+  onClearFilters?: () => void;
   disabled?: boolean;
 }) {
   return (
@@ -181,6 +183,11 @@ export function ViewPreferenceActions({
       <ActionButton type="button" variant="secondary" onClick={onRestore} disabled={disabled}>
         Restaurar padrão
       </ActionButton>
+      {onClearFilters ? (
+        <ActionButton type="button" variant="secondary" onClick={onClearFilters} disabled={disabled}>
+          Limpar filtros
+        </ActionButton>
+      ) : null}
     </div>
   );
 }
