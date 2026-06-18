@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/routine/sync/google-tasks",
-      "schedule": "0 * * * *"
+      "schedule": "0 9 * * *"
     }
   ]
 }
