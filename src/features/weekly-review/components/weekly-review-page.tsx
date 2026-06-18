@@ -373,7 +373,12 @@ function WeeklyAiAnalysisSection({
       <div className="mb-4 grid gap-4 md:grid-cols-3">
         <StatCard label="Status da análise" value={status} helper="A IA não executa em sincronizações." tone={aiSummary?.summary_text ? "success" : aiSummary?.error_message ? "danger" : "neutral"} />
         <StatCard label="Última análise" value={aiSummary?.updated_at ? formatDate(aiSummary.updated_at.slice(0, 10)) : "-"} helper={aiSummary?.model ?? "Modelo configurado no servidor."} tone="info" />
-        <StatCard label="Dados suficientes" value={hasEnoughData ? "Sim" : "Poucos"} helper="Sem dados, o resumo será limitado." tone={hasEnoughData ? "success" : "warning"} />
+        <StatCard
+          label="Dados suficientes"
+          value={hasEnoughData ? "Sim" : "Poucos"}
+          helper={hasEnoughData ? "Dados sincronizados disponíveis para análise." : "Poucos dados sincronizados. A análise pode ficar limitada."}
+          tone={hasEnoughData ? "success" : "warning"}
+        />
       </div>
 
       {!hasEnoughData ? (
@@ -396,19 +401,19 @@ function WeeklyAiAnalysisSection({
 function AiSummaryText({ text }: { text: string }) {
   const blocks = text
     .split(/\n+/)
-    .map((line) => line.trim())
+    .map((line) => cleanAiMarkdown(line.trim()))
     .filter(Boolean);
 
   return (
     <div className="rounded-lg border border-ink-950/10 bg-white p-5 text-sm leading-7 text-ink-800 dark:border-white/10 dark:bg-slate-950/50 dark:text-slate-100">
       <div className="space-y-4">
-        {blocks.map((block) =>
+        {blocks.map((block, index) =>
           isAiHeading(block) ? (
-            <h3 key={block} className="text-base font-semibold text-ink-950 dark:text-slate-100">
+            <h3 key={`${block}-${index}`} className="text-base font-semibold text-ink-950 dark:text-slate-100">
               {block.replace(/:$/, "")}
             </h3>
           ) : (
-            <p key={block} className="whitespace-pre-wrap text-ink-700 dark:text-slate-200">
+            <p key={`${block}-${index}`} className="whitespace-pre-wrap text-ink-700 dark:text-slate-200">
               {block}
             </p>
           ),
@@ -857,6 +862,7 @@ function findLeastAttentionArea(completedByCategory: Array<{ label: string; coun
 }
 
 function isAiHeading(line: string) {
+  const normalizedLine = cleanAiMarkdown(line).toLocaleLowerCase("pt-BR").replace(/:$/, "");
   return [
     "Resumo da semana",
     "Principais avanços",
@@ -865,7 +871,16 @@ function isAiHeading(line: string) {
     "Tarefas que viraram prioridade",
     "Pendências que ficaram paradas",
     "Sugestões para a próxima semana",
-  ].some((heading) => line.toLocaleLowerCase("pt-BR").replace(/:$/, "") === heading.toLocaleLowerCase("pt-BR"));
+    "Sugestão para a próxima semana",
+  ].some((heading) => normalizedLine === heading.toLocaleLowerCase("pt-BR"));
+}
+
+function cleanAiMarkdown(line: string) {
+  return line
+    .replace(/^\s{0,3}#{1,6}\s+/, "")
+    .replace(/\*\*/g, "")
+    .replace(/^[-*]\s+/, "• ")
+    .trim();
 }
 
 function formatAiError(message: string) {
