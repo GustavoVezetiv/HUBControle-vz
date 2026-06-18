@@ -977,10 +977,16 @@ A análise com Gemini:
 
 - roda somente após clique explícito do usuário
 - usa chamada server-side, sem expor `GEMINI_API_KEY` no frontend
-- envia apenas um JSON resumido com contagens, títulos, datas, listas, categorias e eventos
+- envia apenas um JSON resumido com contagens, títulos, datas, listas, categorias e eventos relevantes
+- limita o payload para até 15 tarefas concluídas, 15 tarefas abertas e 15 eventos relevantes
+- ignora eventos `CREATED` em massa no payload da IA
 - não envia `raw_json`, tokens, IDs internos sensíveis ou dados desnecessários
 - não cria, edita, move ou conclui tarefas no Google Tasks
 - salva o resultado em `routine_ai_summaries` por semana
+- salva metadados de diagnóstico em `input_summary_json.metadata.gemini`: `finishReason`, `usageMetadata` resumido, contagem de tokens, `safetyRatings`, `promptFeedback`, modelo e limite de saída
+- se `finishReason=MAX_TOKENS`, mostra erro para aumentar `GEMINI_WEEKLY_REVIEW_MAX_OUTPUT_TOKENS`
+- se houver bloqueio de segurança, mostra erro para revisar os dados enviados
+- considera a análise válida com mais de 700 caracteres e pelo menos 4 seções esperadas
 
 Sincronização automática:
 
