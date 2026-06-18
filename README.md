@@ -984,6 +984,9 @@ A análise com Gemini:
 - ignora eventos `CREATED` em massa no payload da IA
 - envia JSON compacto com `JSON.stringify(inputSummary)` para reduzir tokens
 - envia `generationConfig.thinkingConfig.thinkingBudget`, padrão `0`
+- orienta o Gemini a responder em Markdown/texto estruturado, nunca em JSON ou bloco de código
+- se uma resposta antiga vier como JSON ou ```json, o Hub extrai `revisao_semanal` e renderiza como relatório visual
+- exibe a análise em seções visuais: Resumo da semana, Avanços, Focos da semana, Pontos negligenciados, Pendências e Próxima semana
 - não envia `raw_json`, tokens, IDs internos sensíveis ou dados desnecessários
 - não cria, edita, move ou conclui tarefas no Google Tasks
 - salva o resultado em `routine_ai_summaries` por semana
