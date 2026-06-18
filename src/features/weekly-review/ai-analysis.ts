@@ -403,7 +403,7 @@ function normalizeGeminiAnalysisText(text: string): { text: string; metadata: { 
   if (parsed) {
     const sectionRecord = extractWeeklyReviewRecord(parsed);
     if (sectionRecord) {
-      const extractedSections = expectedAiSections.filter((section) => sectionRecord[section] !== undefined);
+      const extractedSections = expectedAiSections.filter((section) => getAiSectionValue(sectionRecord, section) !== undefined);
       return {
         text: formatSectionRecord(sectionRecord),
         metadata: { source: "json", extractedSections },
@@ -437,19 +437,27 @@ function extractWeeklyReviewRecord(value: unknown): Record<string, unknown> | nu
   const record = value as Record<string, unknown>;
   const nested = record.revisao_semanal ?? record.revisão_semanal ?? record.weekly_review ?? record.review;
   if (nested && typeof nested === "object" && !Array.isArray(nested)) return nested as Record<string, unknown>;
-  if (expectedAiSections.some((section) => record[section] !== undefined)) return record;
+  if (expectedAiSections.some((section) => getAiSectionValue(record, section) !== undefined)) return record;
   return null;
 }
 
 function formatSectionRecord(record: Record<string, unknown>) {
   return expectedAiSections
     .map((section) => {
-      const value = record[section];
+      const value = getAiSectionValue(record, section);
       if (value === undefined || value === null) return null;
       return `${section}\n${formatSectionValue(value)}`;
     })
     .filter((section): section is string => Boolean(section))
     .join("\n\n");
+}
+
+function getAiSectionValue(record: Record<string, unknown>, section: string) {
+  if (record[section] !== undefined) return record[section];
+
+  const alias = Object.entries(aiSectionAliases).find(([, target]) => target === section)?.[0];
+
+  return alias ? record[alias] : undefined;
 }
 
 function formatSectionValue(value: unknown): string {
@@ -520,6 +528,16 @@ const expectedAiSections = [
   "Pendências",
   "Próxima semana",
 ];
+
+const aiSectionAliases: Record<string, string> = {
+  "Principais avanços": "Avanços",
+  "Áreas mais trabalhadas": "Focos da semana",
+  "Tarefas que viraram prioridade": "Focos da semana",
+  "Áreas negligenciadas": "Pontos negligenciados",
+  "Pendências que ficaram paradas": "Pendências",
+  "Sugestões para a próxima semana": "Próxima semana",
+  "Sugestão para a próxima semana": "Próxima semana",
+};
 
 function getGeminiFinishError(metadata: GeminiResponseMetadata): { message: string; technical: string } | null {
   const finishReason = metadata.finishReason?.toUpperCase() ?? null;
