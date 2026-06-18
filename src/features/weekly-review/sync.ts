@@ -430,7 +430,8 @@ async function upsertTasksAndEvents(
     return { data: { createdTasks: 0, updatedTasks: 0, eventsCreated: 0 }, error: null };
   }
 
-  const events = buildEvents(userId, syncedTasks, existingByGoogleId, syncRunId);
+  const isInitialLoad = existingByGoogleId.size === 0;
+  const events = buildEvents(userId, syncedTasks, existingByGoogleId, syncRunId, isInitialLoad);
 
   const upsertResult = await client
     .from("routine_tasks")
@@ -504,6 +505,7 @@ function buildEvents(
   syncedTasks: SyncedGoogleTask[],
   existingByGoogleId: Map<string, RoutineTask>,
   syncRunId: string | null,
+  isInitialLoad: boolean,
 ): TaskEventDraft[] {
   const events: TaskEventDraft[] = [];
   const eventAt = new Date().toISOString();
@@ -515,6 +517,8 @@ function buildEvents(
     const dueDate = normalizeDate(payload.due);
 
     if (!existing) {
+      if (isInitialLoad) continue;
+
       events.push(buildEvent(userId, null, payload.id, "CREATED", null, { title, list: list.title, status }, eventAt, {}, syncRunId));
       if (list.is_priority_queue) {
         events.push(buildEvent(userId, null, payload.id, "PRIORITIZED", null, { list: list.title }, eventAt, {}, syncRunId));
@@ -589,7 +593,7 @@ async function upsertCurrentWeeklyReport(client: AppSupabaseClient, userId: stri
   const tasks = (tasksResult.data ?? []) as RoutineTask[];
   const events = eventsResult.data ?? [];
   const completedCount = tasks.filter((task) => task.completed_at && task.completed_at.slice(0, 10) >= weekStartDate && task.completed_at.slice(0, 10) <= weekEndDate).length;
-  const prioritizedCount = events.filter((event) => event.event_type === "PRIORITIZED").length;
+  const prioritizedCount = events.filter((event) => event.event_type === "PRIORITIZED" && event.previous_value !== null).length;
   const openCount = tasks.filter((task) => task.status !== "completed").length;
   const staleCount = tasks.filter((task) => task.status !== "completed" && task.updated_at_google && daysBetween(task.updated_at_google.slice(0, 10), toDateInputValue(today)) >= 14).length;
 

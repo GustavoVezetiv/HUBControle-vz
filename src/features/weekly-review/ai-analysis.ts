@@ -8,7 +8,7 @@ import type {
   RoutineTaskList,
 } from "@/lib/supabase/types";
 
-export const GEMINI_WEEKLY_REVIEW_MODEL = "gemini-1.5-flash";
+export const GEMINI_WEEKLY_REVIEW_MODEL = process.env.GEMINI_WEEKLY_REVIEW_MODEL ?? "gemini-2.5-flash";
 export const GEMINI_PROVIDER = "gemini";
 
 export type WeeklyAiListCount = {
@@ -246,11 +246,14 @@ async function requestGeminiWeeklyAnalysis(
 
     if (!response.ok) {
       console.error("Erro técnico da API Gemini:", payload);
+      const technicalError = extractGeminiError(payload) ?? `HTTP ${response.status}`;
       return {
         data: null,
         error: {
-          message: "Não foi possível gerar a análise com Gemini.",
-          technical: extractGeminiError(payload) ?? `HTTP ${response.status}`,
+          message: isGeminiModelUnavailableError(technicalError)
+            ? "Modelo Gemini indisponível. Verifique GEMINI_WEEKLY_REVIEW_MODEL nas variáveis de ambiente."
+            : "Não foi possível gerar a análise com Gemini.",
+          technical: technicalError,
         },
       };
     }
@@ -353,6 +356,11 @@ function extractGeminiError(payload: unknown) {
   const error = payload.error;
   if (!error || typeof error !== "object" || !("message" in error) || typeof error.message !== "string") return null;
   return error.message;
+}
+
+function isGeminiModelUnavailableError(message: string) {
+  const normalized = message.toLowerCase();
+  return normalized.includes("model") && (normalized.includes("not found") || normalized.includes("not supported"));
 }
 
 function inDateRange(date: string, start: string, end: string) {

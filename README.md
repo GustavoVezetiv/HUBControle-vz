@@ -948,6 +948,7 @@ Configuração OAuth:
   - `GOOGLE_TASKS_CLIENT_SECRET`
   - `GOOGLE_TASKS_TOKEN_ENCRYPTION_KEY`
   - `GEMINI_API_KEY` para gerar a análise textual da semana
+  - `GEMINI_WEEKLY_REVIEW_MODEL` para escolher o modelo da análise semanal, padrão `gemini-2.5-flash`
   - `CRON_SECRET` para proteger a sincronização automática
   - `SUPABASE_SERVICE_ROLE_KEY` somente no servidor, usado pelo cron para processar usuários conectados
 
@@ -1026,6 +1027,12 @@ Eventos detectados no MVP:
 - `TITLE_CHANGED`
 - `NOTES_CHANGED`
 - `DUE_DATE_CHANGED`
+
+Regra de baseline da primeira sincronização:
+- a primeira sincronização cria o estado inicial das tarefas no Hub
+- eventos de movimento e prioridade passam a ser gerados apenas quando já existe histórico local para comparação
+- `Geral/Hoje` é tratado como fila de prioridade, não como categoria principal
+- a tela de Revisão semanal esconde eventos técnicos e IDs do Google em "Dados técnicos"
 
 Pendências para sync automático:
 - definir janela de sincronização automática e retenção de snapshots
