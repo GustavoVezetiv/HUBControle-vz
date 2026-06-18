@@ -9,6 +9,7 @@ import type {
 } from "@/lib/supabase/types";
 
 export const GEMINI_WEEKLY_REVIEW_MODEL = process.env.GEMINI_WEEKLY_REVIEW_MODEL ?? "gemini-2.5-flash";
+export const GEMINI_WEEKLY_REVIEW_MAX_OUTPUT_TOKENS = Number.parseInt(process.env.GEMINI_WEEKLY_REVIEW_MAX_OUTPUT_TOKENS ?? "2500", 10);
 export const GEMINI_PROVIDER = "gemini";
 
 export type WeeklyAiListCount = {
@@ -71,6 +72,9 @@ export async function generateWeeklyAiAnalysis(
 
   const inputSummary = buildWeeklyAiInputSummary(sourceResult.data, weekStart, weekEnd);
   const geminiResult = await requestGeminiWeeklyAnalysis(inputSummary);
+  const validationResult = geminiResult.data ? validateGeminiAnalysisText(geminiResult.data) : null;
+  const analysisError = geminiResult.error ?? validationResult?.error ?? null;
+  const summaryText = analysisError ? null : geminiResult.data;
 
   const summaryRow = {
     user_id: userId,
@@ -79,8 +83,8 @@ export async function generateWeeklyAiAnalysis(
     provider: GEMINI_PROVIDER,
     model: GEMINI_WEEKLY_REVIEW_MODEL,
     input_summary_json: inputSummary as unknown as Json,
-    summary_text: geminiResult.data ?? null,
-    error_message: geminiResult.error?.technical ?? null,
+    summary_text: summaryText,
+    error_message: analysisError?.technical ?? null,
   };
 
   const saveResult = await client
@@ -100,10 +104,10 @@ export async function generateWeeklyAiAnalysis(
     };
   }
 
-  if (geminiResult.error) {
+  if (analysisError) {
     return {
       data: saveResult.data as RoutineAiSummary,
-      error: geminiResult.error,
+      error: analysisError,
     };
   }
 
@@ -204,23 +208,39 @@ async function requestGeminiWeeklyAnalysis(
 
   const prompt = [
     "Você é um assistente de revisão semanal.",
-    "Analise os dados de tarefas do usuário e gere um resumo objetivo, útil e direto.",
-    "Não invente tarefas. Não assuma dados que não estão no JSON.",
-    "Foque em execução, prioridade, áreas trabalhadas, áreas negligenciadas e sugestões práticas para a próxima semana.",
+    "Analise os dados de tarefas do usuário e gere uma revisão completa, objetiva, útil e direta.",
+    "Não invente tarefas. Não assuma dados que não estão no JSON. Não cite IDs internos.",
+    "Não diga que não há dados se o JSON tiver tarefas concluídas, abertas, listas, categorias ou eventos.",
+    "Use tom direto e prático. Evite texto gigante, mas entregue todas as seções completas.",
+    "Não encerre frase pela metade.",
     "",
     "Categorias principais do usuário:",
     "Trabalho; Profissional; Projetos e conhecimentos; Pessoal; Cursos; Sem previsão; Lugares e coisas para fazer; Jogos; Coisas para assistir.",
     "",
     "Regra especial: Geral/Hoje deve ser tratada como fila de prioridade, não como categoria real.",
     "",
-    "Responda exatamente com estas seções:",
+    "Responda exatamente neste formato:",
+    "",
     "Resumo da semana",
+    "Escreva 3 a 5 frases objetivas sobre o período.",
+    "",
     "Principais avanços",
+    "Liste 3 a 7 pontos com base nas tarefas concluídas.",
+    "",
     "Áreas mais trabalhadas",
+    "Comente com base nas categorias e listas.",
+    "",
     "Áreas negligenciadas",
+    "Aponte categorias/listas com pouca ou nenhuma execução.",
+    "",
     "Tarefas que viraram prioridade",
-    "Pendências que ficaram paradas",
-    "Sugestões para a próxima semana",
+    "Comente o que foi movido para Geral/Hoje. Se não houver eventos reais, diga isso de forma curta.",
+    "",
+    "Pendências paradas",
+    "Destaque tarefas abertas, antigas, sem data ou vencendo.",
+    "",
+    "Sugestão para a próxima semana",
+    "Liste 3 a 5 ações práticas.",
     "",
     "JSON organizado pelo Hub:",
     JSON.stringify(inputSummary, null, 2),
@@ -236,7 +256,7 @@ async function requestGeminiWeeklyAnalysis(
           contents: [{ role: "user", parts: [{ text: prompt }] }],
           generationConfig: {
             temperature: 0.2,
-            maxOutputTokens: 1200,
+            maxOutputTokens: Number.isFinite(GEMINI_WEEKLY_REVIEW_MAX_OUTPUT_TOKENS) ? GEMINI_WEEKLY_REVIEW_MAX_OUTPUT_TOKENS : 2500,
           },
         }),
       },
@@ -281,6 +301,40 @@ async function requestGeminiWeeklyAnalysis(
       },
     };
   }
+}
+
+function validateGeminiAnalysisText(text: string): { error: { message: string; technical: string } } | null {
+  const normalized = text.trim();
+  if (normalized.length < 800) {
+    return {
+      error: {
+        message: "Resposta da IA incompleta. Gere novamente.",
+        technical: `Resposta da IA incompleta. Tamanho recebido: ${normalized.length} caracteres.`,
+      },
+    };
+  }
+
+  const lower = normalized.toLocaleLowerCase("pt-BR");
+  const truncatedEndings = [
+    " de",
+    " e",
+    " para",
+    " com",
+    " em",
+    " a",
+    " a abertura de",
+  ];
+
+  if (truncatedEndings.some((ending) => lower.endsWith(ending))) {
+    return {
+      error: {
+        message: "Resposta da IA incompleta. Gere novamente.",
+        technical: "Resposta da IA parece ter sido truncada no final.",
+      },
+    };
+  }
+
+  return null;
 }
 
 function toAiTaskItem(
