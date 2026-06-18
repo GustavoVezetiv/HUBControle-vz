@@ -225,6 +225,7 @@ export function WeeklyReviewPage() {
           <WeeklyAiAnalysisSection
             aiSummary={aiSummary}
             hasEnoughData={summary.completedThisWeek.length + summary.openTasks.length + summary.eventsThisWeek.length > 0}
+            hasInflatedInitialEvents={summary.hasInflatedInitialEvents}
             analyzing={analyzing}
             onGenerate={() => void handleGenerateAnalysis()}
           />
@@ -353,11 +354,13 @@ function SummarySection({
 function WeeklyAiAnalysisSection({
   aiSummary,
   hasEnoughData,
+  hasInflatedInitialEvents,
   analyzing,
   onGenerate,
 }: {
   aiSummary: RoutineAiSummary | null;
   hasEnoughData: boolean;
+  hasInflatedInitialEvents: boolean;
   analyzing: boolean;
   onGenerate: () => void;
 }) {
@@ -387,8 +390,14 @@ function WeeklyAiAnalysisSection({
         </div>
       ) : null}
 
+      {hasInflatedInitialEvents ? (
+        <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-400/30 dark:bg-amber-500/10 dark:text-amber-100">
+          A fila Geral/Hoje ainda contém muitos itens herdados da primeira sincronização. Use a análise como referência inicial.
+        </div>
+      ) : null}
+
       {aiSummary?.summary_text ? (
-        <AiSummaryText text={aiSummary.summary_text} />
+        <AiSummaryReport text={aiSummary.summary_text} />
       ) : aiSummary?.error_message ? (
         <EmptyState title="A última análise falhou" description={formatAiError(aiSummary.error_message)} />
       ) : (
@@ -398,27 +407,35 @@ function WeeklyAiAnalysisSection({
   );
 }
 
-function AiSummaryText({ text }: { text: string }) {
-  const blocks = text
-    .split(/\n+/)
-    .map((line) => cleanAiMarkdown(line.trim()))
-    .filter(Boolean);
+function AiSummaryReport({ text }: { text: string }) {
+  const sections = parseAiReportSections(text);
 
   return (
-    <div className="rounded-lg border border-ink-950/10 bg-white p-5 text-sm leading-7 text-ink-800 dark:border-white/10 dark:bg-slate-950/50 dark:text-slate-100">
-      <div className="space-y-4">
-        {blocks.map((block, index) =>
-          isAiHeading(block) ? (
-            <h3 key={`${block}-${index}`} className="text-base font-semibold text-ink-950 dark:text-slate-100">
-              {block.replace(/:$/, "")}
-            </h3>
-          ) : (
-            <p key={`${block}-${index}`} className="whitespace-pre-wrap text-ink-700 dark:text-slate-200">
-              {block}
-            </p>
-          ),
-        )}
-      </div>
+    <div className="grid gap-4 md:grid-cols-2">
+      {sections.map((section, index) => (
+        <article
+          key={`${section.title}-${index}`}
+          className={`rounded-xl border border-ink-950/10 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-slate-950/50 ${
+            index === 0 ? "md:col-span-2" : ""
+          }`}
+        >
+          <h3 className="text-base font-semibold text-ink-950 dark:text-slate-100">{section.title}</h3>
+          <div className="mt-3 space-y-2 text-sm leading-7 text-ink-700 dark:text-slate-200">
+            {section.items.length > 0 ? (
+              <ul className="space-y-2">
+                {section.items.map((item) => (
+                  <li key={item} className="flex gap-2">
+                    <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              section.paragraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)
+            )}
+          </div>
+        </article>
+      ))}
     </div>
   );
 }
@@ -861,25 +878,153 @@ function findLeastAttentionArea(completedByCategory: Array<{ label: string; coun
   return [...completedByCategory].sort((left, right) => left.count - right.count)[0] ?? null;
 }
 
-function isAiHeading(line: string) {
-  const normalizedLine = cleanAiMarkdown(line).toLocaleLowerCase("pt-BR").replace(/:$/, "");
-  return [
-    "Resumo da semana",
-    "Principais avanços",
-    "Áreas mais trabalhadas",
-    "Áreas negligenciadas",
-    "Tarefas que viraram prioridade",
-    "Pendências que ficaram paradas",
-    "Sugestões para a próxima semana",
-    "Sugestão para a próxima semana",
-  ].some((heading) => normalizedLine === heading.toLocaleLowerCase("pt-BR"));
+type AiReportSection = {
+  title: string;
+  paragraphs: string[];
+  items: string[];
+};
+
+const aiReportTitles = [
+  "Resumo da semana",
+  "Avanços",
+  "Focos da semana",
+  "Pontos negligenciados",
+  "Pendências",
+  "Próxima semana",
+];
+
+const aiReportTitleAliases: Record<string, string> = {
+  "Principais avanços": "Avanços",
+  "Áreas mais trabalhadas": "Focos da semana",
+  "Áreas negligenciadas": "Pontos negligenciados",
+  "Tarefas que viraram prioridade": "Focos da semana",
+  "Pendências que ficaram paradas": "Pendências",
+  "Sugestões para a próxima semana": "Próxima semana",
+  "Sugestão para a próxima semana": "Próxima semana",
+};
+
+function parseAiReportSections(text: string): AiReportSection[] {
+  const stripped = stripAiCodeFence(text);
+  const parsed = tryParseAiJson(stripped);
+  if (parsed) {
+    const record = extractAiReviewRecord(parsed);
+    if (record) return sectionsFromRecord(record);
+  }
+
+  const sections = sectionsFromText(stripped);
+  if (sections.length > 0) return sections;
+
+  return [{
+    title: "Resumo da semana",
+    paragraphs: [cleanAiLine(stripped)],
+    items: [],
+  }];
 }
 
-function cleanAiMarkdown(line: string) {
+function sectionsFromRecord(record: Record<string, unknown>) {
+  return aiReportTitles
+    .map((title) => {
+      const value = record[title] ?? Object.entries(aiReportTitleAliases).find(([alias, target]) => target === title && record[alias] !== undefined)?.[0];
+      const rawValue = typeof value === "string" && record[value] !== undefined ? record[value] : record[title] ?? Object.entries(aiReportTitleAliases).find(([alias, target]) => target === title && record[alias] !== undefined)?.[0];
+      const finalValue = typeof rawValue === "string" && record[rawValue] !== undefined ? record[rawValue] : rawValue;
+      if (finalValue === undefined || finalValue === null) return null;
+      return sectionFromValue(title, finalValue);
+    })
+    .filter((section): section is AiReportSection => Boolean(section));
+}
+
+function sectionsFromText(text: string) {
+  const lines = text.split("\n").map((line) => cleanAiLine(line)).filter(Boolean);
+  const sections: AiReportSection[] = [];
+  let current: AiReportSection | null = null;
+
+  for (const line of lines) {
+    const title = normalizeAiTitle(line);
+    if (title) {
+      current = { title, paragraphs: [], items: [] };
+      sections.push(current);
+      continue;
+    }
+
+    if (!current) {
+      current = { title: "Resumo da semana", paragraphs: [], items: [] };
+      sections.push(current);
+    }
+
+    if (/^[•*-]\s+/.test(line) || /^\d+[.)]\s+/.test(line)) {
+      current.items.push(line.replace(/^[•*-]\s+/, "").replace(/^\d+[.)]\s+/, "").trim());
+    } else {
+      current.paragraphs.push(line);
+    }
+  }
+
+  return sections;
+}
+
+function sectionFromValue(title: string, value: unknown): AiReportSection {
+  if (Array.isArray(value)) {
+    return { title, paragraphs: [], items: value.map((item) => cleanAiLine(formatAiValue(item))).filter(Boolean).slice(0, 8) };
+  }
+
+  const lines = formatAiValue(value).split("\n").map((line) => cleanAiLine(line)).filter(Boolean);
+  const items = lines.filter((line) => /^[•*-]\s+/.test(line) || /^\d+[.)]\s+/.test(line)).map((line) => line.replace(/^[•*-]\s+/, "").replace(/^\d+[.)]\s+/, "").trim());
+  const paragraphs = lines.filter((line) => !/^[•*-]\s+/.test(line) && !/^\d+[.)]\s+/.test(line));
+  return { title, paragraphs, items };
+}
+
+function normalizeAiTitle(line: string) {
+  const normalized = normalizeAiText(line.replace(/:$/, ""));
+  const directTitle = aiReportTitles.find((title) => normalizeAiText(title) === normalized);
+  if (directTitle) return directTitle;
+  const alias = Object.entries(aiReportTitleAliases).find(([source]) => normalizeAiText(source) === normalized);
+  return alias?.[1] ?? null;
+}
+
+function stripAiCodeFence(value: string) {
+  return value
+    .trim()
+    .replace(/^```(?:json|markdown|md|text)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+}
+
+function tryParseAiJson(value: string): unknown | null {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function extractAiReviewRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const nested = record.revisao_semanal ?? record.revisão_semanal ?? record.weekly_review ?? record.review;
+  if (nested && typeof nested === "object" && !Array.isArray(nested)) return nested as Record<string, unknown>;
+  if (aiReportTitles.some((title) => record[title] !== undefined)) return record;
+  return null;
+}
+
+function formatAiValue(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function cleanAiLine(line: string) {
   return line
     .replace(/^\s{0,3}#{1,6}\s+/, "")
     .replace(/\*\*/g, "")
-    .replace(/^[-*]\s+/, "• ")
+    .trim();
+}
+
+function normalizeAiText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\*\*/g, "")
+    .replace(/#+/g, "")
+    .toLocaleLowerCase("pt-BR")
     .trim();
 }
 

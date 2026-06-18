@@ -45,6 +45,7 @@ export type WeeklyAiInputSummary = {
   total_concluidas: number;
   total_abertas: number;
   total_movidas_para_prioridade: number;
+  total_itens_herdados_geral_hoje: number;
   listas: WeeklyAiListCount[];
   categorias: WeeklyAiCategoryCount[];
   tarefas_concluidas_relevantes: WeeklyAiTaskItem[];
@@ -101,15 +102,17 @@ export async function generateWeeklyAiAnalysis(
     geminiResult = await requestGeminiWeeklyAnalysis(inputSummary);
   }
 
+  const normalizedAnalysis = geminiResult.data ? normalizeGeminiAnalysisText(geminiResult.data) : null;
   const finishError = getGeminiFinishError(geminiResult.metadata);
-  const validationResult = geminiResult.data && !finishError ? validateGeminiAnalysisText(geminiResult.data) : null;
+  const validationResult = normalizedAnalysis && !finishError ? validateGeminiAnalysisText(normalizedAnalysis.text) : null;
   const analysisError = geminiResult.error ?? finishError ?? validationResult?.error ?? null;
-  const summaryText = analysisError ? null : geminiResult.data;
+  const summaryText = analysisError ? null : normalizedAnalysis?.text ?? null;
   const inputSummaryWithMetadata = {
     ...inputSummary,
     metadata: {
       gemini: geminiResult.metadata,
       firstAttempt: firstAttemptMetadata !== geminiResult.metadata ? firstAttemptMetadata : null,
+      responseNormalization: normalizedAnalysis?.metadata ?? null,
       validation: validationResult?.metadata ?? null,
     },
   };
@@ -205,19 +208,22 @@ export function buildWeeklyAiInputSummary(
   const taskByGoogleId = new Map(data.tasks.map((task) => [task.google_task_id, task]));
   const completed = data.tasks.filter((task) => task.completed_at && inDateRange(task.completed_at.slice(0, 10), weekStart, weekEnd));
   const open = data.tasks.filter((task) => task.status !== "completed");
-  const prioritizedEvents = data.events.filter(isPriorityEvent);
+  const inheritedPriorityEvents = data.events.filter(isInheritedPriorityEvent);
+  const prioritizedEvents = data.events.filter(isRealPriorityEvent);
 
   const observations: string[] = [];
   if (data.tasks.length === 0) observations.push("Nenhuma tarefa sincronizada foi encontrada no Hub.");
   if (completed.length === 0) observations.push("Nenhuma tarefa concluída foi registrada no período selecionado.");
   if (data.events.length === 0) observations.push("Nenhum evento de mudança foi registrado no período selecionado.");
   if (prioritizedEvents.length > 0) observations.push("Geral/Hoje foi tratado como fila de prioridade, não como categoria real.");
+  if (inheritedPriorityEvents.length >= 5) observations.push("A fila Geral/Hoje ainda contém muitos itens herdados da primeira sincronização. Use a análise como referência inicial.");
 
   return {
     periodo: `${formatDateForPrompt(weekStart)} até ${formatDateForPrompt(weekEnd)}`,
     total_concluidas: completed.length,
     total_abertas: open.length,
     total_movidas_para_prioridade: prioritizedEvents.length,
+    total_itens_herdados_geral_hoje: inheritedPriorityEvents.length,
     listas: countRows(data.tasks, (task) => {
       const list = listByGoogleId.get(task.google_task_list_id);
       return {
@@ -256,8 +262,10 @@ async function requestGeminiWeeklyAnalysis(
   const prompt = [
     "Você é um assistente de revisão semanal.",
     "Use somente o JSON e gere uma revisão objetiva entre 900 e 1400 caracteres.",
+    "Responda em Markdown simples ou texto estruturado. Não retorne JSON. Não use bloco de código. Não use ```json.",
     "Não invente tarefas, não cite IDs e não encerre frase pela metade.",
-    "Geral/Hoje é fila de prioridade, não categoria.",
+    "Geral/Hoje é fila de prioridade, não categoria. Não deixe Geral/Hoje dominar a análise.",
+    "Se citar tarefas concluídas, destaque no máximo 5 exemplos relevantes.",
     "Use estes títulos nesta ordem:",
     "",
     "Resumo da semana",
@@ -267,7 +275,7 @@ async function requestGeminiWeeklyAnalysis(
     "Pendências",
     "Próxima semana",
     "",
-    "JSON organizado pelo Hub:",
+    "Dados compactos do Hub:",
     JSON.stringify(inputSummary),
   ].join("\n");
 
@@ -387,6 +395,76 @@ function validateGeminiAnalysisText(text: string): { error: { message: string; t
   return { error: null, metadata };
 }
 
+function normalizeGeminiAnalysisText(text: string): { text: string; metadata: { source: "json" | "code_fence" | "text"; extractedSections: string[] } } {
+  const stripped = stripCodeFence(text.trim());
+  const source = stripped !== text.trim() ? "code_fence" : "text";
+  const parsed = tryParseJson(stripped);
+
+  if (parsed) {
+    const sectionRecord = extractWeeklyReviewRecord(parsed);
+    if (sectionRecord) {
+      const extractedSections = expectedAiSections.filter((section) => sectionRecord[section] !== undefined);
+      return {
+        text: formatSectionRecord(sectionRecord),
+        metadata: { source: "json", extractedSections },
+      };
+    }
+  }
+
+  return {
+    text: stripped,
+    metadata: { source, extractedSections: [] },
+  };
+}
+
+function stripCodeFence(value: string) {
+  return value
+    .replace(/^```(?:json|markdown|md|text)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+}
+
+function tryParseJson(value: string): unknown | null {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function extractWeeklyReviewRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const nested = record.revisao_semanal ?? record.revisão_semanal ?? record.weekly_review ?? record.review;
+  if (nested && typeof nested === "object" && !Array.isArray(nested)) return nested as Record<string, unknown>;
+  if (expectedAiSections.some((section) => record[section] !== undefined)) return record;
+  return null;
+}
+
+function formatSectionRecord(record: Record<string, unknown>) {
+  return expectedAiSections
+    .map((section) => {
+      const value = record[section];
+      if (value === undefined || value === null) return null;
+      return `${section}\n${formatSectionValue(value)}`;
+    })
+    .filter((section): section is string => Boolean(section))
+    .join("\n\n");
+}
+
+function formatSectionValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.map((item) => `- ${formatPrimitiveValue(item)}`).join("\n");
+  }
+  return formatPrimitiveValue(value);
+}
+
+function formatPrimitiveValue(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
 function toAiTaskItem(
   task: RoutineTask,
   listByGoogleId: Map<string, RoutineTaskList>,
@@ -420,12 +498,18 @@ function toAiEventItem(
   };
 }
 
-function isPriorityEvent(event: RoutineTaskEvent) {
+function isRealPriorityEvent(event: RoutineTaskEvent) {
+  if (isInheritedPriorityEvent(event)) return false;
   return event.event_type === "PRIORITIZED" || (event.event_type === "MOVED_LIST" && JSON.stringify(event.metadata).includes("prioritized"));
 }
 
+function isInheritedPriorityEvent(event: RoutineTaskEvent) {
+  return event.event_type === "PRIORITIZED" && event.previous_value === null;
+}
+
 function isRelevantAiEvent(event: RoutineTaskEvent) {
-  return ["COMPLETED", "MOVED_LIST", "PRIORITIZED", "REOPENED"].includes(event.event_type);
+  if (isInheritedPriorityEvent(event)) return false;
+  return ["COMPLETED", "MOVED_LIST", "PRIORITIZED", "REOPENED", "DUE_DATE_CHANGED"].includes(event.event_type);
 }
 
 const expectedAiSections = [
