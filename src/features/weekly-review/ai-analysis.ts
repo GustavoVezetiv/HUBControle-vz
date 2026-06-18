@@ -9,7 +9,8 @@ import type {
 } from "@/lib/supabase/types";
 
 export const GEMINI_WEEKLY_REVIEW_MODEL = process.env.GEMINI_WEEKLY_REVIEW_MODEL ?? "gemini-2.5-flash";
-export const GEMINI_WEEKLY_REVIEW_MAX_OUTPUT_TOKENS = Number.parseInt(process.env.GEMINI_WEEKLY_REVIEW_MAX_OUTPUT_TOKENS ?? "2500", 10);
+export const GEMINI_WEEKLY_REVIEW_MAX_OUTPUT_TOKENS = Number.parseInt(process.env.GEMINI_WEEKLY_REVIEW_MAX_OUTPUT_TOKENS ?? "3000", 10);
+export const GEMINI_WEEKLY_REVIEW_THINKING_BUDGET = Number.parseInt(process.env.GEMINI_WEEKLY_REVIEW_THINKING_BUDGET ?? "0", 10);
 export const GEMINI_PROVIDER = "gemini";
 
 export type WeeklyAiListCount = {
@@ -56,13 +57,21 @@ type GeminiResponseMetadata = {
   finishReason: string | null;
   promptTokenCount: number | null;
   candidatesTokenCount: number | null;
+  thoughtsTokenCount: number | null;
   totalTokenCount: number | null;
   safetyRatings: unknown;
   promptFeedback: unknown;
   rawError: string | null;
   model: string;
   maxOutputTokens: number;
+  thinkingBudget: number;
   textLength: number | null;
+};
+
+type WeeklyAiInputLimits = {
+  completed: number;
+  open: number;
+  events: number;
 };
 
 type WeeklyAiSourceData = {
@@ -83,8 +92,15 @@ export async function generateWeeklyAiAnalysis(
     return { data: null, error: sourceResult.error ?? { message: "Não foi possível carregar dados da semana." } };
   }
 
-  const inputSummary = buildWeeklyAiInputSummary(sourceResult.data, weekStart, weekEnd);
-  const geminiResult = await requestGeminiWeeklyAnalysis(inputSummary);
+  let inputSummary = buildWeeklyAiInputSummary(sourceResult.data, weekStart, weekEnd);
+  let geminiResult = await requestGeminiWeeklyAnalysis(inputSummary);
+  const firstAttemptMetadata = geminiResult.metadata;
+
+  if (isGeminiMaxTokens(firstAttemptMetadata)) {
+    inputSummary = buildWeeklyAiInputSummary(sourceResult.data, weekStart, weekEnd, { completed: 8, open: 8, events: 5 });
+    geminiResult = await requestGeminiWeeklyAnalysis(inputSummary);
+  }
+
   const finishError = getGeminiFinishError(geminiResult.metadata);
   const validationResult = geminiResult.data && !finishError ? validateGeminiAnalysisText(geminiResult.data) : null;
   const analysisError = geminiResult.error ?? finishError ?? validationResult?.error ?? null;
@@ -93,6 +109,7 @@ export async function generateWeeklyAiAnalysis(
     ...inputSummary,
     metadata: {
       gemini: geminiResult.metadata,
+      firstAttempt: firstAttemptMetadata !== geminiResult.metadata ? firstAttemptMetadata : null,
       validation: validationResult?.metadata ?? null,
     },
   };
@@ -177,7 +194,12 @@ export async function loadWeeklyAiSourceData(
   };
 }
 
-export function buildWeeklyAiInputSummary(data: WeeklyAiSourceData, weekStart: string, weekEnd: string): WeeklyAiInputSummary {
+export function buildWeeklyAiInputSummary(
+  data: WeeklyAiSourceData,
+  weekStart: string,
+  weekEnd: string,
+  limits: WeeklyAiInputLimits = { completed: 12, open: 12, events: 10 },
+): WeeklyAiInputSummary {
   const listByGoogleId = new Map(data.taskLists.map((list) => [list.google_task_list_id, list]));
   const categoryById = new Map(data.categories.map((category) => [category.id, category.name]));
   const taskByGoogleId = new Map(data.tasks.map((task) => [task.google_task_id, task]));
@@ -206,9 +228,9 @@ export function buildWeeklyAiInputSummary(data: WeeklyAiSourceData, weekStart: s
     categorias: countRows(data.tasks, (task) => ({
       key: categoryById.get(task.confirmed_category_id ?? task.detected_category_id ?? "") ?? "Sem categoria",
     })).map((row) => ({ nome: row.key, total: row.count })),
-    tarefas_concluidas_relevantes: completed.slice(0, 15).map((task) => toAiTaskItem(task, listByGoogleId, categoryById, true)),
-    tarefas_abertas_relevantes: open.slice(0, 15).map((task) => toAiTaskItem(task, listByGoogleId, categoryById, false)),
-    eventos_relevantes: data.events.filter(isRelevantAiEvent).slice(0, 15).map((event) => toAiEventItem(event, taskByGoogleId, listByGoogleId)),
+    tarefas_concluidas_relevantes: completed.slice(0, limits.completed).map((task) => toAiTaskItem(task, listByGoogleId, categoryById, true)),
+    tarefas_abertas_relevantes: open.slice(0, limits.open).map((task) => toAiTaskItem(task, listByGoogleId, categoryById, false)),
+    eventos_relevantes: data.events.filter(isRelevantAiEvent).slice(0, limits.events).map((event) => toAiEventItem(event, taskByGoogleId, listByGoogleId)),
     observacoes_do_sistema: observations,
   };
 }
@@ -216,8 +238,9 @@ export function buildWeeklyAiInputSummary(data: WeeklyAiSourceData, weekStart: s
 async function requestGeminiWeeklyAnalysis(
   inputSummary: WeeklyAiInputSummary,
 ): Promise<{ data: string | null; error: { message: string; technical?: string } | null; metadata: GeminiResponseMetadata }> {
-  const maxOutputTokens = Number.isFinite(GEMINI_WEEKLY_REVIEW_MAX_OUTPUT_TOKENS) ? GEMINI_WEEKLY_REVIEW_MAX_OUTPUT_TOKENS : 2500;
-  const baseMetadata = createGeminiMetadata(null, null, maxOutputTokens, null);
+  const maxOutputTokens = Number.isFinite(GEMINI_WEEKLY_REVIEW_MAX_OUTPUT_TOKENS) ? GEMINI_WEEKLY_REVIEW_MAX_OUTPUT_TOKENS : 3000;
+  const thinkingBudget = Number.isFinite(GEMINI_WEEKLY_REVIEW_THINKING_BUDGET) ? GEMINI_WEEKLY_REVIEW_THINKING_BUDGET : 0;
+  const baseMetadata = createGeminiMetadata(null, null, maxOutputTokens, thinkingBudget, null);
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return {
@@ -232,34 +255,20 @@ async function requestGeminiWeeklyAnalysis(
 
   const prompt = [
     "Você é um assistente de revisão semanal.",
-    "Gere uma revisão completa, objetiva e prática entre 900 e 1500 caracteres.",
-    "Use somente o JSON. Não invente tarefas. Não cite IDs internos. Não encerre frase pela metade.",
-    "Se houver tarefas sincronizadas no JSON, não diga que não há dados.",
-    "",
-    "Categorias principais do usuário:",
-    "Trabalho; Profissional; Projetos e conhecimentos; Pessoal; Cursos; Sem previsão; Lugares e coisas para fazer; Jogos; Coisas para assistir.",
-    "",
-    "Regra especial: Geral/Hoje deve ser tratada como fila de prioridade, não como categoria real.",
-    "",
-    "Responda com estes títulos, nessa ordem:",
+    "Use somente o JSON e gere uma revisão objetiva entre 900 e 1400 caracteres.",
+    "Não invente tarefas, não cite IDs e não encerre frase pela metade.",
+    "Geral/Hoje é fila de prioridade, não categoria.",
+    "Use estes títulos nesta ordem:",
     "",
     "Resumo da semana",
-    "Principais avanços",
-    "Áreas mais trabalhadas",
-    "Áreas negligenciadas",
-    "Tarefas que viraram prioridade",
-    "Pendências paradas",
-    "Sugestão para a próxima semana",
-    "",
-    "Conteúdo esperado:",
-    "- Resumo: 3 a 5 frases.",
-    "- Avanços e sugestão: listas curtas.",
-    "- Áreas: com base nas categorias/listas.",
-    "- Prioridade: Geral/Hoje é fila de prioridade, não categoria.",
-    "- Pendências: abertas, antigas, sem data ou vencendo.",
+    "Avanços",
+    "Focos da semana",
+    "Pontos negligenciados",
+    "Pendências",
+    "Próxima semana",
     "",
     "JSON organizado pelo Hub:",
-    JSON.stringify(inputSummary, null, 2),
+    JSON.stringify(inputSummary),
   ].join("\n");
 
   try {
@@ -273,13 +282,16 @@ async function requestGeminiWeeklyAnalysis(
           generationConfig: {
             temperature: 0.2,
             maxOutputTokens,
+            thinkingConfig: {
+              thinkingBudget,
+            },
           },
         }),
       },
     );
 
     const payload = await response.json().catch(() => null);
-    const metadata = createGeminiMetadata(payload, null, maxOutputTokens, null);
+    const metadata = createGeminiMetadata(payload, null, maxOutputTokens, thinkingBudget, null);
 
     if (!response.ok) {
       console.error("Erro técnico da API Gemini:", payload);
@@ -297,7 +309,7 @@ async function requestGeminiWeeklyAnalysis(
     }
 
     const text = extractGeminiText(payload);
-    const metadataWithText = createGeminiMetadata(payload, null, maxOutputTokens, text?.length ?? null);
+    const metadataWithText = createGeminiMetadata(payload, null, maxOutputTokens, thinkingBudget, text?.length ?? null);
     if (!text) {
       console.error("Resposta Gemini sem texto:", payload);
       const finishError = getGeminiFinishError(metadataWithText);
@@ -418,12 +430,11 @@ function isRelevantAiEvent(event: RoutineTaskEvent) {
 
 const expectedAiSections = [
   "Resumo da semana",
-  "Principais avanços",
-  "Áreas mais trabalhadas",
-  "Áreas negligenciadas",
-  "Tarefas que viraram prioridade",
-  "Pendências paradas",
-  "Sugestão para a próxima semana",
+  "Avanços",
+  "Focos da semana",
+  "Pontos negligenciados",
+  "Pendências",
+  "Próxima semana",
 ];
 
 function getGeminiFinishError(metadata: GeminiResponseMetadata): { message: string; technical: string } | null {
@@ -432,12 +443,13 @@ function getGeminiFinishError(metadata: GeminiResponseMetadata): { message: stri
 
   if (finishReason === "MAX_TOKENS") {
     return {
-      message: "Resposta da IA cortada por limite de tokens. Aumente GEMINI_WEEKLY_REVIEW_MAX_OUTPUT_TOKENS.",
+      message: "Resposta cortada por limite de tokens. O Hub vai reduzir os dados enviados e tentar novamente.",
       technical: `Gemini finishReason=MAX_TOKENS; usage=${JSON.stringify({
         promptTokenCount: metadata.promptTokenCount,
         candidatesTokenCount: metadata.candidatesTokenCount,
         totalTokenCount: metadata.totalTokenCount,
         maxOutputTokens: metadata.maxOutputTokens,
+        thinkingBudget: metadata.thinkingBudget,
       })}`,
     };
   }
@@ -459,7 +471,7 @@ function getGeminiFinishError(metadata: GeminiResponseMetadata): { message: stri
   return null;
 }
 
-function createGeminiMetadata(payload: unknown, rawError: string | null, maxOutputTokens: number, textLength: number | null): GeminiResponseMetadata {
+function createGeminiMetadata(payload: unknown, rawError: string | null, maxOutputTokens: number, thinkingBudget: number, textLength: number | null): GeminiResponseMetadata {
   const candidate = extractFirstCandidate(payload);
   const usageMetadata = extractRecord(payload, "usageMetadata");
   return {
@@ -467,13 +479,19 @@ function createGeminiMetadata(payload: unknown, rawError: string | null, maxOutp
     promptTokenCount: extractNumber(usageMetadata, "promptTokenCount"),
     candidatesTokenCount: extractNumber(usageMetadata, "candidatesTokenCount"),
     totalTokenCount: extractNumber(usageMetadata, "totalTokenCount"),
+    thoughtsTokenCount: extractNumber(usageMetadata, "thoughtsTokenCount"),
     safetyRatings: candidate && "safetyRatings" in candidate ? candidate.safetyRatings : null,
     promptFeedback: extractRecord(payload, "promptFeedback"),
     rawError: rawError ? summarizeRawError(rawError) : null,
     model: GEMINI_WEEKLY_REVIEW_MODEL,
     maxOutputTokens,
+    thinkingBudget,
     textLength,
   };
+}
+
+function isGeminiMaxTokens(metadata: GeminiResponseMetadata) {
+  return metadata.finishReason?.toUpperCase() === "MAX_TOKENS";
 }
 
 function extractFirstCandidate(payload: unknown): Record<string, unknown> | null {

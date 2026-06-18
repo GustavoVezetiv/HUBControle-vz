@@ -949,7 +949,8 @@ Configuração OAuth:
   - `GOOGLE_TASKS_TOKEN_ENCRYPTION_KEY`
   - `GEMINI_API_KEY` para gerar a análise textual da semana
   - `GEMINI_WEEKLY_REVIEW_MODEL` para escolher o modelo da análise semanal, padrão `gemini-2.5-flash`
-  - `GEMINI_WEEKLY_REVIEW_MAX_OUTPUT_TOKENS` para controlar o limite de saída da análise, padrão `2500`
+  - `GEMINI_WEEKLY_REVIEW_MAX_OUTPUT_TOKENS` para controlar o limite de saída da análise, padrão `3000`
+  - `GEMINI_WEEKLY_REVIEW_THINKING_BUDGET` para controlar thinking no Gemini 2.5 Flash, padrão `0`
   - `CRON_SECRET` para proteger a sincronização automática
   - `SUPABASE_SERVICE_ROLE_KEY` somente no servidor, usado pelo cron para processar usuários conectados
 
@@ -978,13 +979,16 @@ A análise com Gemini:
 - roda somente após clique explícito do usuário
 - usa chamada server-side, sem expor `GEMINI_API_KEY` no frontend
 - envia apenas um JSON resumido com contagens, títulos, datas, listas, categorias e eventos relevantes
-- limita o payload para até 15 tarefas concluídas, 15 tarefas abertas e 15 eventos relevantes
+- limita o payload padrão para até 12 tarefas concluídas, 12 tarefas abertas e 10 eventos relevantes
+- em caso de `MAX_TOKENS`, tenta novamente com 8 concluídas, 8 abertas e 5 eventos
 - ignora eventos `CREATED` em massa no payload da IA
+- envia JSON compacto com `JSON.stringify(inputSummary)` para reduzir tokens
+- envia `generationConfig.thinkingConfig.thinkingBudget`, padrão `0`
 - não envia `raw_json`, tokens, IDs internos sensíveis ou dados desnecessários
 - não cria, edita, move ou conclui tarefas no Google Tasks
 - salva o resultado em `routine_ai_summaries` por semana
 - salva metadados de diagnóstico em `input_summary_json.metadata.gemini`: `finishReason`, `usageMetadata` resumido, contagem de tokens, `safetyRatings`, `promptFeedback`, modelo e limite de saída
-- se `finishReason=MAX_TOKENS`, mostra erro para aumentar `GEMINI_WEEKLY_REVIEW_MAX_OUTPUT_TOKENS`
+- se `finishReason=MAX_TOKENS`, mostra erro indicando que o Hub reduziu os dados e tentou novamente
 - se houver bloqueio de segurança, mostra erro para revisar os dados enviados
 - considera a análise válida com mais de 700 caracteres e pelo menos 4 seções esperadas
 
