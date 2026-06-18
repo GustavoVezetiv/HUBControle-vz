@@ -52,6 +52,19 @@ export type WeeklyAiInputSummary = {
   observacoes_do_sistema: string[];
 };
 
+type GeminiResponseMetadata = {
+  finishReason: string | null;
+  promptTokenCount: number | null;
+  candidatesTokenCount: number | null;
+  totalTokenCount: number | null;
+  safetyRatings: unknown;
+  promptFeedback: unknown;
+  rawError: string | null;
+  model: string;
+  maxOutputTokens: number;
+  textLength: number | null;
+};
+
 type WeeklyAiSourceData = {
   tasks: RoutineTask[];
   events: RoutineTaskEvent[];
@@ -72,9 +85,17 @@ export async function generateWeeklyAiAnalysis(
 
   const inputSummary = buildWeeklyAiInputSummary(sourceResult.data, weekStart, weekEnd);
   const geminiResult = await requestGeminiWeeklyAnalysis(inputSummary);
-  const validationResult = geminiResult.data ? validateGeminiAnalysisText(geminiResult.data) : null;
-  const analysisError = geminiResult.error ?? validationResult?.error ?? null;
+  const finishError = getGeminiFinishError(geminiResult.metadata);
+  const validationResult = geminiResult.data && !finishError ? validateGeminiAnalysisText(geminiResult.data) : null;
+  const analysisError = geminiResult.error ?? finishError ?? validationResult?.error ?? null;
   const summaryText = analysisError ? null : geminiResult.data;
+  const inputSummaryWithMetadata = {
+    ...inputSummary,
+    metadata: {
+      gemini: geminiResult.metadata,
+      validation: validationResult?.metadata ?? null,
+    },
+  };
 
   const summaryRow = {
     user_id: userId,
@@ -82,7 +103,7 @@ export async function generateWeeklyAiAnalysis(
     week_end: weekEnd,
     provider: GEMINI_PROVIDER,
     model: GEMINI_WEEKLY_REVIEW_MODEL,
-    input_summary_json: inputSummary as unknown as Json,
+    input_summary_json: inputSummaryWithMetadata as unknown as Json,
     summary_text: summaryText,
     error_message: analysisError?.technical ?? null,
   };
@@ -185,16 +206,18 @@ export function buildWeeklyAiInputSummary(data: WeeklyAiSourceData, weekStart: s
     categorias: countRows(data.tasks, (task) => ({
       key: categoryById.get(task.confirmed_category_id ?? task.detected_category_id ?? "") ?? "Sem categoria",
     })).map((row) => ({ nome: row.key, total: row.count })),
-    tarefas_concluidas_relevantes: completed.slice(0, 25).map((task) => toAiTaskItem(task, listByGoogleId, categoryById, true)),
-    tarefas_abertas_relevantes: open.slice(0, 25).map((task) => toAiTaskItem(task, listByGoogleId, categoryById, false)),
-    eventos_relevantes: data.events.slice(0, 40).map((event) => toAiEventItem(event, taskByGoogleId, listByGoogleId)),
+    tarefas_concluidas_relevantes: completed.slice(0, 15).map((task) => toAiTaskItem(task, listByGoogleId, categoryById, true)),
+    tarefas_abertas_relevantes: open.slice(0, 15).map((task) => toAiTaskItem(task, listByGoogleId, categoryById, false)),
+    eventos_relevantes: data.events.filter(isRelevantAiEvent).slice(0, 15).map((event) => toAiEventItem(event, taskByGoogleId, listByGoogleId)),
     observacoes_do_sistema: observations,
   };
 }
 
 async function requestGeminiWeeklyAnalysis(
   inputSummary: WeeklyAiInputSummary,
-): Promise<{ data: string | null; error: { message: string; technical?: string } | null }> {
+): Promise<{ data: string | null; error: { message: string; technical?: string } | null; metadata: GeminiResponseMetadata }> {
+  const maxOutputTokens = Number.isFinite(GEMINI_WEEKLY_REVIEW_MAX_OUTPUT_TOKENS) ? GEMINI_WEEKLY_REVIEW_MAX_OUTPUT_TOKENS : 2500;
+  const baseMetadata = createGeminiMetadata(null, null, maxOutputTokens, null);
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return {
@@ -203,44 +226,37 @@ async function requestGeminiWeeklyAnalysis(
         message: "GEMINI_API_KEY não configurada.",
         technical: "Missing GEMINI_API_KEY",
       },
+      metadata: { ...baseMetadata, rawError: "Missing GEMINI_API_KEY" },
     };
   }
 
   const prompt = [
     "Você é um assistente de revisão semanal.",
-    "Analise os dados de tarefas do usuário e gere uma revisão completa, objetiva, útil e direta.",
-    "Não invente tarefas. Não assuma dados que não estão no JSON. Não cite IDs internos.",
-    "Não diga que não há dados se o JSON tiver tarefas concluídas, abertas, listas, categorias ou eventos.",
-    "Use tom direto e prático. Evite texto gigante, mas entregue todas as seções completas.",
-    "Não encerre frase pela metade.",
+    "Gere uma revisão completa, objetiva e prática entre 900 e 1500 caracteres.",
+    "Use somente o JSON. Não invente tarefas. Não cite IDs internos. Não encerre frase pela metade.",
+    "Se houver tarefas sincronizadas no JSON, não diga que não há dados.",
     "",
     "Categorias principais do usuário:",
     "Trabalho; Profissional; Projetos e conhecimentos; Pessoal; Cursos; Sem previsão; Lugares e coisas para fazer; Jogos; Coisas para assistir.",
     "",
     "Regra especial: Geral/Hoje deve ser tratada como fila de prioridade, não como categoria real.",
     "",
-    "Responda exatamente neste formato:",
+    "Responda com estes títulos, nessa ordem:",
     "",
     "Resumo da semana",
-    "Escreva 3 a 5 frases objetivas sobre o período.",
-    "",
     "Principais avanços",
-    "Liste 3 a 7 pontos com base nas tarefas concluídas.",
-    "",
     "Áreas mais trabalhadas",
-    "Comente com base nas categorias e listas.",
-    "",
     "Áreas negligenciadas",
-    "Aponte categorias/listas com pouca ou nenhuma execução.",
-    "",
     "Tarefas que viraram prioridade",
-    "Comente o que foi movido para Geral/Hoje. Se não houver eventos reais, diga isso de forma curta.",
-    "",
     "Pendências paradas",
-    "Destaque tarefas abertas, antigas, sem data ou vencendo.",
-    "",
     "Sugestão para a próxima semana",
-    "Liste 3 a 5 ações práticas.",
+    "",
+    "Conteúdo esperado:",
+    "- Resumo: 3 a 5 frases.",
+    "- Avanços e sugestão: listas curtas.",
+    "- Áreas: com base nas categorias/listas.",
+    "- Prioridade: Geral/Hoje é fila de prioridade, não categoria.",
+    "- Pendências: abertas, antigas, sem data ou vencendo.",
     "",
     "JSON organizado pelo Hub:",
     JSON.stringify(inputSummary, null, 2),
@@ -256,13 +272,14 @@ async function requestGeminiWeeklyAnalysis(
           contents: [{ role: "user", parts: [{ text: prompt }] }],
           generationConfig: {
             temperature: 0.2,
-            maxOutputTokens: Number.isFinite(GEMINI_WEEKLY_REVIEW_MAX_OUTPUT_TOKENS) ? GEMINI_WEEKLY_REVIEW_MAX_OUTPUT_TOKENS : 2500,
+            maxOutputTokens,
           },
         }),
       },
     );
 
     const payload = await response.json().catch(() => null);
+    const metadata = createGeminiMetadata(payload, null, maxOutputTokens, null);
 
     if (!response.ok) {
       console.error("Erro técnico da API Gemini:", payload);
@@ -275,42 +292,62 @@ async function requestGeminiWeeklyAnalysis(
             : "Não foi possível gerar a análise com Gemini.",
           technical: technicalError,
         },
+        metadata: { ...metadata, rawError: summarizeRawError(technicalError) },
       };
     }
 
     const text = extractGeminiText(payload);
+    const metadataWithText = createGeminiMetadata(payload, null, maxOutputTokens, text?.length ?? null);
     if (!text) {
       console.error("Resposta Gemini sem texto:", payload);
+      const finishError = getGeminiFinishError(metadataWithText);
       return {
         data: null,
-        error: {
+        error: finishError ?? {
           message: "Gemini respondeu sem texto de análise.",
           technical: "Empty Gemini response",
         },
+        metadata: metadataWithText,
       };
     }
 
-    return { data: text, error: null };
+    return { data: text, error: null, metadata: metadataWithText };
   } catch (error) {
     console.error("Erro técnico ao chamar Gemini:", error);
+    const technical = error instanceof Error ? error.message : "Unknown Gemini request error";
     return {
       data: null,
       error: {
         message: "Não foi possível chamar o Gemini.",
-        technical: error instanceof Error ? error.message : "Unknown Gemini request error",
+        technical,
       },
+      metadata: { ...baseMetadata, rawError: summarizeRawError(technical) },
     };
   }
 }
 
-function validateGeminiAnalysisText(text: string): { error: { message: string; technical: string } } | null {
+function validateGeminiAnalysisText(text: string): { error: { message: string; technical: string }; metadata: { characterCount: number; matchedSections: string[] } } | { error: null; metadata: { characterCount: number; matchedSections: string[] } } {
   const normalized = text.trim();
-  if (normalized.length < 800) {
+  const matchedSections = expectedAiSections.filter((section) => hasSection(normalized, section));
+  const metadata = { characterCount: normalized.length, matchedSections };
+
+  if (normalized.length <= 700) {
     return {
       error: {
         message: "Resposta da IA incompleta. Gere novamente.",
         technical: `Resposta da IA incompleta. Tamanho recebido: ${normalized.length} caracteres.`,
       },
+      metadata,
+    };
+  }
+
+  if (matchedSections.length < 4) {
+    return {
+      error: {
+        message: "Resposta da IA incompleta. Gere novamente.",
+        technical: `Resposta da IA sem estrutura mínima. Seções encontradas: ${matchedSections.join(", ") || "nenhuma"}.`,
+      },
+      metadata,
     };
   }
 
@@ -331,10 +368,11 @@ function validateGeminiAnalysisText(text: string): { error: { message: string; t
         message: "Resposta da IA incompleta. Gere novamente.",
         technical: "Resposta da IA parece ter sido truncada no final.",
       },
+      metadata,
     };
   }
 
-  return null;
+  return { error: null, metadata };
 }
 
 function toAiTaskItem(
@@ -372,6 +410,118 @@ function toAiEventItem(
 
 function isPriorityEvent(event: RoutineTaskEvent) {
   return event.event_type === "PRIORITIZED" || (event.event_type === "MOVED_LIST" && JSON.stringify(event.metadata).includes("prioritized"));
+}
+
+function isRelevantAiEvent(event: RoutineTaskEvent) {
+  return ["COMPLETED", "MOVED_LIST", "PRIORITIZED", "REOPENED"].includes(event.event_type);
+}
+
+const expectedAiSections = [
+  "Resumo da semana",
+  "Principais avanços",
+  "Áreas mais trabalhadas",
+  "Áreas negligenciadas",
+  "Tarefas que viraram prioridade",
+  "Pendências paradas",
+  "Sugestão para a próxima semana",
+];
+
+function getGeminiFinishError(metadata: GeminiResponseMetadata): { message: string; technical: string } | null {
+  const finishReason = metadata.finishReason?.toUpperCase() ?? null;
+  const blockReason = extractBlockReason(metadata.promptFeedback)?.toUpperCase() ?? null;
+
+  if (finishReason === "MAX_TOKENS") {
+    return {
+      message: "Resposta da IA cortada por limite de tokens. Aumente GEMINI_WEEKLY_REVIEW_MAX_OUTPUT_TOKENS.",
+      technical: `Gemini finishReason=MAX_TOKENS; usage=${JSON.stringify({
+        promptTokenCount: metadata.promptTokenCount,
+        candidatesTokenCount: metadata.candidatesTokenCount,
+        totalTokenCount: metadata.totalTokenCount,
+        maxOutputTokens: metadata.maxOutputTokens,
+      })}`,
+    };
+  }
+
+  if (finishReason && ["SAFETY", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII"].includes(finishReason)) {
+    return {
+      message: "Resposta bloqueada pelo provedor. Revise os dados enviados.",
+      technical: `Gemini finishReason=${finishReason}; safetyRatings=${JSON.stringify(metadata.safetyRatings ?? null)}`,
+    };
+  }
+
+  if (blockReason) {
+    return {
+      message: "Resposta bloqueada pelo provedor. Revise os dados enviados.",
+      technical: `Gemini promptFeedback.blockReason=${blockReason}`,
+    };
+  }
+
+  return null;
+}
+
+function createGeminiMetadata(payload: unknown, rawError: string | null, maxOutputTokens: number, textLength: number | null): GeminiResponseMetadata {
+  const candidate = extractFirstCandidate(payload);
+  const usageMetadata = extractRecord(payload, "usageMetadata");
+  return {
+    finishReason: extractString(candidate, "finishReason"),
+    promptTokenCount: extractNumber(usageMetadata, "promptTokenCount"),
+    candidatesTokenCount: extractNumber(usageMetadata, "candidatesTokenCount"),
+    totalTokenCount: extractNumber(usageMetadata, "totalTokenCount"),
+    safetyRatings: candidate && "safetyRatings" in candidate ? candidate.safetyRatings : null,
+    promptFeedback: extractRecord(payload, "promptFeedback"),
+    rawError: rawError ? summarizeRawError(rawError) : null,
+    model: GEMINI_WEEKLY_REVIEW_MODEL,
+    maxOutputTokens,
+    textLength,
+  };
+}
+
+function extractFirstCandidate(payload: unknown): Record<string, unknown> | null {
+  if (!payload || typeof payload !== "object" || !("candidates" in payload) || !Array.isArray(payload.candidates)) return null;
+  const candidate = payload.candidates[0];
+  return candidate && typeof candidate === "object" && !Array.isArray(candidate) ? candidate as Record<string, unknown> : null;
+}
+
+function extractRecord(payload: unknown, key: string): Record<string, unknown> | null {
+  if (!payload || typeof payload !== "object" || !(key in payload)) return null;
+  const value = (payload as Record<string, unknown>)[key];
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function extractString(record: Record<string, unknown> | null, key: string) {
+  const value = record?.[key];
+  return typeof value === "string" ? value : null;
+}
+
+function extractNumber(record: Record<string, unknown> | null, key: string) {
+  const value = record?.[key];
+  return typeof value === "number" ? value : null;
+}
+
+function extractBlockReason(promptFeedback: unknown) {
+  if (!promptFeedback || typeof promptFeedback !== "object" || Array.isArray(promptFeedback)) return null;
+  const value = (promptFeedback as Record<string, unknown>).blockReason;
+  return typeof value === "string" ? value : null;
+}
+
+function summarizeRawError(value: string) {
+  return value.length > 500 ? `${value.slice(0, 500)}...` : value;
+}
+
+function hasSection(text: string, section: string) {
+  const normalizedText = normalizeSectionText(text);
+  const normalizedSection = normalizeSectionText(section);
+  return normalizedText.includes(normalizedSection);
+}
+
+function normalizeSectionText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\*\*/g, "")
+    .replace(/#+/g, "")
+    .toLowerCase()
+    .trim();
 }
 
 function countRows<T>(
