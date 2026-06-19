@@ -75,6 +75,7 @@ Implemented in the foundation phase:
 - CSV template downloads for the MVP import targets
 - CSV/XLSX import preview, validation, skip and confirmation flow for people, categories, accounts payable, income sources, and the system goals/purchases workbook
 - Dashboard summaries using real account, income, invoice, transaction, reimbursement, installment and payment plan data
+- Dashboard principal com modo simples e visão completa, com preferência salva por usuário
 - User-owned personal goals in `/dashboard/goals`
 - Decision-focused dashboard sections for pay now, can wait, next invoice pressure and monthly risk
 - Monthly cash-flow view with real income separated from reimbursements and third-party money
@@ -505,6 +506,15 @@ Known limitations:
 - Plan item links are stored directly where the schema supports them, but no automatic status synchronization is implemented yet.
 - Reimbursements and third-party money can help cash flow, but the UI treats them as linked money, not free income.
 
+## Dashboard
+
+The main `/dashboard` page supports two display modes:
+
+- `Resumo simples`: fewer cards and the most actionable blocks first.
+- `Visão completa`: keeps the detailed financial cards and decision lists visible.
+
+The selected period and display mode can be saved as the user's default dashboard view.
+
 ## Imports
 
 The imports screen is available at `/dashboard/imports`.
@@ -908,6 +918,9 @@ Formatos disponíveis:
 
 - `Exportar XLSX`: gera um arquivo `.xlsx` com aba `Metadata` e uma aba por módulo exportado
 - `Exportar JSON`: gera um arquivo `.json` com metadata e dados separados por módulo
+- `Exportar módulo específico`: permite exportar apenas um módulo em XLSX ou JSON
+
+Após cada exportação manual, o Hub grava localmente a referência do último backup/exportação do usuário logado e exibe nome do arquivo, formato, escopo e data de geração no painel.
 
 ## Diagnóstico financeiro
 
@@ -1047,12 +1060,24 @@ Regra de baseline da primeira sincronização:
 - eventos de movimento e prioridade passam a ser gerados apenas quando já existe histórico local para comparação
 - `Geral/Hoje` é tratado como fila de prioridade, não como categoria principal
 - a tela de Revisão semanal esconde eventos técnicos e IDs do Google em "Dados técnicos"
+- cards, mês, relatórios salvos e payload da IA usam apenas eventos reais; eventos `CREATED` e `PRIORITIZED` herdados da primeira sincronização ficam só como contexto técnico
 - respostas curtas ou truncadas do Gemini são salvas como erro e precisam ser geradas novamente
+
+Validação local do baseline inflado:
+
+```bash
+npm run validate:weekly-review-baseline
+```
+
+Esse script simula uma semana com primeira sincronização inflada e valida que:
+- `Geral/Hoje` herdado não entra como prioridade real
+- `CREATED` herdado não entra como evento real
+- um mesmo movimento real para `Geral/Hoje` não é contado duas vezes
+- o payload da IA usa apenas dados confiáveis
 
 Pendências para sync automático:
 - definir janela de sincronização automática e retenção de snapshots
 - avaliar versionamento de múltiplas análises por semana, se houver necessidade histórica
-- `Exportar módulo específico`: permite exportar apenas um módulo em XLSX ou JSON
 
 Módulos cobertos:
 
