@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
 import { AuditRecordHistory } from "@/features/audit/components/audit-record-history";
+import { PlaceMapPicker } from "@/features/places/components/place-map-picker-wrapper";
 import { archivePlace, createPlace, listPlaces, listPlaceSupportData, updatePlace } from "@/features/places/queries";
 import {
   emptyPlaceForm,
@@ -285,7 +286,13 @@ export function PlacesCrud() {
       setFeedback({ type: "error", message: "Não foi possível atualizar o status no kanban." });
       return;
     }
-    setFeedback({ type: "success", message: "Status atualizado pelo kanban." });
+    setFeedback({
+      type: "success",
+      message:
+        nextStatus === "visited"
+          ? "Status atualizado pelo kanban. Abra o item para registrar data da visita, nota e custo."
+          : "Status atualizado pelo kanban.",
+    });
     await loadData();
   }
 
@@ -404,26 +411,38 @@ export function PlacesCrud() {
                         <div className="mt-2 flex flex-wrap gap-2">
                           {item.category_id ? <CategoryBadge category={category} /> : null}
                           {isOutOfScopePlaceCategory(category) ? <TextBadge tone="warning">Categoria fora do escopo desta tela</TextBadge> : null}
-                          {item.google_maps_url ? (
+                          {buildPlaceMapUrl(item) ? (
                             <a
-                              href={item.google_maps_url}
+                              href={buildPlaceMapUrl(item) ?? "#"}
                               target="_blank"
                               rel="noreferrer"
                               className="inline-flex items-center rounded-full border border-ink-950/10 px-2.5 py-1 text-xs font-semibold text-ink-700 transition hover:border-mint-500 hover:text-mint-600 dark:border-white/10 dark:text-slate-200 dark:hover:text-mint-200"
                             >
-                              Abrir Maps
+                              Abrir no mapa
+                            </a>
+                          ) : null}
+                          {buildPlaceRouteUrl(item) ? (
+                            <a
+                              href={buildPlaceRouteUrl(item) ?? "#"}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center rounded-full border border-ink-950/10 px-2.5 py-1 text-xs font-semibold text-ink-700 transition hover:border-sky-500 hover:text-sky-600 dark:border-white/10 dark:text-slate-200 dark:hover:text-sky-200"
+                            >
+                              Ver rota
                             </a>
                           ) : null}
                         </div>
                         <p className="mt-2 text-xs text-ink-600 dark:text-slate-300">
-                          {[item.district, item.address, item.description].filter(Boolean).join(" · ") || "Sem detalhes adicionais"}
+                          {[item.city, item.district, item.address, item.description].filter(Boolean).join(" · ") || "Sem detalhes adicionais"}
                         </p>
                       </td>
                       <td className="px-4 py-3 text-ink-700 dark:text-slate-200">{labelFor(placeTypeOptions, item.place_type)}</td>
                       <td className="px-4 py-3">
                         <TextBadge tone={getPlaceStatusTone(item.status)}>{labelFor(placeStatusOptions, item.status)}</TextBadge>
                       </td>
-                      <td className="px-4 py-3 text-ink-700 dark:text-slate-200">{item.city || "-"}</td>
+                      <td className="px-4 py-3 text-ink-700 dark:text-slate-200">
+                        {[item.city, item.district].filter(Boolean).join(" / ") || "-"}
+                      </td>
                       <td className="px-4 py-3 text-ink-700 dark:text-slate-200">
                         <div>{item.planned_date ? `Planejado: ${formatDate(item.planned_date)}` : "Sem data planejada"}</div>
                         <div className="mt-1 text-xs text-ink-600 dark:text-slate-300">{item.visited_date ? `Fui em ${formatDate(item.visited_date)}` : "Ainda não visitado"}</div>
@@ -440,6 +459,16 @@ export function PlacesCrud() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex justify-end gap-2">
+                          {buildPlaceMapUrl(item) ? (
+                            <a
+                              href={buildPlaceMapUrl(item) ?? "#"}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="hub-action hub-action-secondary inline-flex items-center justify-center rounded-md border border-ink-950/10 bg-white px-4 py-2.5 text-sm font-semibold text-ink-950 transition hover:border-mint-500 hover:text-mint-600 dark:border-white/10 dark:bg-slate-950/60 dark:text-slate-100"
+                            >
+                              Abrir no mapa
+                            </a>
+                          ) : null}
                           <ActionButton variant="secondary" onClick={() => setModal({ mode: "edit", item })}>Editar</ActionButton>
                           <ActionButton variant="danger" onClick={() => void handleArchive(item)}>Arquivar</ActionButton>
                         </div>
@@ -556,10 +585,33 @@ function PlaceKanbanCard({
         {isOutOfScopePlaceCategory(category) ? <TextBadge tone="warning">Categoria fora do escopo desta tela</TextBadge> : null}
       </div>
       <div className="mt-4 grid gap-1 text-sm text-ink-700 dark:text-slate-300">
-        <p>Cidade: <strong className="text-ink-950 dark:text-slate-100">{item.city || "-"}</strong></p>
+        <p>Cidade / bairro: <strong className="text-ink-950 dark:text-slate-100">{[item.city, item.district].filter(Boolean).join(" / ") || "-"}</strong></p>
         <p>Planejado: <strong className="text-ink-950 dark:text-slate-100">{item.planned_date ? formatDate(item.planned_date) : "-"}</strong></p>
         <p>Visita: <strong className="text-ink-950 dark:text-slate-100">{item.visited_date ? formatDate(item.visited_date) : "Ainda não fui"}</strong></p>
         <p>Custo real: <strong className="text-ink-950 dark:text-slate-100">{formatCurrency(Number(item.actual_cost || 0))}</strong></p>
+        <p>Nota: <strong className="text-ink-950 dark:text-slate-100">{item.rating ? `${item.rating}/5` : "-"}</strong></p>
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2">
+        {buildPlaceMapUrl(item) ? (
+          <a
+            href={buildPlaceMapUrl(item) ?? "#"}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center rounded-full border border-ink-950/10 px-2.5 py-1 text-xs font-semibold text-ink-700 transition hover:border-mint-500 hover:text-mint-600 dark:border-white/10 dark:text-slate-200 dark:hover:text-mint-200"
+          >
+            Abrir no mapa
+          </a>
+        ) : null}
+        {buildPlaceRouteUrl(item) ? (
+          <a
+            href={buildPlaceRouteUrl(item) ?? "#"}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center rounded-full border border-ink-950/10 px-2.5 py-1 text-xs font-semibold text-ink-700 transition hover:border-sky-500 hover:text-sky-600 dark:border-white/10 dark:text-slate-200 dark:hover:text-sky-200"
+          >
+            Ver rota
+          </a>
+        ) : null}
       </div>
     </article>
   );
@@ -629,6 +681,18 @@ function PlaceModal({
           <input className={inputClassName} value={values.district} onChange={(event) => setValues({ ...values, district: event.target.value })} />
         </FieldShell>
         <div className="md:col-span-2">
+          <FieldShell label="Localização no mapa">
+            <PlaceMapPicker
+              latitude={values.latitude}
+              longitude={values.longitude}
+              address={values.address}
+              city={values.city}
+              district={values.district}
+              onChange={(next) => setValues((current) => ({ ...current, ...next }))}
+            />
+          </FieldShell>
+        </div>
+        <div className="md:col-span-2">
           <FieldShell label="Endereço">
             <input className={inputClassName} value={values.address} onChange={(event) => setValues({ ...values, address: event.target.value })} />
           </FieldShell>
@@ -645,7 +709,24 @@ function PlaceModal({
           <input type="number" step="0.0000001" className={inputClassName} value={values.longitude} onChange={(event) => setValues({ ...values, longitude: event.target.value })} />
         </FieldShell>
         <FieldShell label="Data planejada">
-          <input type="date" className={inputClassName} value={values.planned_date} onChange={(event) => setValues({ ...values, planned_date: event.target.value })} />
+          <div className="space-y-2">
+            <input type="date" className={inputClassName} value={values.planned_date} onChange={(event) => setValues({ ...values, planned_date: event.target.value })} />
+            <div className="flex flex-wrap gap-2">
+              <ActionButton
+                type="button"
+                variant="secondary"
+                onClick={() => setValues({ ...values, planned_date: new Date().toISOString().slice(0, 10) })}
+              >
+                Planejar para hoje
+              </ActionButton>
+              {values.planned_date ? (
+                <ActionButton type="button" variant="secondary" onClick={() => setValues({ ...values, planned_date: "" })}>
+                  Limpar data
+                </ActionButton>
+              ) : null}
+            </div>
+            <p className="text-xs text-ink-600 dark:text-slate-300">Deixe vazio quando for apenas uma ideia futura sem data definida.</p>
+          </div>
         </FieldShell>
         <FieldShell label="Custo estimado">
           <input min="0" step="0.01" type="number" className={inputClassName} value={values.estimated_cost} onChange={(event) => setValues({ ...values, estimated_cost: event.target.value })} />
@@ -657,7 +738,26 @@ function PlaceModal({
               Quando o status é <strong>Fui</strong>, registre nota, custo real, data visitada e se vale repetir.
             </div>
             <FieldShell label="Data visitada">
-              <input type="date" className={inputClassName} value={values.visited_date} onChange={(event) => setValues({ ...values, visited_date: event.target.value })} />
+              <div className="space-y-2">
+                <input type="date" className={inputClassName} value={values.visited_date} onChange={(event) => setValues({ ...values, visited_date: event.target.value })} />
+                <div className="flex flex-wrap gap-2">
+                  {!values.visited_date ? (
+                    <ActionButton
+                      type="button"
+                      variant="secondary"
+                      onClick={() => setValues({ ...values, visited_date: new Date().toISOString().slice(0, 10) })}
+                    >
+                      Usar hoje na visita
+                    </ActionButton>
+                  ) : null}
+                  {values.visited_date ? (
+                    <ActionButton type="button" variant="secondary" onClick={() => setValues({ ...values, visited_date: "" })}>
+                      Limpar data
+                    </ActionButton>
+                  ) : null}
+                </div>
+                <p className="text-xs text-ink-600 dark:text-slate-300">Se foi hoje, use o atalho. Caso contrário, informe a data correta.</p>
+              </div>
             </FieldShell>
             <FieldShell label="Custo real">
               <input min="0" step="0.01" type="number" className={inputClassName} value={values.actual_cost} onChange={(event) => setValues({ ...values, actual_cost: event.target.value })} />
@@ -696,11 +796,6 @@ function PlaceModal({
 
 function prepareVisitedValues(values: PlaceFormValues) {
   const nextValues = { ...values };
-  const today = new Date().toISOString().slice(0, 10);
-
-  if (nextValues.status === "visited" && !nextValues.visited_date) {
-    nextValues.visited_date = today;
-  }
 
   if (nextValues.status !== "visited") {
     nextValues.actual_cost = nextValues.actual_cost || "0";
@@ -712,11 +807,29 @@ function prepareVisitedValues(values: PlaceFormValues) {
 }
 
 function buildPlaceDefaultsForKanban(columnValue: string): Partial<PlaceFormValues> {
-  return columnValue === "visited"
-    ? { status: columnValue, visited_date: new Date().toISOString().slice(0, 10) }
-    : { status: columnValue };
+  return { status: columnValue };
 }
 
 function labelFor(options: ReadonlyArray<{ value: string; label: string }>, value: string) {
   return options.find((option) => option.value === value)?.label ?? value;
+}
+
+function buildPlaceMapUrl(item: Pick<PlaceRow, "google_maps_url" | "latitude" | "longitude">) {
+  if (item.google_maps_url?.trim()) return item.google_maps_url.trim();
+  if (typeof item.latitude === "number" && typeof item.longitude === "number") {
+    return `https://www.openstreetmap.org/?mlat=${item.latitude}&mlon=${item.longitude}#map=17/${item.latitude}/${item.longitude}`;
+  }
+  return null;
+}
+
+function buildPlaceRouteUrl(item: Pick<PlaceRow, "latitude" | "longitude" | "google_maps_url">) {
+  if (typeof item.latitude === "number" && typeof item.longitude === "number") {
+    return `https://www.google.com/maps/dir/?api=1&destination=${item.latitude},${item.longitude}`;
+  }
+
+  if (item.google_maps_url?.trim()) {
+    return item.google_maps_url.trim();
+  }
+
+  return null;
 }

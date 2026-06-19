@@ -10,9 +10,11 @@
     "import:goals-purchases": "node scripts/import-goals-and-purchases-from-xlsx.mjs",
     "validate:goals-purchases-import": "node scripts/validate-goals-purchases-import-flow.mjs",
     "validate:import-dates": "node scripts/validate-import-date-format.mjs",
+    "validate:places-module": "node scripts/validate-places-module.mjs",
     "validate:reimbursement-invoice-link": "node scripts/validate-reimbursement-invoice-link-flow.mjs",
     "validate:reimbursements-debt-summary": "node scripts/validate-reimbursements-debt-summary.mjs",
     "validate:reimbursement-renegotiation": "node scripts/validate-reimbursement-renegotiation.mjs",
+    "validate:weekly-review-baseline": "node scripts/validate-weekly-review-baseline.mjs",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
@@ -22,10 +24,12 @@
     "@supabase/supabase-js": "^2.105.4",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
+    "leaflet": "^1.9.4",
     "lucide-react": "^1.17.0",
     "next": "^15.3.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "react-leaflet": "^5.0.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
