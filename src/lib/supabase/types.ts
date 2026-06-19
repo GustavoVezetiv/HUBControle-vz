@@ -321,6 +321,28 @@ export type Goal = UserOwnedRow & ArchiveFields & {
   notes: string | null;
 };
 
+export type Place = UserOwnedRow & ArchiveFields & {
+  category_id: string | null;
+  name: string;
+  description: string | null;
+  place_type: string;
+  status: string;
+  city: string | null;
+  district: string | null;
+  address: string | null;
+  google_maps_url: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  planned_date: string | null;
+  visited_date: string | null;
+  estimated_cost: number;
+  actual_cost: number;
+  rating: number | null;
+  would_repeat: boolean | null;
+  companion: string | null;
+  notes: string | null;
+};
+
 export type Note = UserOwnedRow & {
   entity_type: string;
   entity_id: string | null;
@@ -538,6 +560,7 @@ export type Database = {
       payment_plan_items: SupabaseTable<PaymentPlanItem>;
       planned_purchases: SupabaseTable<PlannedPurchase>;
       goals: SupabaseTable<Goal>;
+      places: SupabaseTable<Place>;
       notes: SupabaseTable<Note>;
       import_batches: SupabaseTable<ImportBatch>;
       import_rows: SupabaseTable<ImportRow>;

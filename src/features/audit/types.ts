@@ -12,6 +12,7 @@ export const auditActionLabels: Record<string, string> = {
   renegotiation: "Renegociação",
   import_confirmed: "Importação confirmada",
   financial_recalculation: "Recálculo financeiro",
+  backup_exported: "Backup exportado",
 };
 
 export const auditModuleLabels: Record<string, string> = {
@@ -22,8 +23,10 @@ export const auditModuleLabels: Record<string, string> = {
   reimbursements: "Reembolsos",
   planned_purchases: "Compras e desejos",
   goals: "Metas",
+  places: "Roles e lugares",
   import_batches: "Importações",
   financial_recalculation: "Diagnóstico financeiro",
+  settings: "Configurações",
 };
 
 export const auditModules = Object.keys(auditModuleLabels);

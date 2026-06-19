@@ -18,6 +18,7 @@ export const navigationItems: NavigationItem[] = [
   { label: "Plano de pagamento", href: "/dashboard/payment-plans" },
   { label: "Revisão semanal", href: "/dashboard/weekly-review" },
   { label: "Compras e desejos", href: "/dashboard/purchases" },
+  { label: "Roles e lugares", href: "/dashboard/places" },
   { label: "Metas", href: "/dashboard/goals" },
   { label: "Diagnóstico financeiro", href: "/dashboard/diagnostics" },
   { label: "Histórico", href: "/dashboard/history" },
