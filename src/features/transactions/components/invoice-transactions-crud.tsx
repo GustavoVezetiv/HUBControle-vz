@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
 import { AuditRecordHistory } from "@/features/audit/components/audit-record-history";
+import { categoryModuleDefinitions, filterCategoriesByScopes, isCategoryOutOfScope } from "@/features/categories/scopes";
 import { calculateInvoiceSummary, type InvoiceCard, type InvoiceReimbursementRow, type InvoiceRow } from "@/features/invoices/types";
 import { ActionButton, BooleanBadge, CategoryBadge, CategorySelect, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, TextBadge, ViewPreferenceActions } from "@/features/shared/crud-ui";
 import { formatCurrency, formatDate } from "@/features/shared/format";
@@ -81,6 +82,10 @@ export function InvoiceTransactionsCrud({ invoiceId }: { invoiceId: string }) {
   const [moveModal, setMoveModal] = useState<MoveModalState>(null);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [allowQuickTableEdit, setAllowQuickTableEdit] = useState(false);
+  const scopedCategories = useMemo(
+    () => filterCategoriesByScopes(categories, categoryModuleDefinitions.invoices.scopes),
+    [categories],
+  );
 
   const cardName = cards.find((card) => card.id === invoice?.credit_card_id)?.name ?? "Cartão";
   const filteredTransactions = useMemo(() => {
@@ -521,7 +526,7 @@ export function InvoiceTransactionsCrud({ invoiceId }: { invoiceId: string }) {
                     </td>
                     <td className="px-4 py-3">
                       {allowQuickTableEdit ? (
-                        <QuickEditSelect value={transaction.category_id ?? ""} options={[{ value: "", label: "Sem categoria" }, ...categories.map((category) => ({ value: category.id, label: category.name }))]} onCommit={(value) => void handleQuickUpdate(transaction, { category_id: value })} />
+                        <QuickEditSelect value={transaction.category_id ?? ""} options={[{ value: "", label: "Sem categoria" }, ...scopedCategories.map((category) => ({ value: category.id, label: category.name }))]} onCommit={(value) => void handleQuickUpdate(transaction, { category_id: value })} />
                       ) : (
                         <CategoryBadge category={categories.find((category) => category.id === transaction.category_id)} />
                       )}
@@ -645,6 +650,12 @@ function TransactionModal({
           transaction_date: new Date().toISOString().slice(0, 10),
         };
   const [values, setValues] = useState<TransactionFormValues>(initialValues);
+  const scopedCategories = useMemo(
+    () => filterCategoriesByScopes(categories, categoryModuleDefinitions.invoices.scopes),
+    [categories],
+  );
+  const selectedCategory = categories.find((category) => category.id === values.category_id);
+  const selectedCategoryOutOfScope = isCategoryOutOfScope(selectedCategory, categoryModuleDefinitions.invoices.scopes);
   const requiresPerson = values.ownership_type !== "personal";
   const canCreateReimbursement = values.is_reimbursable && values.person_id && requiresPerson;
   const filteredInvoices = values.credit_card_id
@@ -732,7 +743,12 @@ function TransactionModal({
           </FieldShell>
         </div>
         <FieldShell label="Categoria">
-          <CategorySelect categories={categories} value={values.category_id} onChange={(category_id) => setValues({ ...values, category_id })} />
+          <CategorySelect categories={scopedCategories} value={selectedCategoryOutOfScope ? "" : values.category_id} onChange={(category_id) => setValues({ ...values, category_id })} />
+          {selectedCategoryOutOfScope ? (
+            <p className="mt-2 text-xs text-amber-700">
+              Categoria atual: <strong>{selectedCategory?.name}</strong>. Categoria fora do escopo desta tela.
+            </p>
+          ) : null}
         </FieldShell>
         <FieldShell label="Pessoa responsável">
           <select

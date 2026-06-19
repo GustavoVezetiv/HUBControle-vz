@@ -74,6 +74,7 @@ export type Category = UserOwnedRow & {
   parent_category_id: string | null;
   color: string | null;
   icon: string | null;
+  scopes: string[] | null;
   is_default: boolean;
   is_active: boolean;
 };

@@ -403,7 +403,7 @@ export function PlacesCrud() {
                         <TitleButton onClick={() => setModal({ mode: "edit", item })}>{item.name}</TitleButton>
                         <div className="mt-2 flex flex-wrap gap-2">
                           {item.category_id ? <CategoryBadge category={category} /> : null}
-                          {isOutOfScopePlaceCategory(category) ? <TextBadge tone="warning">Categoria fora do escopo de lugares</TextBadge> : null}
+                          {isOutOfScopePlaceCategory(category) ? <TextBadge tone="warning">Categoria fora do escopo desta tela</TextBadge> : null}
                           {item.google_maps_url ? (
                             <a
                               href={item.google_maps_url}
@@ -553,7 +553,7 @@ function PlaceKanbanCard({
       <div className="mt-3 flex flex-wrap gap-2">
         <TextBadge tone="neutral">{labelFor(placeTypeOptions, item.place_type)}</TextBadge>
         {item.category_id ? <CategoryBadge category={category} /> : null}
-        {isOutOfScopePlaceCategory(category) ? <TextBadge tone="warning">Categoria fora do escopo</TextBadge> : null}
+        {isOutOfScopePlaceCategory(category) ? <TextBadge tone="warning">Categoria fora do escopo desta tela</TextBadge> : null}
       </div>
       <div className="mt-4 grid gap-1 text-sm text-ink-700 dark:text-slate-300">
         <p>Cidade: <strong className="text-ink-950 dark:text-slate-100">{item.city || "-"}</strong></p>
@@ -618,7 +618,7 @@ function PlaceModal({
           <CategorySelect categories={placeCategories} value={selectedCategoryOutOfScope ? "" : values.category_id} onChange={(category_id) => setValues({ ...values, category_id })} />
           {selectedCategoryOutOfScope ? (
             <div className="mt-2 rounded-md border border-amber-500/30 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-400/30 dark:bg-amber-950/35 dark:text-amber-100">
-              Categoria atual: <strong>{selectedCategory?.name}</strong>. Categoria fora do escopo de places/leisure/general.
+              Categoria atual: <strong>{selectedCategory?.name}</strong>. Categoria fora do escopo desta tela.
             </div>
           ) : null}
         </FieldShell>

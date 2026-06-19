@@ -204,7 +204,7 @@ export async function listAccountSupportData(client: AppSupabaseClient) {
   const [categories, people, installments, cards, invoices] = await Promise.all([
     client
       .from("categories")
-      .select("id,name,type,color,icon")
+      .select("id,name,type,color,icon,scopes")
       .in("type", ["expense", "debt", "reimbursement", "other"])
       .order("name", { ascending: true }),
     client.from("people").select("id,name").order("name", { ascending: true }),

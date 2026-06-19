@@ -17,8 +17,13 @@ export const categoryTypeOptions: SelectOption[] = [
   { value: "expense", label: "Despesa" },
   { value: "income", label: "Receita" },
   { value: "reimbursement", label: "Reembolso" },
+  { value: "debt", label: "Dívida" },
   { value: "purchase", label: "Compra" },
+  { value: "planned_purchase", label: "Compra planejada" },
   { value: "goal", label: "Meta" },
+  { value: "general", label: "Geral" },
+  { value: "leisure", label: "Lazer" },
+  { value: "places", label: "Lugar" },
   { value: "other", label: "Outro" },
 ];
 

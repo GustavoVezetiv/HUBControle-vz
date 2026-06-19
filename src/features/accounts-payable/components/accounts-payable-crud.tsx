@@ -1,12 +1,13 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
+import { categoryModuleDefinitions, filterCategoriesByScopes, isCategoryOutOfScope } from "@/features/categories/scopes";
 import {
   ActionButton,
   BulkActionsBar,
@@ -80,7 +81,9 @@ const accountsDefaultViewPreference: Required<AccountsViewPreference> = {
 };
 
 export function AccountsPayableCrud() {
+  const router = useRouter();
   const searchParams = useSearchParams();
+  const installmentFilter = searchParams.get("installment");
   const [accounts, setAccounts] = useState<AccountPayableRow[]>([]);
   const [categories, setCategories] = useState<AccountCategory[]>([]);
   const [people, setPeople] = useState<AccountPerson[]>([]);
@@ -107,6 +110,10 @@ export function AccountsPayableCrud() {
   const [bulkStatus, setBulkStatus] = useState("");
   const [bulkCategoryId, setBulkCategoryId] = useState("");
   const [bulkPersonId, setBulkPersonId] = useState("");
+  const scopedCategories = useMemo(
+    () => filterCategoriesByScopes(categories, categoryModuleDefinitions.accounts.scopes),
+    [categories],
+  );
 
   const periodAccounts = useMemo(() => {
     return accounts.filter((account) => isDateInPeriod(account.due_date, period));
@@ -126,16 +133,18 @@ export function AccountsPayableCrud() {
       const matchesPerson =
         personFilter === "all" ||
         (personFilter === "none" ? !account.person_id : account.person_id === personFilter);
+      const matchesInstallment = !installmentFilter || account.installment_id === installmentFilter;
 
       return (
         matchesSearch &&
         matchesStatus &&
         matchesPriority &&
         matchesCategory &&
-        matchesPerson
+        matchesPerson &&
+        matchesInstallment
       );
     });
-  }, [categoryFilter, periodAccounts, personFilter, priorityFilter, search, statusFilter]);
+  }, [categoryFilter, installmentFilter, periodAccounts, personFilter, priorityFilter, search, statusFilter]);
 
   const summary = useMemo(() => {
     const today = todayISO();
@@ -285,6 +294,11 @@ export function AccountsPayableCrud() {
     setCategoryFilter(accountsDefaultViewPreference.categoryFilter);
     setPersonFilter(accountsDefaultViewPreference.personFilter);
     setPeriod(accountsDefaultViewPreference.period);
+    if (installmentFilter) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("installment");
+      router.replace(`/dashboard/accounts${params.toString() ? `?${params.toString()}` : ""}`);
+    }
   }
 
   async function handleSubmit(values: AccountPayableFormValues) {
@@ -616,6 +630,12 @@ export function AccountsPayableCrud() {
             {people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
           </select>
         </div>
+        {installmentFilter ? (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-mint-500/20 bg-mint-50 px-4 py-3 text-sm text-mint-900 dark:border-mint-400/20 dark:bg-mint-500/10 dark:text-mint-100">
+            <span>Mostrando apenas contas geradas por um parcelamento específico.</span>
+            <ActionButton variant="secondary" onClick={handleClearFilters}>Limpar filtro do parcelamento</ActionButton>
+          </div>
+        ) : null}
         <div className="mt-4">
           <ViewPreferenceActions onSave={handleSaveViewPreference} onRestore={handleRestoreViewPreference} onClearFilters={handleClearFilters} />
         </div>
@@ -646,7 +666,7 @@ export function AccountsPayableCrud() {
             <select className={inputClassName} value={bulkCategoryId} disabled={deletingSelected || bulkUpdating} onChange={(event) => setBulkCategoryId(event.target.value)}>
               <option value="">Categoria</option>
               <option value="__none">Sem categoria</option>
-              {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+              {scopedCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
             </select>
             <ActionButton type="button" variant="secondary" disabled={!bulkCategoryId || deletingSelected || bulkUpdating} onClick={() => void handleBulkUpdate("Alterar categoria", () => ({ category_id: bulkCategoryId === "__none" ? "" : bulkCategoryId }))}>
               Alterar categoria
@@ -666,6 +686,7 @@ export function AccountsPayableCrud() {
             categories={categories}
             people={people}
             installments={installments}
+            onOpenInstallment={(installmentId) => router.push(`/dashboard/installments?installment=${installmentId}`)}
             onEdit={(account) => setModal({ mode: "edit", account })}
             onDelete={(account) => void handleDelete(account)}
             onGenerate={(account) => void handleGenerateRecurring(account)}
@@ -709,6 +730,7 @@ function AccountsTable({
   categories,
   people,
   installments,
+  onOpenInstallment,
   onEdit,
   onDelete,
   onGenerate,
@@ -723,6 +745,7 @@ function AccountsTable({
   categories: AccountCategory[];
   people: AccountPerson[];
   installments: AccountInstallment[];
+  onOpenInstallment: (installmentId: string) => void;
   onEdit: (account: AccountPayableRow) => void;
   onDelete: (account: AccountPayableRow) => void;
   onGenerate: (account: AccountPayableRow) => void;
@@ -733,6 +756,10 @@ function AccountsTable({
   selectedIds: Set<string>;
   onSelectionChange: (ids: Set<string>) => void;
 }) {
+  const scopedCategories = useMemo(
+    () => filterCategoriesByScopes(categories, categoryModuleDefinitions.accounts.scopes),
+    [categories],
+  );
   const allSelected = accounts.length > 0 && accounts.every((account) => selectedIds.has(account.id));
 
   function toggleAll(checked: boolean) {
@@ -806,9 +833,19 @@ function AccountsTable({
                   <TitleButton onClick={() => onEdit(account)}>{account.title}</TitleButton>
                 )}
                 {account.installment_id ? (
-                  <p className="text-xs font-medium text-mint-600">
-                    {getInstallmentOriginLabel(account, installments)}
-                  </p>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <TextBadge tone="info">Gerada por parcelamento</TextBadge>
+                    <span className="text-xs text-ink-600 dark:text-slate-300">
+                      {getInstallmentOriginLabel(account, installments)}
+                    </span>
+                    <button
+                      type="button"
+                      className="text-xs font-semibold text-mint-600 transition hover:text-mint-700"
+                      onClick={() => onOpenInstallment(account.installment_id!)}
+                    >
+                      Abrir parcelamento
+                    </button>
+                  </div>
                 ) : null}
                 <p className="text-xs text-ink-600">{account.description ?? "-"}</p>
               </td>
@@ -819,7 +856,7 @@ function AccountsTable({
               </td>
               <td className="px-4 py-3">
                 {allowQuickTableEdit && !account.is_generated ? (
-                  <QuickEditSelect value={account.category_id ?? ""} options={[{ value: "", label: "Sem categoria" }, ...categories.map((category) => ({ value: category.id, label: category.name }))]} onCommit={(value) => onQuickUpdate(account, { category_id: value })} />
+                  <QuickEditSelect value={account.category_id ?? ""} options={[{ value: "", label: "Sem categoria" }, ...scopedCategories.map((category) => ({ value: category.id, label: category.name }))]} onCommit={(value) => onQuickUpdate(account, { category_id: value })} />
                 ) : (
                   <CategoryBadge category={categories.find((category) => category.id === account.category_id)} />
                 )}
@@ -827,9 +864,7 @@ function AccountsTable({
               <td className="px-4 py-3 text-ink-600">{people.find((person) => person.id === account.person_id)?.name ?? "-"}</td>
               <td className="px-4 py-3">
                 {account.installment_id ? (
-                  <TextBadge tone="info">
-                    {getInstallmentOriginLabel(account, installments)}
-                  </TextBadge>
+                  <TextBadge tone="info">Gerada por parcelamento</TextBadge>
                 ) : account.is_generated ? (
                   <TextBadge tone="neutral">Gerada</TextBadge>
                 ) : (
@@ -868,6 +903,11 @@ function AccountsTable({
                   ) : null}
                   {account.status !== "paid" ? (
                     <ActionButton variant="secondary" onClick={() => onPayWithCard(account)}>Pagar com cartão</ActionButton>
+                  ) : null}
+                  {account.installment_id ? (
+                    <ActionButton variant="secondary" onClick={() => onOpenInstallment(account.installment_id!)}>
+                      Abrir parcelamento
+                    </ActionButton>
                   ) : null}
                   <ActionButton variant="secondary" onClick={() => onEdit(account)}>Editar</ActionButton>
                   <ActionButton variant="danger" onClick={() => onDelete(account)}>Arquivar</ActionButton>
@@ -956,6 +996,12 @@ function AccountModal({
   const [values, setValues] = useState<AccountPayableFormValues>(
     modal?.mode === "edit" ? accountToFormValues(modal.account) : emptyAccountForm,
   );
+  const scopedCategories = useMemo(
+    () => filterCategoriesByScopes(categories, categoryModuleDefinitions.accounts.scopes),
+    [categories],
+  );
+  const selectedCategory = categories.find((category) => category.id === values.category_id);
+  const selectedCategoryOutOfScope = isCategoryOutOfScope(selectedCategory, categoryModuleDefinitions.accounts.scopes);
 
   return (
     <Modal
@@ -980,7 +1026,12 @@ function AccountModal({
           <input value={values.due_date} onChange={(event) => setValues({ ...values, due_date: event.target.value })} type="date" className={inputClassName} required />
         </FieldShell>
         <FieldShell label="Categoria">
-          <CategorySelect categories={categories} value={values.category_id} onChange={(category_id) => setValues({ ...values, category_id })} />
+          <CategorySelect categories={scopedCategories} value={selectedCategoryOutOfScope ? "" : values.category_id} onChange={(category_id) => setValues({ ...values, category_id })} />
+          {selectedCategoryOutOfScope ? (
+            <p className="mt-2 text-xs text-amber-700">
+              Categoria atual: <strong>{selectedCategory?.name}</strong>. Categoria fora do escopo desta tela.
+            </p>
+          ) : null}
         </FieldShell>
         <FieldShell label="Pessoa">
           <select value={values.person_id} onChange={(event) => setValues({ ...values, person_id: event.target.value })} className={inputClassName}>

@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
 import { AuditRecordHistory } from "@/features/audit/components/audit-record-history";
+import { categoryModuleDefinitions, filterCategoriesByScopes, isCategoryOutOfScope } from "@/features/categories/scopes";
 import { archivePlannedPurchase, createPlannedPurchase, listPlannedPurchases, listPlannedPurchaseSupportData, updatePlannedPurchase } from "@/features/planned-purchases/queries";
 import { decisionStatusOptions, emptyPlannedPurchaseForm, plannedPurchaseToFormValues, type PlannedPurchaseFormValues, type PlannedPurchaseRow, type PlannedPurchaseSupportData } from "@/features/planned-purchases/types";
 import { ActionButton, BulkActionsBar, CategoryBadge, CategorySelect, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, RowSelectionHint, shouldToggleRowSelection, TextBadge, TitleButton, ViewPreferenceActions } from "@/features/shared/crud-ui";
@@ -17,7 +18,7 @@ import type { FeedbackState } from "@/features/shared/types";
 import { clearViewPreference, loadViewPreference, preferenceString, preferenceText, saveViewPreference } from "@/features/shared/view-preferences";
 import { createClient } from "@/lib/supabase/client";
 
-type ModalState = { mode: "create"; item: null } | { mode: "edit"; item: PlannedPurchaseRow } | null;
+type ModalState = { mode: "create"; item: null; defaults?: Partial<PlannedPurchaseFormValues> } | { mode: "edit"; item: PlannedPurchaseRow } | null;
 type ViewMode = "list" | "kanban";
 type KanbanGroupMode = "decision_status" | "category" | "risk_level" | "project";
 type PurchaseStateFilter = "all" | "purchased" | "pending";
@@ -158,7 +159,10 @@ export function PlannedPurchasesCrud() {
   const projectOptions = useMemo(() => {
     return Array.from(new Set(items.map((item) => item.project?.trim()).filter((value): value is string => Boolean(value)))).sort((a, b) => a.localeCompare(b));
   }, [items]);
-  const purchaseCategories = useMemo(() => support.categories.filter(isPurchaseCategory), [support.categories]);
+  const purchaseCategories = useMemo(
+    () => filterCategoriesByScopes(support.categories, categoryModuleDefinitions.purchases.scopes),
+    [support.categories],
+  );
 
   useEffect(() => {
     if (categoryFilter === "all") return;
@@ -469,6 +473,7 @@ export function PlannedPurchasesCrud() {
           <PurchasesKanban
             categories={support.categories}
             columns={kanbanColumns}
+            onCreate={(columnValue) => setModal({ mode: "create", item: null, defaults: buildPlannedPurchaseDefaultsForKanban(kanbanGroup, columnValue) })}
             onDrop={(itemId, columnValue) => void handleKanbanDrop(itemId, columnValue)}
             onEdit={(item) => setModal({ mode: "edit", item })}
           />
@@ -638,17 +643,19 @@ export function PlannedPurchasesCrud() {
 function PurchasesKanban({
   categories,
   columns,
+  onCreate,
   onDrop,
   onEdit,
 }: {
   categories: PlannedPurchaseSupportData["categories"];
   columns: KanbanColumn[];
+  onCreate: (columnValue: string) => void;
   onDrop: (itemId: string, columnValue: string) => void;
   onEdit: (item: PlannedPurchaseRow) => void;
 }) {
   return (
-    <div className="overflow-x-auto pb-2">
-      <div className="grid min-w-[980px] auto-cols-fr grid-flow-col gap-4">
+    <div className="overflow-x-auto pb-3">
+      <div className="grid min-w-max grid-flow-col auto-cols-[minmax(300px,320px)] gap-4">
         {columns.map((column) => (
           <section
             key={column.value}
@@ -672,9 +679,12 @@ function PurchasesKanban({
                 </div>
               ) : (
                 column.items.map((item) => (
-                  <PurchaseKanbanCard key={item.id} categories={categories} item={item} onEdit={onEdit} />
+                  <PurchaseKanbanCard key={item.id} categories={categories} item={item} onDoubleClick={onEdit} onEdit={onEdit} />
                 ))
               )}
+              <ActionButton type="button" variant="secondary" className="w-full justify-center" onClick={() => onCreate(column.value)}>
+                + Adicionar
+              </ActionButton>
             </div>
           </section>
         ))}
@@ -686,10 +696,12 @@ function PurchasesKanban({
 function PurchaseKanbanCard({
   categories,
   item,
+  onDoubleClick,
   onEdit,
 }: {
   categories: PlannedPurchaseSupportData["categories"];
   item: PlannedPurchaseRow;
+  onDoubleClick: (item: PlannedPurchaseRow) => void;
   onEdit: (item: PlannedPurchaseRow) => void;
 }) {
   const difference = getPurchaseDifference(item);
@@ -701,7 +713,8 @@ function PurchaseKanbanCard({
         event.dataTransfer.setData("text/plain", item.id);
         event.dataTransfer.effectAllowed = "move";
       }}
-      className="rounded-lg border border-slate-300 bg-white p-4 text-ink-950 shadow-sm transition hover:border-mint-500 hover:shadow-md dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+      onDoubleClick={() => onDoubleClick(item)}
+      className="cursor-pointer rounded-lg border border-slate-300 bg-white p-4 text-ink-950 shadow-sm transition hover:border-mint-500 hover:shadow-md dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
     >
       <div className="flex items-start justify-between gap-3">
         <button type="button" className="text-left text-sm font-semibold text-ink-950 hover:text-mint-700 dark:text-slate-100 dark:hover:text-mint-200" onClick={() => onEdit(item)}>
@@ -712,7 +725,7 @@ function PurchaseKanbanCard({
       <div className="mt-3 flex flex-wrap gap-2">
         <CategoryBadge category={categories.find((category) => category.id === item.category_id)} />
         {isOutOfScopePurchaseCategory(categories.find((category) => category.id === item.category_id)) ? (
-          <TextBadge tone="warning">Categoria fora do escopo de compras</TextBadge>
+          <TextBadge tone="warning">Categoria fora do escopo desta tela</TextBadge>
         ) : null}
         <TextBadge tone={item.risk_level === "critical" || item.risk_level === "high" ? "danger" : "neutral"}>
           {optionLabel(priorityOptions, item.risk_level)}
@@ -745,7 +758,7 @@ function PurchaseCategoryBadge({
   return (
     <div className="flex flex-wrap gap-2">
       <CategoryBadge category={category} />
-      {outOfScope ? <TextBadge tone="warning">Categoria fora do escopo de compras</TextBadge> : null}
+      {outOfScope ? <TextBadge tone="warning">Categoria fora do escopo desta tela</TextBadge> : null}
     </div>
   );
 }
@@ -767,13 +780,18 @@ function PlannedPurchaseModal({
   onClose: () => void;
   onSubmit: (values: PlannedPurchaseFormValues) => void;
 }) {
-  const [values, setValues] = useState<PlannedPurchaseFormValues>(modal?.mode === "edit" ? plannedPurchaseToFormValues(modal.item) : emptyPlannedPurchaseForm);
+  const [values, setValues] = useState<PlannedPurchaseFormValues>(modal?.mode === "edit" ? plannedPurchaseToFormValues(modal.item) : { ...emptyPlannedPurchaseForm, ...(modal?.defaults ?? {}) });
+  const originalCategoryId = modal?.mode === "edit" ? modal.item.category_id ?? "" : "";
   const selectedCategory = support.categories.find((category) => category.id === values.category_id);
   const selectedCategoryOutOfScope = isOutOfScopePurchaseCategory(selectedCategory);
+  const submitValues = {
+    ...values,
+    category_id: values.category_id || originalCategoryId,
+  };
 
   return (
     <Modal title={modal?.mode === "edit" ? "Editar compra" : "Nova compra"} description="Use para simular desejos antes que virem gasto real." onClose={onClose}>
-      <form className="grid gap-4 md:grid-cols-2" onSubmit={(event) => { event.preventDefault(); onSubmit(values); }}>
+      <form className="grid gap-4 md:grid-cols-2" onSubmit={(event) => { event.preventDefault(); onSubmit(submitValues); }}>
         <div className="md:col-span-2"><FieldShell label="Nome"><input required className={inputClassName} value={values.title} onChange={(event) => setValues({ ...values, title: event.target.value })} /></FieldShell></div>
         <div className="md:col-span-2"><FieldShell label="Descrição"><textarea rows={3} className={inputClassName} value={values.description} onChange={(event) => setValues({ ...values, description: event.target.value })} /></FieldShell></div>
         <FieldShell label="Valor estimado"><input min="0" step="0.01" type="number" className={inputClassName} value={values.estimated_amount} onChange={(event) => setValues({ ...values, estimated_amount: event.target.value })} /></FieldShell>
@@ -784,7 +802,7 @@ function PlannedPurchaseModal({
           <CategorySelect categories={purchaseCategories} value={selectedCategoryOutOfScope ? "" : values.category_id} onChange={(category_id) => setValues({ ...values, category_id })} />
           {selectedCategoryOutOfScope ? (
             <div className="mt-2 rounded-md border border-amber-500/30 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-400/30 dark:bg-amber-950/35 dark:text-amber-100">
-              Categoria atual: <strong>{selectedCategory?.name}</strong>. Categoria fora do escopo de compras.
+              Categoria atual: <strong>{selectedCategory?.name}</strong>. Categoria fora do escopo desta tela.
             </div>
           ) : null}
         </FieldShell>
@@ -883,6 +901,17 @@ function getPurchaseDifference(item: PlannedPurchaseRow) {
   return Number(item.estimated_amount || 0) - Number(item.paid_amount || 0);
 }
 
+function buildPlannedPurchaseDefaultsForKanban(groupMode: KanbanGroupMode, columnValue: string): Partial<PlannedPurchaseFormValues> {
+  if (groupMode === "decision_status") {
+    return columnValue === "purchased"
+      ? { decision_status: columnValue, purchase_date: new Date().toISOString().slice(0, 10) }
+      : { decision_status: columnValue };
+  }
+  if (groupMode === "risk_level") return { risk_level: columnValue as PlannedPurchaseFormValues["risk_level"] };
+  if (groupMode === "category") return { category_id: columnValue === "no_category" || columnValue === "out_of_scope_category" ? "" : columnValue };
+  return { project: columnValue === "no_project" ? "" : columnValue };
+}
+
 function buildPurchaseCategoryOptions(
   categories: PlannedPurchaseSupportData["categories"],
   purchaseCategories: PlannedPurchaseSupportData["categories"],
@@ -899,10 +928,6 @@ function buildPurchaseCategoryOptions(
   ];
 }
 
-function isPurchaseCategory(category: PlannedPurchaseSupportData["categories"][number]) {
-  return ["purchase", "planned_purchase", "wishlist", "shopping"].includes(category.type);
-}
-
 function isOutOfScopePurchaseCategory(category: PlannedPurchaseSupportData["categories"][number] | undefined) {
-  return category ? !isPurchaseCategory(category) : false;
+  return isCategoryOutOfScope(category, categoryModuleDefinitions.purchases.scopes);
 }

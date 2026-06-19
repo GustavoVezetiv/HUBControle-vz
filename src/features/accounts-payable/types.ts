@@ -23,7 +23,7 @@ export type AccountPayableFormValues = {
 };
 
 export type AccountPayableRow = AccountPayable;
-export type AccountCategory = Pick<Category, "id" | "name" | "type" | "color" | "icon">;
+export type AccountCategory = Pick<Category, "id" | "name" | "type" | "color" | "icon" | "scopes">;
 export type AccountPerson = Pick<Person, "id" | "name">;
 export type AccountInstallment = Pick<Installment, "id" | "description" | "installment_total" | "installment_count">;
 export type AccountCreditCard = Pick<CreditCard, "id" | "name" | "issuer">;

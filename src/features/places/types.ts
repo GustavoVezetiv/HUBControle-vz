@@ -1,4 +1,5 @@
 import type { Category, Place } from "@/lib/supabase/types";
+import { categoryModuleDefinitions, categorySupportsAnyScope, isCategoryOutOfScope } from "@/features/categories/scopes";
 
 export type PlaceRow = Place;
 
@@ -25,7 +26,7 @@ export type PlaceFormValues = {
 };
 
 export type PlaceSupportData = {
-  categories: Pick<Category, "id" | "name" | "type" | "color" | "icon">[];
+  categories: Pick<Category, "id" | "name" | "type" | "color" | "icon" | "scopes">[];
 };
 
 export const placeStatusOptions = [
@@ -104,12 +105,11 @@ export function placeToFormValues(item: PlaceRow): PlaceFormValues {
 }
 
 export function isPlaceCategory(category: Pick<Category, "type"> | undefined) {
-  if (!category?.type) return false;
-  return new Set(["places", "leisure", "general"]).has(category.type.trim().toLowerCase());
+  return categorySupportsAnyScope(category, categoryModuleDefinitions.places.scopes);
 }
 
 export function isOutOfScopePlaceCategory(category: Pick<Category, "type"> | undefined) {
-  return category ? !isPlaceCategory(category) : false;
+  return isCategoryOutOfScope(category, categoryModuleDefinitions.places.scopes);
 }
 
 export function getPlaceStatusTone(status: string): "success" | "warning" | "neutral" | "info" {

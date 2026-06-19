@@ -8,6 +8,13 @@ export type GenerateInstallmentAccountsResult = {
   error: { message: string } | null;
 };
 
+export type InstallmentGeneratedAccountSummary = {
+  installment_id: string;
+  generatedCount: number;
+  paidCount: number;
+  pendingCount: number;
+};
+
 export async function listInstallments(client: AppSupabaseClient) {
   return client.from("installments").select("*").order("due_month", { ascending: true });
 }
@@ -21,7 +28,7 @@ export async function listInstallmentSupportData(client: AppSupabaseClient) {
       .is("archived_at", null)
       .order("due_date", { ascending: false }),
     client.from("credit_card_transactions").select("id,credit_card_id,invoice_id,description,amount,transaction_date").order("transaction_date", { ascending: false }),
-    client.from("categories").select("id,name,type,color,icon").order("name", { ascending: true }),
+    client.from("categories").select("id,name,type,color,icon,scopes").order("name", { ascending: true }),
     client.from("people").select("id,name").order("name", { ascending: true }),
   ]);
 
@@ -54,6 +61,47 @@ export async function listGeneratedAccountsForInstallment(client: AppSupabaseCli
     .select("id,title,status,amount,due_date")
     .eq("installment_id", installmentId)
     .eq("is_generated", true);
+}
+
+export async function listGeneratedAccountsSummaryForInstallments(
+  client: AppSupabaseClient,
+  installmentIds: string[],
+): Promise<{ data: InstallmentGeneratedAccountSummary[]; error: { message: string } | null }> {
+  if (installmentIds.length === 0) {
+    return { data: [], error: null };
+  }
+
+  const result = await client
+    .from("accounts_payable")
+    .select("installment_id,status")
+    .eq("is_generated", true)
+    .in("installment_id", installmentIds);
+
+  if (result.error) {
+    console.error("Erro técnico ao carregar resumo de contas geradas dos parcelamentos:", result.error);
+    return { data: [], error: { message: "Não foi possível carregar o resumo das contas geradas." } };
+  }
+
+  const summaryMap = new Map<string, InstallmentGeneratedAccountSummary>();
+
+  for (const row of result.data ?? []) {
+    if (!row.installment_id) continue;
+
+    const current = summaryMap.get(row.installment_id) ?? {
+      installment_id: row.installment_id,
+      generatedCount: 0,
+      paidCount: 0,
+      pendingCount: 0,
+    };
+
+    current.generatedCount += 1;
+    if (row.status === "paid") current.paidCount += 1;
+    else current.pendingCount += 1;
+
+    summaryMap.set(row.installment_id, current);
+  }
+
+  return { data: Array.from(summaryMap.values()), error: null };
 }
 
 export async function unlinkPaidGeneratedAccountsForInstallment(client: AppSupabaseClient, installmentId: string) {
@@ -112,7 +160,7 @@ export async function generateInstallmentAccounts(
   const installmentNumbers = Array.from({ length: total - current + 1 }, (_, index) => current + index);
   const existingResult = await client
     .from("accounts_payable")
-    .select("id,installment_number")
+    .select("id,installment_number,amount,due_date")
     .eq("user_id", userId)
     .eq("installment_id", installment.id)
     .eq("is_generated", true)
@@ -124,16 +172,37 @@ export async function generateInstallmentAccounts(
   }
 
   const existingNumbers = new Set((existingResult.data ?? []).map((item) => Number(item.installment_number)));
+  const existingKeys = new Set(
+    (existingResult.data ?? []).map((item) =>
+      buildInstallmentAccountDuplicateKey(
+        Number(item.installment_number),
+        Number(item.amount),
+        item.due_date,
+      ),
+    ),
+  );
   const rows = installmentNumbers
-    .filter((installmentNumber) => !existingNumbers.has(installmentNumber))
-    .map((installmentNumber) => ({
+    .map((installmentNumber) => {
+      const dueDate = addMonths(startDate, installmentNumber - 1);
+      const amount = Number(installment.installment_amount);
+      const duplicateKey = buildInstallmentAccountDuplicateKey(installmentNumber, amount, dueDate);
+
+      return {
+        installmentNumber,
+        dueDate,
+        amount,
+        shouldSkip: existingNumbers.has(installmentNumber) || existingKeys.has(duplicateKey),
+      };
+    })
+    .filter((candidate) => !candidate.shouldSkip)
+    .map((candidate) => ({
       user_id: userId,
       category_id: installment.category_id,
       person_id: installment.person_id,
       title: installment.description,
-      description: `Parcela ${installmentNumber}/${total} gerada a partir de Parcelamentos.`,
-      amount: Number(installment.installment_amount),
-      due_date: addMonths(startDate, installmentNumber - 1),
+      description: `Parcela ${candidate.installmentNumber}/${total} gerada a partir de Parcelamentos.`,
+      amount: candidate.amount,
+      due_date: candidate.dueDate,
       status: "pending",
       priority: "medium",
       risk_level: "medium",
@@ -144,7 +213,7 @@ export async function generateInstallmentAccounts(
       source_type: "installment",
       source_id: installment.id,
       installment_id: installment.id,
-      installment_number: installmentNumber,
+      installment_number: candidate.installmentNumber,
       is_generated: true,
       paid_at: null,
     }));
@@ -213,4 +282,12 @@ function toDateInputValue(date: Date) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function buildInstallmentAccountDuplicateKey(
+  installmentNumber: number,
+  amount: number,
+  dueDate: string,
+) {
+  return `${installmentNumber}|${amount.toFixed(2)}|${dueDate}`;
 }
