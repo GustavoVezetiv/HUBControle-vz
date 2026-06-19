@@ -10,6 +10,16 @@ import { ExportBackupPanel } from "@/features/settings/components/export-backup-
 import { FinancialRecalculationPanel } from "@/features/settings/components/financial-recalculation-panel";
 import { getProfile, upsertProfile } from "@/features/settings/queries";
 import {
+  applySystemViewPreferences,
+  defaultSystemPreferences,
+  initialScreenOptions,
+  loadSystemPreferences,
+  saveSystemPreferences,
+  shortcutOptions,
+  weeklyReviewTabOptions,
+  type SystemPreferences,
+} from "@/features/settings/system-preferences";
+import {
   animationLevelOptions,
   borderStyleOptions,
   cardEffectOptions,
@@ -33,6 +43,7 @@ export function SettingsPanel() {
   const [values, setValues] = useState<SettingsFormValues>(profileToFormValues(null));
   const [email, setEmail] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
+  const [systemPreferences, setSystemPreferences] = useState<SystemPreferences>(defaultSystemPreferences);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
@@ -55,6 +66,7 @@ export function SettingsPanel() {
     } else {
       setProfile(data);
       setValues(profileToFormValues(data));
+      setSystemPreferences(loadSystemPreferences(auth.user.id));
     }
     setLoading(false);
   }, []);
@@ -85,7 +97,14 @@ export function SettingsPanel() {
       }
       setProfile(data);
       setValues(profileToFormValues(data));
-      setFeedback({ type: "success", message: "Configurações salvas." });
+      const savedSystemPreferences = saveSystemPreferences(userId, systemPreferences);
+      applySystemViewPreferences(userId, systemPreferences);
+      setFeedback({
+        type: savedSystemPreferences ? "success" : "error",
+        message: savedSystemPreferences
+          ? "Configurações salvas."
+          : "Configurações do perfil salvas, mas as preferências locais falharam.",
+      });
       router.refresh();
     } catch (error) {
       console.error("Erro técnico ao salvar configurações:", error);
@@ -93,6 +112,33 @@ export function SettingsPanel() {
     } finally {
       setSaving(false);
     }
+  }
+
+  function toggleShortcut(shortcutId: (typeof shortcutOptions)[number]["id"]) {
+    setSystemPreferences((current) => {
+      const exists = current.favoriteShortcuts.includes(shortcutId);
+      if (exists) {
+        return {
+          ...current,
+          favoriteShortcuts: current.favoriteShortcuts.filter((item) => item !== shortcutId),
+        };
+      }
+
+      if (current.favoriteShortcuts.length >= 6) {
+        setFeedback({ type: "error", message: "Escolha no máximo 6 atalhos favoritos." });
+        return current;
+      }
+
+      return {
+        ...current,
+        favoriteShortcuts: [...current.favoriteShortcuts, shortcutId],
+      };
+    });
+  }
+
+  function handleRestoreSystemDefaults() {
+    setSystemPreferences(defaultSystemPreferences);
+    setFeedback({ type: "success", message: "Padrões carregados. Salve as configurações para aplicar." });
   }
 
   return (
@@ -178,6 +224,169 @@ export function SettingsPanel() {
               <VisualPreview values={values} />
             </div>
 
+            <div className="rounded-lg border border-ink-950/10 bg-slate-50 p-4">
+              <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-ink-950">Preferências do sistema</h3>
+                  <p className="mt-1 text-sm leading-6 text-ink-600">
+                    Personalize como o Hub abre e quais atalhos aparecem primeiro. Essas preferências ficam salvas localmente por usuário neste navegador.
+                  </p>
+                </div>
+                <ActionButton type="button" variant="secondary" onClick={handleRestoreSystemDefaults}>
+                  Restaurar padrões
+                </ActionButton>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <FieldShell label="Tela inicial padrão">
+                  <select
+                    className={inputClassName}
+                    value={systemPreferences.initialScreen}
+                    onChange={(event) =>
+                      setSystemPreferences((current) => ({
+                        ...current,
+                        initialScreen: event.target.value as SystemPreferences["initialScreen"],
+                      }))
+                    }
+                  >
+                    {initialScreenOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-2 text-xs text-ink-600">Usada após entrar no sistema.</p>
+                </FieldShell>
+
+                <FieldShell label="Preferência de Dashboard">
+                  <select
+                    className={inputClassName}
+                    value={systemPreferences.dashboardMode}
+                    onChange={(event) =>
+                      setSystemPreferences((current) => ({
+                        ...current,
+                        dashboardMode: event.target.value as SystemPreferences["dashboardMode"],
+                      }))
+                    }
+                  >
+                    <option value="simple">Resumo simples</option>
+                    <option value="full">Visão completa</option>
+                  </select>
+                </FieldShell>
+              </div>
+
+              <div className="mt-6">
+                <h4 className="text-sm font-semibold text-ink-950">Modo de visualização padrão por módulo</h4>
+                <p className="mt-1 text-sm text-ink-600">Use aqui os modos mais repetidos. Filtros detalhados continuam salvos dentro de cada tela.</p>
+              </div>
+
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <FieldShell label="Visualização padrão em Metas">
+                  <select
+                    className={inputClassName}
+                    value={systemPreferences.goalViewMode}
+                    onChange={(event) =>
+                      setSystemPreferences((current) => ({
+                        ...current,
+                        goalViewMode: event.target.value as SystemPreferences["goalViewMode"],
+                      }))
+                    }
+                  >
+                    <option value="list">Lista</option>
+                    <option value="kanban">Kanban</option>
+                  </select>
+                </FieldShell>
+
+                <FieldShell label="Visualização padrão em Compras e desejos">
+                  <select
+                    className={inputClassName}
+                    value={systemPreferences.purchaseViewMode}
+                    onChange={(event) =>
+                      setSystemPreferences((current) => ({
+                        ...current,
+                        purchaseViewMode: event.target.value as SystemPreferences["purchaseViewMode"],
+                      }))
+                    }
+                  >
+                    <option value="list">Lista</option>
+                    <option value="kanban">Kanban</option>
+                  </select>
+                </FieldShell>
+
+                <FieldShell label="Visualização padrão em Roles e lugares">
+                  <select
+                    className={inputClassName}
+                    value={systemPreferences.placeViewMode}
+                    onChange={(event) =>
+                      setSystemPreferences((current) => ({
+                        ...current,
+                        placeViewMode: event.target.value as SystemPreferences["placeViewMode"],
+                      }))
+                    }
+                  >
+                    <option value="list">Lista</option>
+                    <option value="kanban">Kanban</option>
+                  </select>
+                </FieldShell>
+
+                <FieldShell label="Aba padrão da Revisão semanal">
+                  <select
+                    className={inputClassName}
+                    value={systemPreferences.weeklyReviewDefaultTab}
+                    onChange={(event) =>
+                      setSystemPreferences((current) => ({
+                        ...current,
+                        weeklyReviewDefaultTab: event.target.value as SystemPreferences["weeklyReviewDefaultTab"],
+                      }))
+                    }
+                  >
+                    {weeklyReviewTabOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </FieldShell>
+              </div>
+
+              <div className="mt-6">
+                <div className="mb-3">
+                  <h4 className="text-sm font-semibold text-ink-950">Atalhos favoritos</h4>
+                  <p className="mt-1 text-sm text-ink-600">Escolha até 6 atalhos para aparecer no Dashboard.</p>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {shortcutOptions.map((shortcut) => {
+                    const selected = systemPreferences.favoriteShortcuts.includes(shortcut.id);
+
+                    return (
+                      <button
+                        key={shortcut.id}
+                        type="button"
+                        onClick={() => toggleShortcut(shortcut.id)}
+                        className={[
+                          "rounded-lg border px-4 py-3 text-left transition",
+                          selected
+                            ? "border-mint-500 bg-mint-50 text-mint-900 dark:bg-mint-500/10 dark:text-mint-100"
+                            : "border-ink-950/10 bg-white text-ink-900 dark:border-white/10 dark:bg-slate-950/60 dark:text-slate-100",
+                        ].join(" ")}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold">{shortcut.label}</p>
+                            <p className="mt-1 text-xs opacity-80">{shortcut.description}</p>
+                          </div>
+                          <span className="text-xs font-semibold">{selected ? "Selecionado" : "Adicionar"}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="mt-3 text-xs text-ink-600">
+                  {systemPreferences.favoriteShortcuts.length}/6 atalhos selecionados.
+                </p>
+              </div>
+            </div>
+
             <div className="flex items-end justify-end"><ActionButton type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar configurações"}</ActionButton></div>
           </form>
         )}
@@ -193,7 +402,9 @@ export function SettingsPanel() {
       </SectionCard>
 
       <FinancialRecalculationPanel userId={userId} />
-      <ExportBackupPanel userId={userId} email={email} />
+      <div id="backup-exportacao">
+        <ExportBackupPanel userId={userId} email={email} />
+      </div>
     </div>
   );
 }

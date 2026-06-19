@@ -52,6 +52,7 @@ type KanbanColumn = {
   label: string;
   goals: Goal[];
 };
+type GoalCategoryOption = Pick<Category, "id" | "name" | "type" | "color" | "icon" | "scopes">;
 
 const goalCategoryOptions = [
   { value: "personal", label: "Pessoal" },
@@ -100,7 +101,7 @@ const goalsDefaultViewPreference: Required<GoalsViewPreference> = {
 
 export function GoalsCrud() {
   const [goals, setGoals] = useState<Goal[]>([]);
-  const [categories, setCategories] = useState<Pick<Category, "id" | "name" | "type" | "color" | "icon">[]>([]);
+  const [categories, setCategories] = useState<GoalCategoryOption[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -601,7 +602,7 @@ function GoalsKanban({
   onDrop,
   onEdit,
 }: {
-  categories: Pick<Category, "id" | "name" | "type" | "color" | "icon">[];
+  categories: GoalCategoryOption[];
   columns: KanbanColumn[];
   editable: boolean;
   onCreate: (columnValue: string) => void;
@@ -667,7 +668,7 @@ function GoalKanbanCard({
   onDoubleClick,
   onEdit,
 }: {
-  categories: Pick<Category, "id" | "name" | "type" | "color" | "icon">[];
+  categories: GoalCategoryOption[];
   draggable: boolean;
   goal: Goal;
   onDoubleClick: (goal: Goal) => void;
@@ -711,7 +712,7 @@ function GoalKanbanCard({
   );
 }
 
-function GoalModal({ modal, saving, categories, userId, onClose, onSubmit }: { modal: ModalState; saving: boolean; categories: Pick<Category, "id" | "name" | "type" | "color" | "icon">[]; userId: string | null; onClose: () => void; onSubmit: (values: GoalFormValues) => void }) {
+function GoalModal({ modal, saving, categories, userId, onClose, onSubmit }: { modal: ModalState; saving: boolean; categories: GoalCategoryOption[]; userId: string | null; onClose: () => void; onSubmit: (values: GoalFormValues) => void }) {
   const [values, setValues] = useState<GoalFormValues>(modal?.mode === "edit" ? goalToFormValues(modal.goal) : { ...emptyGoalForm, ...(modal?.defaults ?? {}) });
   const isFinancial = values.goal_kind === "financial";
   const originalCategoryId = modal?.mode === "edit" ? modal.goal.category_id ?? "" : "";
@@ -787,8 +788,8 @@ function GoalProgress({ goal }: { goal: Goal }) {
 
 function buildKanbanColumns(
   goals: Goal[],
-  visibleCategories: Pick<Category, "id" | "name" | "type" | "color" | "icon">[],
-  allCategories: Pick<Category, "id" | "name" | "type" | "color" | "icon">[],
+  visibleCategories: GoalCategoryOption[],
+  allCategories: GoalCategoryOption[],
   groupMode: KanbanGroupMode,
 ): KanbanColumn[] {
   const definitions = getKanbanColumnDefinitions(goals, visibleCategories, allCategories, groupMode);
@@ -801,8 +802,8 @@ function buildKanbanColumns(
 
 function getKanbanColumnDefinitions(
   goals: Goal[],
-  visibleCategories: Pick<Category, "id" | "name" | "type" | "color" | "icon">[],
-  allCategories: Pick<Category, "id" | "name" | "type" | "color" | "icon">[],
+  visibleCategories: GoalCategoryOption[],
+  allCategories: GoalCategoryOption[],
   groupMode: KanbanGroupMode,
 ) {
   if (groupMode === "status") return goalStatusOptions;
@@ -837,7 +838,7 @@ function getKanbanColumnDefinitions(
 
 function getKanbanValue(
   goal: Goal,
-  categories: Pick<Category, "id" | "name" | "type" | "color" | "icon">[],
+  categories: GoalCategoryOption[],
   groupMode: KanbanGroupMode,
 ) {
   if (groupMode === "status") return goal.status;

@@ -6,8 +6,9 @@ import {
   tokenExpiresAt,
 } from "@/features/weekly-review/google-tasks-auth";
 import { detectRoutineCategoryId, initialRoutineCategories, isPriorityQueueTitle } from "@/features/weekly-review/categories";
+import { buildWeeklyDerivedData } from "@/features/weekly-review/derived";
 import type { AppSupabaseClient } from "@/features/shared/types";
-import type { Json, RoutineCategory, RoutineGoogleConnection, RoutineSyncRun, RoutineTask } from "@/lib/supabase/types";
+import type { Json, RoutineCategory, RoutineGoogleConnection, RoutineSyncRun, RoutineTask, RoutineTaskList } from "@/lib/supabase/types";
 
 export type RoutineSyncResult = {
   syncedAt: string;
@@ -575,7 +576,7 @@ async function upsertCurrentWeeklyReport(client: AppSupabaseClient, userId: stri
   const weekStartDate = toDateInputValue(weekStart);
   const weekEndDate = toDateInputValue(weekEnd);
 
-  const [tasksResult, eventsResult] = await Promise.all([
+  const [tasksResult, eventsResult, taskListsResult, categoriesResult] = await Promise.all([
     client.from("routine_tasks").select("*").eq("user_id", userId),
     client
       .from("routine_task_events")
@@ -583,32 +584,55 @@ async function upsertCurrentWeeklyReport(client: AppSupabaseClient, userId: stri
       .eq("user_id", userId)
       .gte("event_at", `${weekStartDate}T00:00:00.000Z`)
       .lte("event_at", `${weekEndDate}T23:59:59.999Z`),
+    client.from("routine_task_lists").select("*").eq("user_id", userId),
+    client.from("routine_categories").select("*").eq("user_id", userId),
   ]);
 
-  if (tasksResult.error || eventsResult.error) {
-    console.error("Erro técnico ao gerar relatório semanal:", { tasksError: tasksResult.error, eventsError: eventsResult.error });
+  if (tasksResult.error || eventsResult.error || taskListsResult.error || categoriesResult.error) {
+    console.error("Erro técnico ao gerar relatório semanal:", {
+      tasksError: tasksResult.error,
+      eventsError: eventsResult.error,
+      taskListsError: taskListsResult.error,
+      categoriesError: categoriesResult.error,
+    });
     return { data: null, error: { message: "Não foi possível gerar relatório semanal." } };
   }
 
   const tasks = (tasksResult.data ?? []) as RoutineTask[];
   const events = eventsResult.data ?? [];
-  const completedCount = tasks.filter((task) => task.completed_at && task.completed_at.slice(0, 10) >= weekStartDate && task.completed_at.slice(0, 10) <= weekEndDate).length;
-  const prioritizedCount = events.filter((event) => event.event_type === "PRIORITIZED" && event.previous_value !== null).length;
-  const openCount = tasks.filter((task) => task.status !== "completed").length;
-  const staleCount = tasks.filter((task) => task.status !== "completed" && task.updated_at_google && daysBetween(task.updated_at_google.slice(0, 10), toDateInputValue(today)) >= 14).length;
+  const taskLists = (taskListsResult.data ?? []) as RoutineTaskList[];
+  const categories = (categoriesResult.data ?? []) as RoutineCategory[];
+  const derived = buildWeeklyDerivedData(tasks, events, taskLists, categories, weekStartDate, weekEndDate);
 
   const result = await client.from("routine_weekly_reports").upsert(
     {
       user_id: userId,
       week_start_date: weekStartDate,
       week_end_date: weekEndDate,
-      completed_count: completedCount,
-      prioritized_count: prioritizedCount,
-      open_count: openCount,
-      stale_count: staleCount,
-      events_count: events.length,
+      completed_count: derived.completedThisWeek.length,
+      prioritized_count: derived.prioritizedEvents.length,
+      open_count: derived.openTasks.length,
+      stale_count: derived.staleTasks.length,
+      events_count: derived.realEventsThisWeek.length,
       summary_json: {
-        by_event_type: countBy(events, (event) => event.event_type),
+        by_event_type: countBy(derived.realEventsThisWeek, (event) => event.event_type),
+        baseline_ignored: {
+          created: events.filter((event) => event.event_type === "CREATED" && event.previous_value === null).length,
+          prioritized: derived.inheritedPriorityEventsThisWeek.length,
+        },
+        movement: {
+          created_after_baseline: derived.createdAfterBaselineEvents.length,
+          prioritized_real: derived.prioritizedEvents.length,
+          reopened: derived.reopenedEvents.length,
+          due_date_changed: derived.dueDateChangedEvents.length,
+        },
+        current_state: {
+          open: derived.openTasks.length,
+          priority_queue: derived.priorityQueueTasks.length,
+          overdue: derived.overdueTasks.length,
+          without_date: derived.tasksWithoutDate.length,
+          stale: derived.staleTasks.length,
+        },
       },
       future_ai_summary: null,
       generated_at: new Date().toISOString(),
@@ -790,12 +814,6 @@ function startOfWeek(date: Date) {
 
 function toDateInputValue(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
-function daysBetween(left: string, right: string) {
-  const leftDate = new Date(`${left}T00:00:00`);
-  const rightDate = new Date(`${right}T00:00:00`);
-  return Math.floor((rightDate.getTime() - leftDate.getTime()) / 86_400_000);
 }
 
 function countBy<T>(items: T[], getKey: (item: T) => string) {

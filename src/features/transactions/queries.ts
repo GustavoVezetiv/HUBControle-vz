@@ -26,13 +26,18 @@ export type GenerateInstallmentTransactionsResult = {
 
 export async function listTransactionSupportData(client: AppSupabaseClient) {
   const [cards, invoices, categories, people] = await Promise.all([
-    client.from("credit_cards").select("id,name,closing_day,due_day").order("name", { ascending: true }),
+    client.from("credit_cards").select("id,name,closing_day,due_day").eq("is_active", true).order("name", { ascending: true }),
     client
       .from("credit_card_invoices")
       .select("id,credit_card_id,reference_month,due_date,status")
       .is("archived_at", null)
+      .neq("status", "cancelled")
       .order("due_date", { ascending: false }),
-    client.from("categories").select("id,name,type,color,icon,scopes").order("name", { ascending: true }),
+    client
+      .from("categories")
+      .select("id,name,type,color,icon,scopes")
+      .eq("is_active", true)
+      .order("name", { ascending: true }),
     client.from("people").select("id,name").order("name", { ascending: true }),
   ]);
 

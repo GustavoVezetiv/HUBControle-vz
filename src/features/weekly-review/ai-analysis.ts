@@ -1,4 +1,5 @@
 import type { AppSupabaseClient } from "@/features/shared/types";
+import { buildWeeklyDerivedData, resolveRoutineTaskContext } from "@/features/weekly-review/derived";
 import type {
   Json,
   RoutineAiSummary,
@@ -6,6 +7,8 @@ import type {
   RoutineTask,
   RoutineTaskEvent,
   RoutineTaskList,
+  RoutineGoogleConnection,
+  RoutineSyncRun,
 } from "@/lib/supabase/types";
 
 export const GEMINI_WEEKLY_REVIEW_MODEL = process.env.GEMINI_WEEKLY_REVIEW_MODEL ?? "gemini-2.5-flash";
@@ -28,6 +31,8 @@ export type WeeklyAiTaskItem = {
   titulo: string;
   lista: string;
   categoria: string;
+  contexto_lista?: string;
+  tipo_lista?: string;
   data_prevista: string | null;
   concluida_em?: string | null;
   atualizada_em?: string | null;
@@ -42,14 +47,41 @@ export type WeeklyAiEventItem = {
 
 export type WeeklyAiInputSummary = {
   periodo: string;
-  total_concluidas: number;
-  total_abertas: number;
-  total_movidas_para_prioridade: number;
-  total_itens_herdados_geral_hoje: number;
-  listas: WeeklyAiListCount[];
-  categorias: WeeklyAiCategoryCount[];
+  sincronizacao_base: {
+    sincronizado_em: string | null;
+    tipo: "manual" | "automatico" | "indisponivel";
+    origem: string;
+  };
+  listas: Array<{
+    nome: string;
+    tipo: string;
+    contexto: string;
+    abertas: number;
+    concluidas_semana: number;
+  }>;
+  movimento_semana: {
+    concluidas_reais: number;
+    criadas_apos_baseline: number;
+    priorizadas_reais: number;
+    reabertas: number;
+    prazos_alterados: number;
+  };
+  estado_atual: {
+    total_em_aberto: number;
+    total_em_geral_hoje: number;
+    tarefas_sem_data: number;
+    tarefas_vencidas: number;
+    tarefas_paradas: number;
+  };
+  categorias: {
+    mais_trabalhadas: WeeklyAiCategoryCount[];
+    negligenciadas: WeeklyAiCategoryCount[];
+  };
   tarefas_concluidas_relevantes: WeeklyAiTaskItem[];
   tarefas_abertas_relevantes: WeeklyAiTaskItem[];
+  tarefas_paradas: WeeklyAiTaskItem[];
+  tarefas_em_listas_execucao: WeeklyAiTaskItem[];
+  tarefas_em_listas_referencia: WeeklyAiTaskItem[];
   eventos_relevantes: WeeklyAiEventItem[];
   observacoes_do_sistema: string[];
 };
@@ -80,6 +112,8 @@ type WeeklyAiSourceData = {
   events: RoutineTaskEvent[];
   taskLists: RoutineTaskList[];
   categories: RoutineCategory[];
+  connection: RoutineGoogleConnection | null;
+  syncRuns: RoutineSyncRun[];
 };
 
 export async function generateWeeklyAiAnalysis(
@@ -161,7 +195,7 @@ export async function loadWeeklyAiSourceData(
   weekStart: string,
   weekEnd: string,
 ): Promise<{ data: WeeklyAiSourceData | null; error: { message: string; technical?: string } | null }> {
-  const [tasksResult, eventsResult, listsResult, categoriesResult] = await Promise.all([
+  const [tasksResult, eventsResult, listsResult, categoriesResult, connectionResult, syncRunsResult] = await Promise.all([
     client.from("routine_tasks").select("*").eq("user_id", userId),
     client
       .from("routine_task_events")
@@ -172,9 +206,17 @@ export async function loadWeeklyAiSourceData(
       .order("event_at", { ascending: false }),
     client.from("routine_task_lists").select("*").eq("user_id", userId),
     client.from("routine_categories").select("*").eq("user_id", userId),
+    client.from("routine_google_connections").select("*").eq("user_id", userId).eq("provider", "google_tasks").maybeSingle(),
+    client.from("routine_sync_runs").select("*").eq("user_id", userId).eq("provider", "google_tasks").order("started_at", { ascending: false }).limit(3),
   ]);
 
-  const error = tasksResult.error || eventsResult.error || listsResult.error || categoriesResult.error;
+  const error =
+    tasksResult.error ||
+    eventsResult.error ||
+    listsResult.error ||
+    categoriesResult.error ||
+    connectionResult.error ||
+    syncRunsResult.error;
   if (error) {
     console.error("Erro técnico ao montar dados para análise semanal:", error);
     return {
@@ -192,8 +234,24 @@ export async function loadWeeklyAiSourceData(
       events: (eventsResult.data ?? []) as RoutineTaskEvent[],
       taskLists: (listsResult.data ?? []) as RoutineTaskList[],
       categories: (categoriesResult.data ?? []) as RoutineCategory[],
+      connection: (connectionResult.data ?? null) as RoutineGoogleConnection | null,
+      syncRuns: (syncRunsResult.data ?? []) as RoutineSyncRun[],
     },
     error: null,
+  };
+}
+
+function resolveWeeklyAiSyncBase(
+  connection: RoutineGoogleConnection | null,
+  syncRuns: RoutineSyncRun[],
+): WeeklyAiInputSummary["sincronizacao_base"] {
+  const latestRun = syncRuns[0] ?? null;
+  const syncedAt = connection?.last_successful_sync_at ?? connection?.last_sync_at ?? latestRun?.finished_at ?? latestRun?.started_at ?? null;
+
+  return {
+    sincronizado_em: syncedAt,
+    tipo: "indisponivel",
+    origem: latestRun ? "Última sincronização registrada no Hub." : "Sem sync run detalhado disponível.",
   };
 }
 
@@ -204,39 +262,85 @@ export function buildWeeklyAiInputSummary(
   limits: WeeklyAiInputLimits = { completed: 12, open: 12, events: 10 },
 ): WeeklyAiInputSummary {
   const listByGoogleId = new Map(data.taskLists.map((list) => [list.google_task_list_id, list]));
-  const categoryById = new Map(data.categories.map((category) => [category.id, category.name]));
   const taskByGoogleId = new Map(data.tasks.map((task) => [task.google_task_id, task]));
-  const completed = data.tasks.filter((task) => task.completed_at && inDateRange(task.completed_at.slice(0, 10), weekStart, weekEnd));
-  const open = data.tasks.filter((task) => task.status !== "completed");
-  const inheritedPriorityEvents = data.events.filter(isInheritedPriorityEvent);
-  const prioritizedEvents = data.events.filter(isRealPriorityEvent);
+  const derived = buildWeeklyDerivedData(data.tasks, data.events, data.taskLists, data.categories, weekStart, weekEnd);
+  const syncBase = resolveWeeklyAiSyncBase(data.connection, data.syncRuns);
+  const neglectedCategories = derived.countByCategory
+    .filter((row) => row.label !== (derived.areaMostWorked?.label ?? ""))
+    .slice(0, 3)
+    .map((row) => ({ nome: row.label, total: row.count }));
+  const staleOrRiskyTasks = uniqueTasks([
+    ...derived.staleTasks,
+    ...derived.overdueTasks,
+    ...derived.tasksWithoutDate,
+  ]).slice(0, limits.open);
 
   const observations: string[] = [];
   if (data.tasks.length === 0) observations.push("Nenhuma tarefa sincronizada foi encontrada no Hub.");
-  if (completed.length === 0) observations.push("Nenhuma tarefa concluída foi registrada no período selecionado.");
-  if (data.events.length === 0) observations.push("Nenhum evento de mudança foi registrado no período selecionado.");
-  if (prioritizedEvents.length > 0) observations.push("Geral/Hoje foi tratado como fila de prioridade, não como categoria real.");
-  if (inheritedPriorityEvents.length >= 5) observations.push("A fila Geral/Hoje ainda contém muitos itens herdados da primeira sincronização. Use a análise como referência inicial.");
+  if (derived.completedThisWeek.length === 0) observations.push("Nenhuma tarefa concluída foi registrada no período selecionado.");
+  if (derived.realEventsThisWeek.length === 0) observations.push("Nenhum evento real de mudança foi registrado no período selecionado.");
+  if (derived.prioritizedEvents.length > 0) observations.push("Geral/Hoje foi tratado como fila de prioridade, não como categoria real.");
+  if (derived.inheritedPriorityEventsThisWeek.length >= 5) observations.push("A fila Geral/Hoje ainda contém muitos itens herdados da primeira sincronização. Use a análise como referência inicial.");
+
+  const executionTasks = derived.openTasks
+    .filter((task) => {
+      const context = resolveRoutineTaskContext(task, listByGoogleId, new Map(data.categories.map((category) => [category.id, category.name])));
+      return context.listContext?.listType === "execution" || context.listContext?.listType === "priority_queue";
+    })
+    .slice(0, limits.open);
+  const referenceTasks = derived.openTasks
+    .filter((task) => {
+      const context = resolveRoutineTaskContext(task, listByGoogleId, new Map(data.categories.map((category) => [category.id, category.name])));
+      return ["backlog", "reference", "leisure", "content", "places"].includes(context.listContext?.listType ?? "");
+    })
+    .slice(0, limits.open);
 
   return {
     periodo: `${formatDateForPrompt(weekStart)} até ${formatDateForPrompt(weekEnd)}`,
-    total_concluidas: completed.length,
-    total_abertas: open.length,
-    total_movidas_para_prioridade: prioritizedEvents.length,
-    total_itens_herdados_geral_hoje: inheritedPriorityEvents.length,
-    listas: countRows(data.tasks, (task) => {
-      const list = listByGoogleId.get(task.google_task_list_id);
+    sincronizacao_base: syncBase,
+    listas: data.taskLists.map((list) => {
+      const openInList = derived.openTasks.filter((task) => task.google_task_list_id === list.google_task_list_id);
+      const completedInList = derived.completedThisWeek.filter((task) => task.google_task_list_id === list.google_task_list_id);
+      const context = openInList[0]
+        ? resolveRoutineTaskContext(openInList[0], listByGoogleId, new Map(data.categories.map((category) => [category.id, category.name]))).listContext
+        : null;
       return {
-        key: list?.title ?? "Lista desconhecida",
-        fila_prioridade: Boolean(list?.is_priority_queue),
+        nome: list.title,
+        tipo: context?.listType ?? (list.is_priority_queue ? "priority_queue" : "reference"),
+        contexto: context?.label ?? "Lista sem contexto confirmado",
+        abertas: openInList.length,
+        concluidas_semana: completedInList.length,
       };
-    }).map((row) => ({ nome: row.key, total: row.count, fila_prioridade: row.fila_prioridade })),
-    categorias: countRows(data.tasks, (task) => ({
-      key: categoryById.get(task.confirmed_category_id ?? task.detected_category_id ?? "") ?? "Sem categoria",
-    })).map((row) => ({ nome: row.key, total: row.count })),
-    tarefas_concluidas_relevantes: completed.slice(0, limits.completed).map((task) => toAiTaskItem(task, listByGoogleId, categoryById, true)),
-    tarefas_abertas_relevantes: open.slice(0, limits.open).map((task) => toAiTaskItem(task, listByGoogleId, categoryById, false)),
-    eventos_relevantes: data.events.filter(isRelevantAiEvent).slice(0, limits.events).map((event) => toAiEventItem(event, taskByGoogleId, listByGoogleId)),
+    }),
+    movimento_semana: {
+      concluidas_reais: derived.completedThisWeek.length,
+      criadas_apos_baseline: derived.createdAfterBaselineEvents.length,
+      priorizadas_reais: derived.prioritizedEvents.length,
+      reabertas: derived.reopenedEvents.length,
+      prazos_alterados: derived.dueDateChangedEvents.length,
+    },
+    estado_atual: {
+      total_em_aberto: derived.openTasks.length,
+      total_em_geral_hoje: derived.priorityQueueTasks.length,
+      tarefas_sem_data: derived.tasksWithoutDate.length,
+      tarefas_vencidas: derived.overdueTasks.length,
+      tarefas_paradas: derived.staleTasks.length,
+    },
+    categorias: {
+      mais_trabalhadas: derived.areaMostWorked ? [{ nome: derived.areaMostWorked.label, total: derived.areaMostWorked.count }] : [],
+      negligenciadas: neglectedCategories,
+    },
+    tarefas_concluidas_relevantes: derived.completedThisWeek.slice(0, limits.completed).map((task) => toAiTaskItem(task, listByGoogleId, data.categories, true)),
+    tarefas_abertas_relevantes: staleOrRiskyTasks.map((task) => toAiTaskItem(task, listByGoogleId, data.categories, false)),
+    tarefas_paradas: derived.staleTasks.slice(0, limits.open).map((task) => toAiTaskItem(task, listByGoogleId, data.categories, false)),
+    tarefas_em_listas_execucao: executionTasks.map((task) => toAiTaskItem(task, listByGoogleId, data.categories, false)),
+    tarefas_em_listas_referencia: referenceTasks.map((task) => toAiTaskItem(task, listByGoogleId, data.categories, false)),
+    eventos_relevantes: [
+      ...derived.prioritizedEvents,
+      ...derived.reopenedEvents,
+      ...derived.dueDateChangedEvents,
+      ...derived.createdAfterBaselineEvents,
+    ].slice(0, limits.events).map((event) => toAiEventItem(event, taskByGoogleId, listByGoogleId)),
     observacoes_do_sistema: observations,
   };
 }
@@ -265,15 +369,18 @@ async function requestGeminiWeeklyAnalysis(
     "Responda em Markdown simples ou texto estruturado. Não retorne JSON. Não use bloco de código. Não use ```json.",
     "Não invente tarefas, não cite IDs e não encerre frase pela metade.",
     "Geral/Hoje é fila de prioridade, não categoria. Não deixe Geral/Hoje dominar a análise.",
+    "Considere o nome da lista do Google Tasks como forte sinal de contexto quando a categoria não estiver confirmada no Hub.",
+    "Listas de referencia, lazer, backlog, jogos, coisas para assistir e lugares para fazer nao devem ser tratadas como urgencia so por terem itens abertos.",
     "Se citar tarefas concluídas, destaque no máximo 5 exemplos relevantes.",
     "Use estes títulos nesta ordem:",
     "",
     "Resumo da semana",
-    "Avanços",
-    "Focos da semana",
-    "Pontos negligenciados",
-    "Pendências",
-    "Próxima semana",
+    "O que foi feito",
+    "O que está pendente",
+    "Listas de referência",
+    "Sugestões práticas",
+    "Ideias opcionais",
+    "Coisas para revisar",
     "",
     "Dados compactos do Hub:",
     JSON.stringify(inputSummary),
@@ -476,13 +583,16 @@ function formatPrimitiveValue(value: unknown): string {
 function toAiTaskItem(
   task: RoutineTask,
   listByGoogleId: Map<string, RoutineTaskList>,
-  categoryById: Map<string, string>,
+  categories: RoutineCategory[],
   includeCompletedAt: boolean,
 ): WeeklyAiTaskItem {
+  const context = resolveRoutineTaskContext(task, listByGoogleId, new Map(categories.map((category) => [category.id, category.name])));
   return {
     titulo: task.title,
-    lista: listByGoogleId.get(task.google_task_list_id)?.title ?? "Lista desconhecida",
-    categoria: categoryById.get(task.confirmed_category_id ?? task.detected_category_id ?? "") ?? "Sem categoria",
+    lista: context.listTitle,
+    categoria: context.categoryLabel,
+    contexto_lista: context.listContext?.label ?? "Sem contexto claro",
+    tipo_lista: context.listContext?.listType ?? "indefinido",
     data_prevista: task.due_date,
     concluida_em: includeCompletedAt ? task.completed_at : undefined,
     atualizada_em: task.updated_at_google,
@@ -506,37 +616,34 @@ function toAiEventItem(
   };
 }
 
-function isRealPriorityEvent(event: RoutineTaskEvent) {
-  if (isInheritedPriorityEvent(event)) return false;
-  return event.event_type === "PRIORITIZED" || (event.event_type === "MOVED_LIST" && JSON.stringify(event.metadata).includes("prioritized"));
-}
-
-function isInheritedPriorityEvent(event: RoutineTaskEvent) {
-  return event.event_type === "PRIORITIZED" && event.previous_value === null;
-}
-
-function isRelevantAiEvent(event: RoutineTaskEvent) {
-  if (isInheritedPriorityEvent(event)) return false;
-  return ["COMPLETED", "MOVED_LIST", "PRIORITIZED", "REOPENED", "DUE_DATE_CHANGED"].includes(event.event_type);
+function uniqueTasks(tasks: RoutineTask[]) {
+  return Array.from(new Map(tasks.map((task) => [task.id, task])).values());
 }
 
 const expectedAiSections = [
   "Resumo da semana",
-  "Avanços",
-  "Focos da semana",
-  "Pontos negligenciados",
-  "Pendências",
-  "Próxima semana",
+  "O que foi feito",
+  "O que está pendente",
+  "Listas de referência",
+  "Sugestões práticas",
+  "Ideias opcionais",
+  "Coisas para revisar",
 ];
 
 const aiSectionAliases: Record<string, string> = {
-  "Principais avanços": "Avanços",
-  "Áreas mais trabalhadas": "Focos da semana",
-  "Tarefas que viraram prioridade": "Focos da semana",
-  "Áreas negligenciadas": "Pontos negligenciados",
-  "Pendências que ficaram paradas": "Pendências",
-  "Sugestões para a próxima semana": "Próxima semana",
-  "Sugestão para a próxima semana": "Próxima semana",
+  "Avanços": "O que foi feito",
+  "Principais avanços": "O que foi feito",
+  "Focos da semana": "O que foi feito",
+  "Pendências": "O que está pendente",
+  "Pendencias": "O que está pendente",
+  "Pontos negligenciados": "O que está pendente",
+  "Áreas negligenciadas": "O que está pendente",
+  "Listas de referencia": "Listas de referência",
+  "Sugestões da IA": "Sugestões práticas",
+  "Sugestoes da IA": "Sugestões práticas",
+  "Próxima semana": "Sugestões práticas",
+  "Sugestões para a próxima semana": "Sugestões práticas",
+  "Sugestão para a próxima semana": "Sugestões práticas",
 };
 
 function getGeminiFinishError(metadata: GeminiResponseMetadata): { message: string; technical: string } | null {
@@ -644,25 +751,6 @@ function normalizeSectionText(value: string) {
     .trim();
 }
 
-function countRows<T>(
-  items: T[],
-  getMeta: (item: T) => { key: string; fila_prioridade?: boolean },
-): Array<{ key: string; count: number; fila_prioridade: boolean }> {
-  const counts = items.reduce<Map<string, { count: number; fila_prioridade: boolean }>>((acc, item) => {
-    const meta = getMeta(item);
-    const current = acc.get(meta.key) ?? { count: 0, fila_prioridade: false };
-    acc.set(meta.key, {
-      count: current.count + 1,
-      fila_prioridade: current.fila_prioridade || Boolean(meta.fila_prioridade),
-    });
-    return acc;
-  }, new Map());
-
-  return Array.from(counts.entries())
-    .map(([key, row]) => ({ key, count: row.count, fila_prioridade: row.fila_prioridade }))
-    .sort((left, right) => right.count - left.count);
-}
-
 function extractGeminiText(payload: unknown) {
   if (!payload || typeof payload !== "object" || !("candidates" in payload) || !Array.isArray(payload.candidates)) return null;
   const candidate = payload.candidates[0];
@@ -685,10 +773,6 @@ function extractGeminiError(payload: unknown) {
 function isGeminiModelUnavailableError(message: string) {
   const normalized = message.toLowerCase();
   return normalized.includes("model") && (normalized.includes("not found") || normalized.includes("not supported"));
-}
-
-function inDateRange(date: string, start: string, end: string) {
-  return date >= start && date <= end;
 }
 
 function formatDateForPrompt(value: string) {

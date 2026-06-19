@@ -83,6 +83,7 @@ Implemented in the foundation phase:
 - Total reimbursement debt balance by person, with late rows highlighted by expected date
 - Controlled monthly recurring income generation
 - CRUD for planned purchases and wishes
+- CRUD for roles e lugares
 - CRUD for notes
 - Functional user settings backed by `profiles`
 - Advanced visual preferences for style, density, badges, animation level, card effects, borders and content width
@@ -450,6 +451,57 @@ The screen includes:
 
 Internally, the database still uses `risk_level`; the UI labels this field as `Prioridade`.
 
+## Roles e lugares
+
+The `/dashboard/places` route tracks places you want to visit, planned outings, completed experiences and quick personal reviews.
+
+The screen includes:
+
+- List and Kanban views.
+- Filters by status, type, city, rating and category.
+- Summary cards for `Quero ir`, `Planejados`, `Já fui`, `Melhor nota` and `Custo real do mês`.
+- `+ Adicionar` button at the end of each kanban status column.
+- Double click on a kanban card to open editing.
+- Google Maps link, latitude and longitude fields without any map API dependency.
+- Archive in the module and restore through `/dashboard/archived`.
+
+Visited experiences support extra fields when status is `Fui`:
+
+- `visited_date`
+- `actual_cost`
+- `rating`
+- `would_repeat`
+- `companion`
+
+Category behavior:
+
+- the UI accepts only categories with `type`/scope `places`, `leisure` or `general`
+- if an older record is linked to an out-of-scope category, the current category is shown with a warning and can be replaced safely
+
+Migration necessária antes de testar:
+
+- `supabase/migrations/202606190001_add_places_module.sql`
+
+Como testar manualmente:
+
+1. Abra `/dashboard/places`.
+2. Crie `Cafeteria X` com status `Quero ir` ou `Planejado`.
+3. Edite o registro e mude para `Fui`.
+4. Preencha `Data visitada`, `Custo real`, `Nota` e `Vale repetir`.
+5. Abra a visualização `Kanban`, arraste o card entre colunas e confirme que o status muda.
+6. Use duplo clique no card para abrir edição.
+7. Arquive o lugar.
+8. Abra `/dashboard/archived`, filtre `Roles e lugares` e restaure o registro.
+9. Valide tema claro e escuro na tela e no modal.
+
+Validação assistida por script:
+
+```bash
+npm run validate:places-module
+```
+
+O script usa `SUPABASE_IMPORT_ACCESS_TOKEN` em `.env.local`, respeita RLS e valida create, update, archive e restore diretamente na tabela `places`. Se o token estiver expirado, ele falha com mensagem clara pedindo renovação da sessão.
+
 ## Decision Dashboard and Cash Flow
 
 The dashboard and cash-flow route use deterministic calculations from the current Supabase data.
@@ -766,6 +818,7 @@ Before using with real data, validate:
 - Login, logout and persistent session.
 - Dashboard calculations and financial separation between real income, reimbursements and third-party money.
 - CRUD flows for categories, people, accounts, income, cards, invoices, transactions, reimbursements, installments, payment plans, purchases, goals, notes and settings.
+- CRUD flows for roles e lugares, including archive and restore through Arquivados.
 - MVP imports only for people, categories, accounts payable and income sources.
 - User isolation through Supabase RLS.
 - Vercel production environment variables and Supabase Auth redirect URLs.
@@ -912,15 +965,50 @@ Migration necessária antes de testar:
 
 ## Exportação e backup
 
-O painel de Configurações agora possui a seção `Exportação e backup`.
+O painel de Configurações agora possui a seção `Backup e exportação`.
 
 Formatos disponíveis:
 
-- `Exportar XLSX`: gera um arquivo `.xlsx` com aba `Metadata` e uma aba por módulo exportado
-- `Exportar JSON`: gera um arquivo `.json` com metadata e dados separados por módulo
+- `Exportar backup XLSX`: gera um arquivo `.xlsx` com aba `Metadata` e uma aba por módulo exportado
+- `Exportar backup JSON`: gera um arquivo `.json` com metadata e módulos separados
 - `Exportar módulo específico`: permite exportar apenas um módulo em XLSX ou JSON
 
-Após cada exportação manual, o Hub grava localmente a referência do último backup/exportação do usuário logado e exibe nome do arquivo, formato, escopo e data de geração no painel.
+Módulos disponíveis:
+
+- contas
+- receitas
+- pessoas
+- categorias
+- cartões
+- faturas
+- lançamentos
+- reembolsos
+- parcelamentos
+- compras e desejos
+- metas
+- revisão semanal
+- histórico
+- diagnóstico
+- importações
+
+Regras e segurança:
+
+- exporta apenas dados do usuário logado
+- não exporta tokens, segredos, variáveis de ambiente, refresh token do Google nem access token do Google
+- o JSON inclui `metadata`, `data_exportacao`, `usuario`, `versao` e os módulos exportados
+- o XLSX inclui a coluna `Exportado em`, datas legíveis em `dd/mm/aaaa` e timestamps em formato brasileiro
+- conexões do Google Tasks entram apenas como status e datas de sincronização; o backup nunca inclui credenciais
+- o Hub registra `backup_exported` em `audit_logs` quando a exportação é concluída
+- o painel lê o último backup a partir do histórico do Supabase e usa o registro local apenas como fallback
+- o resumo do último backup mostra arquivo, formato, escopo, módulos exportados e total de registros
+
+Após cada exportação manual, o Hub salva a referência local do arquivo gerado e também registra o evento no histórico para consulta posterior.
+
+Limitações atuais:
+
+- não existe restauração automática nesta etapa
+- o diagnóstico exportado é um snapshot calculado no momento da exportação
+- o backup manual não substitui backup nativo do Supabase ou point-in-time recovery
 
 ## Diagnóstico financeiro
 
@@ -1078,26 +1166,3 @@ Esse script simula uma semana com primeira sincronização inflada e valida que:
 Pendências para sync automático:
 - definir janela de sincronização automática e retenção de snapshots
 - avaliar versionamento de múltiplas análises por semana, se houver necessidade histórica
-
-Módulos cobertos:
-
-- contas
-- receitas
-- pessoas
-- categorias
-- cartões
-- faturas
-- lançamentos
-- reembolsos
-- parcelamentos
-- compras e desejos
-- metas
-- arquivados
-- importações
-
-Regras:
-
-- exporta apenas dados do usuário logado
-- não exporta tokens, senhas ou segredos de autenticação
-- o JSON inclui `versao`, `data_exportacao` e `usuario`
-- o XLSX inclui a coluna `exportado_em` e datas legíveis em `dd/mm/aaaa`

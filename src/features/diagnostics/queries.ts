@@ -3,6 +3,7 @@ import {
   findOrCreateInvoiceForTransactionDate,
   recalculateInvoiceTotal,
 } from "@/features/invoices/auto-invoices";
+import { categoryModuleDefinitions, categorySupportsAnyScope } from "@/features/categories/scopes";
 import type { AppSupabaseClient } from "@/features/shared/types";
 import { formatCurrency, formatDate } from "@/features/shared/format";
 import type {
@@ -22,10 +23,6 @@ import type {
 } from "@/features/diagnostics/types";
 
 const OPEN_INVOICE_STATUSES = new Set(["open", "closed", "partial", "overdue"]);
-const PURCHASE_CATEGORY_TYPES = new Set(["purchase", "planned_purchase", "wishlist", "shopping", "general"]);
-const GOAL_CATEGORY_TYPES = new Set(["goal", "general"]);
-const REIMBURSEMENT_CATEGORY_TYPES = new Set(["reimbursement", "expense", "general"]);
-
 export async function buildFinancialDiagnostics(
   client: AppSupabaseClient,
   userId: string,
@@ -653,7 +650,7 @@ function buildOutOfScopeCategorySection(
   for (const purchase of purchases) {
     if (!purchase.category_id) continue;
     const category = categoryById.get(purchase.category_id);
-    if (!category || PURCHASE_CATEGORY_TYPES.has(category.type)) continue;
+    if (!category || categorySupportsAnyScope(category, categoryModuleDefinitions.purchases.scopes)) continue;
     items.push({
       alertKey: `out-of-scope-category:purchase:${purchase.id}`,
       alertType: "out_of_scope_category",
@@ -661,7 +658,7 @@ function buildOutOfScopeCategorySection(
       subjectId: purchase.id,
       title: purchase.title,
       description: "Compra usando categoria fora do escopo de compras e desejos.",
-      details: [`Categoria atual: ${category.name}`, `Tipo da categoria: ${category.type}`],
+      details: [`Categoria atual: ${category.name}`, `Escopos atuais: ${(category.scopes ?? []).join(", ") || category.type || "general"}`],
       references: [{ label: "Abrir compras", href: "/dashboard/purchases" }],
       actions: ["open_item", "manual_link", "ignore_alert"],
     });
@@ -670,7 +667,7 @@ function buildOutOfScopeCategorySection(
   for (const goal of goals) {
     if (!goal.category_id) continue;
     const category = categoryById.get(goal.category_id);
-    if (!category || GOAL_CATEGORY_TYPES.has(category.type)) continue;
+    if (!category || categorySupportsAnyScope(category, categoryModuleDefinitions.goals.scopes)) continue;
     items.push({
       alertKey: `out-of-scope-category:goal:${goal.id}`,
       alertType: "out_of_scope_category",
@@ -678,7 +675,7 @@ function buildOutOfScopeCategorySection(
       subjectId: goal.id,
       title: goal.name,
       description: "Meta usando categoria fora do escopo de metas.",
-      details: [`Categoria atual: ${category.name}`, `Tipo da categoria: ${category.type}`],
+      details: [`Categoria atual: ${category.name}`, `Escopos atuais: ${(category.scopes ?? []).join(", ") || category.type || "general"}`],
       references: [{ label: "Abrir metas", href: "/dashboard/goals" }],
       actions: ["open_item", "manual_link", "ignore_alert"],
     });
@@ -687,7 +684,7 @@ function buildOutOfScopeCategorySection(
   for (const reimbursement of reimbursements) {
     if (reimbursement.archived_at || !reimbursement.category_id) continue;
     const category = categoryById.get(reimbursement.category_id);
-    if (!category || REIMBURSEMENT_CATEGORY_TYPES.has(category.type)) continue;
+    if (!category || categorySupportsAnyScope(category, categoryModuleDefinitions.reimbursements.scopes)) continue;
     items.push({
       alertKey: `out-of-scope-category:reimbursement:${reimbursement.id}`,
       alertType: "out_of_scope_category",
@@ -695,7 +692,7 @@ function buildOutOfScopeCategorySection(
       subjectId: reimbursement.id,
       title: reimbursement.description?.trim() || "Reembolso sem descrição",
       description: "Reembolso usando categoria fora do escopo de reembolsos.",
-      details: [`Categoria atual: ${category.name}`, `Tipo da categoria: ${category.type}`],
+      details: [`Categoria atual: ${category.name}`, `Escopos atuais: ${(category.scopes ?? []).join(", ") || category.type || "general"}`],
       references: [{ label: "Abrir reembolsos", href: "/dashboard/reimbursements" }],
       actions: ["open_item", "manual_link", "ignore_alert"],
       reimbursementId: reimbursement.id,

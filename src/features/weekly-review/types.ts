@@ -22,10 +22,16 @@ export type WeeklyReviewData = {
 
 export type WeeklyReviewSummary = {
   completedThisWeek: RoutineTask[];
+  createdAfterBaselineEvents: RoutineTaskEvent[];
   prioritizedEvents: RoutineTaskEvent[];
+  reopenedEvents: RoutineTaskEvent[];
+  dueDateChangedEvents: RoutineTaskEvent[];
+  realEventsThisWeek: RoutineTaskEvent[];
   openTasks: RoutineTask[];
+  priorityQueueTasks: RoutineTask[];
   openRecentTasks: RoutineTask[];
   staleTasks: RoutineTask[];
+  overdueTasks: RoutineTask[];
   tasksWithoutDate: RoutineTask[];
   tasksDueThisWeek: RoutineTask[];
   eventsThisWeek: RoutineTaskEvent[];
