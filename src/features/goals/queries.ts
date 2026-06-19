@@ -8,6 +8,7 @@ export type GoalFormValues = {
   goal_type: string;
   goal_category: string;
   goal_kind: string;
+  category_id: string;
   target_amount: string;
   current_amount: string;
   manual_progress_percent: string;
@@ -23,6 +24,7 @@ export const emptyGoalForm: GoalFormValues = {
   goal_type: "personal",
   goal_category: "personal",
   goal_kind: "qualitative",
+  category_id: "",
   target_amount: "",
   current_amount: "",
   manual_progress_percent: "",
@@ -39,6 +41,7 @@ export function goalToFormValues(goal: Goal): GoalFormValues {
     goal_type: goal.goal_type,
     goal_category: goal.goal_category ?? goal.goal_type ?? "personal",
     goal_kind: goal.goal_kind ?? "qualitative",
+    category_id: goal.category_id ?? "",
     target_amount: goal.target_amount === null ? "" : String(goal.target_amount),
     current_amount: goal.current_amount === null ? "" : String(goal.current_amount),
     manual_progress_percent: goal.manual_progress_percent === null ? "" : String(goal.manual_progress_percent),
@@ -55,7 +58,7 @@ export async function listGoals(client: AppSupabaseClient) {
 }
 
 export async function listGoalCategories(client: AppSupabaseClient) {
-  return client.from("categories").select("id,name,type,color,icon").eq("is_active", true).order("name");
+  return client.from("categories").select("id,name,type,color,icon,scopes").eq("is_active", true).order("name");
 }
 
 export async function createGoal(client: AppSupabaseClient, userId: string, values: GoalFormValues) {
@@ -96,6 +99,7 @@ function toPayload(userId: string | undefined, values: GoalFormValues): Partial<
     goal_type: values.goal_category,
     goal_category: values.goal_category,
     goal_kind: values.goal_kind,
+    category_id: values.category_id || null,
     target_amount: isFinancial ? optionalNumber(values.target_amount) : null,
     current_amount: isFinancial ? optionalNumber(values.current_amount) : null,
     manual_progress_percent: null,

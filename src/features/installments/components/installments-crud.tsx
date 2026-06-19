@@ -1,18 +1,20 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
+import { categoryModuleDefinitions, filterCategoriesByScopes, isCategoryOutOfScope } from "@/features/categories/scopes";
 import {
   createInstallment,
   deleteInstallment,
   deletePendingGeneratedAccountsForInstallment,
   generateInstallmentAccounts,
   listGeneratedAccountsForInstallment,
+  listGeneratedAccountsSummaryForInstallments,
   unlinkKeptGeneratedAccountsForInstallment,
   listInstallments,
   listInstallmentSupportData,
@@ -57,13 +59,16 @@ const installmentsDefaultViewPreference: Required<InstallmentsViewPreference> = 
 };
 
 export function InstallmentsCrud() {
+  const router = useRouter();
   const searchParams = useSearchParams();
+  const installmentFilter = searchParams.get("installment");
   const [installments, setInstallments] = useState<InstallmentRow[]>([]);
   const [cards, setCards] = useState<InstallmentCard[]>([]);
   const [invoices, setInvoices] = useState<InstallmentInvoice[]>([]);
   const [transactions, setTransactions] = useState<InstallmentTransaction[]>([]);
   const [categories, setCategories] = useState<InstallmentCategory[]>([]);
   const [people, setPeople] = useState<InstallmentPerson[]>([]);
+  const [generatedSummaryByInstallment, setGeneratedSummaryByInstallment] = useState<Record<string, { generatedCount: number; paidCount: number; pendingCount: number }>>({});
   const [userId, setUserId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState(searchParams.get("status") ?? "all");
@@ -75,6 +80,10 @@ export function InstallmentsCrud() {
   const [modal, setModal] = useState<ModalState>(null);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [allowQuickTableEdit, setAllowQuickTableEdit] = useState(false);
+  const scopedCategories = useMemo(
+    () => filterCategoriesByScopes(categories, categoryModuleDefinitions.accounts.scopes),
+    [categories],
+  );
 
   const periodInstallments = useMemo(() => {
     return installments.filter((item) =>
@@ -88,9 +97,10 @@ export function InstallmentsCrud() {
       (item) =>
         (!needle || item.description.toLowerCase().includes(needle)) &&
         (statusFilter === "all" || item.status === statusFilter) &&
-        (cardFilter === "all" || item.credit_card_id === cardFilter),
+        (cardFilter === "all" || item.credit_card_id === cardFilter) &&
+        (!installmentFilter || item.id === installmentFilter),
     );
-  }, [cardFilter, periodInstallments, search, statusFilter]);
+  }, [cardFilter, installmentFilter, periodInstallments, search, statusFilter]);
 
   const summary = useMemo(() => {
     const active = periodInstallments.filter((item) => item.status === "active");
@@ -127,7 +137,35 @@ export function InstallmentsCrud() {
       getQuickTableEditPreference(client, auth.user.id),
     ]);
     if (installmentsResult.error) setFeedback({ type: "error", message: installmentsResult.error.message });
-    else setInstallments(installmentsResult.data ?? []);
+    else {
+      const nextInstallments = installmentsResult.data ?? [];
+      setInstallments(nextInstallments);
+
+      const summaryResult = await listGeneratedAccountsSummaryForInstallments(
+        client,
+        nextInstallments.map((item) => item.id),
+      );
+
+      if (summaryResult.error) {
+        setFeedback({ type: "error", message: summaryResult.error.message });
+      } else {
+        setGeneratedSummaryByInstallment(
+          Object.fromEntries(
+            nextInstallments.map((item) => {
+              const summary = summaryResult.data.find((entry) => entry.installment_id === item.id);
+              return [
+                item.id,
+                {
+                  generatedCount: summary?.generatedCount ?? 0,
+                  paidCount: summary?.paidCount ?? 0,
+                  pendingCount: summary?.pendingCount ?? 0,
+                },
+              ];
+            }),
+          ),
+        );
+      }
+    }
     if (!support.cards.error) setCards(support.cards.data ?? []);
     if (!support.invoices.error) setInvoices(support.invoices.data ?? []);
     if (!support.transactions.error) setTransactions(support.transactions.data ?? []);
@@ -178,6 +216,11 @@ export function InstallmentsCrud() {
     setStatusFilter(installmentsDefaultViewPreference.statusFilter);
     setCardFilter(installmentsDefaultViewPreference.cardFilter);
     setPeriod(installmentsDefaultViewPreference.period);
+    if (installmentFilter) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("installment");
+      router.replace(`/dashboard/installments${params.toString() ? `?${params.toString()}` : ""}`);
+    }
   }
 
   async function handleSubmit(values: InstallmentFormValues) {
@@ -317,7 +360,12 @@ export function InstallmentsCrud() {
     }
 
     if (paidCount > 0) {
-      window.alert("Contas geradas já pagas não serão excluídas. Elas ficarão no histórico, desvinculadas do parcelamento.");
+      const shouldUnlinkPaid = window.confirm(
+        "Existem contas geradas já pagas. Elas podem ficar no histórico, desvinculadas do parcelamento. Deseja continuar com essa alteração?",
+      );
+      if (!shouldUnlinkPaid) {
+        return;
+      }
       const unlinkResult = await unlinkPaidGeneratedAccountsForInstallment(client, item.id);
       if (unlinkResult.error) {
         console.error("Erro técnico ao desvincular contas pagas:", unlinkResult.error);
@@ -381,6 +429,14 @@ export function InstallmentsCrud() {
             {cards.map((card) => <option key={card.id} value={card.id}>{card.name}</option>)}
           </select>
         </div>
+        {installmentFilter ? (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-mint-500/20 bg-mint-50 px-4 py-3 text-sm text-mint-900 dark:border-mint-400/20 dark:bg-mint-500/10 dark:text-mint-100">
+            <span>
+              Filtrando pelo parcelamento de origem.
+            </span>
+            <ActionButton variant="secondary" onClick={handleClearFilters}>Limpar filtro do parcelamento</ActionButton>
+          </div>
+        ) : null}
         <div className="mt-4">
           <ViewPreferenceActions onSave={handleSaveViewPreference} onRestore={handleRestoreViewPreference} onClearFilters={handleClearFilters} />
         </div>
@@ -403,6 +459,7 @@ export function InstallmentsCrud() {
                   <th className="px-4 py-3">Parcela</th>
                   <th className="px-4 py-3">Origem</th>
                   <th className="px-4 py-3">Vínculo</th>
+                  <th className="px-4 py-3">Contas geradas</th>
                   <th className="px-4 py-3">Início</th>
                   <th className="px-4 py-3">Fim</th>
                   <th className="px-4 py-3">Status</th>
@@ -410,7 +467,14 @@ export function InstallmentsCrud() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-ink-950/10">
-                {filtered.map((item) => (
+                {filtered.map((item) => {
+                  const generatedSummary = generatedSummaryByInstallment[item.id] ?? {
+                    generatedCount: 0,
+                    paidCount: 0,
+                    pendingCount: 0,
+                  };
+
+                  return (
                   <tr key={item.id}>
                     <td className="px-4 py-3">
                       {allowQuickTableEdit ? (
@@ -433,7 +497,7 @@ export function InstallmentsCrud() {
                     </td>
                     <td className="px-4 py-3">
                       {allowQuickTableEdit ? (
-                        <QuickEditSelect value={item.category_id ?? ""} options={[{ value: "", label: "Sem categoria" }, ...categories.map((category) => ({ value: category.id, label: category.name }))]} onCommit={(value) => void handleQuickUpdate(item, { category_id: value })} />
+                        <QuickEditSelect value={item.category_id ?? ""} options={[{ value: "", label: "Sem categoria" }, ...scopedCategories.map((category) => ({ value: category.id, label: category.name }))]} onCommit={(value) => void handleQuickUpdate(item, { category_id: value })} />
                       ) : (
                         <CategoryBadge category={categories.find((category) => category.id === item.category_id)} />
                       )}
@@ -445,6 +509,13 @@ export function InstallmentsCrud() {
                       </TextBadge>
                     </td>
                     <td className="px-4 py-3 text-ink-600">{getInstallmentLinkLabel(item, cards, invoices, transactions)}</td>
+                    <td className="px-4 py-3">
+                      <div className="space-y-1 text-xs text-ink-600 dark:text-slate-300">
+                        <p>{generatedSummary.generatedCount} gerada(s)</p>
+                        <p>{generatedSummary.paidCount} paga(s)</p>
+                        <p>{generatedSummary.pendingCount} pendente(s)</p>
+                      </div>
+                    </td>
                     <td className="px-4 py-3 text-ink-600">
                       {allowQuickTableEdit ? (
                         <QuickEditInput type="date" value={item.start_date ?? item.due_month ?? ""} onCommit={(value) => void handleQuickUpdate(item, { start_date: value })} />
@@ -470,11 +541,18 @@ export function InstallmentsCrud() {
                         >
                           {generatingAccountsId === item.id ? "Gerando..." : "Gerar contas"}
                         </ActionButton>
+                        <ActionButton
+                          variant="secondary"
+                          onClick={() => router.push(`/dashboard/accounts?installment=${item.id}`)}
+                        >
+                          Ver contas geradas
+                        </ActionButton>
                         <ActionButton variant="danger" onClick={() => void handleDelete(item)}>Excluir</ActionButton>
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -521,6 +599,12 @@ function InstallmentModal({
   const [values, setValues] = useState<InstallmentFormValues>(
     modal?.mode === "edit" ? installmentToFormValues(modal.installment) : emptyInstallmentForm,
   );
+  const scopedCategories = useMemo(
+    () => filterCategoriesByScopes(categories, categoryModuleDefinitions.accounts.scopes),
+    [categories],
+  );
+  const selectedCategory = categories.find((category) => category.id === values.category_id);
+  const selectedCategoryOutOfScope = isCategoryOutOfScope(selectedCategory, categoryModuleDefinitions.accounts.scopes);
   const filteredInvoices = values.credit_card_id
     ? invoices.filter((invoice) => invoice.credit_card_id === values.credit_card_id)
     : [];
@@ -573,7 +657,7 @@ function InstallmentModal({
             Este parcelamento está vinculado a uma fatura. Verifique se o valor já está sendo contado na fatura.
           </div>
         ) : null}
-        <FieldShell label="Categoria"><CategorySelect categories={categories} value={values.category_id} onChange={(category_id) => setValues({ ...values, category_id })} /></FieldShell>
+        <FieldShell label="Categoria"><CategorySelect categories={scopedCategories} value={selectedCategoryOutOfScope ? "" : values.category_id} onChange={(category_id) => setValues({ ...values, category_id })} />{selectedCategoryOutOfScope ? <p className="mt-2 text-xs text-amber-700">Categoria atual: <strong>{selectedCategory?.name}</strong>. Categoria fora do escopo desta tela.</p> : null}</FieldShell>
         <FieldShell label="Pessoa"><select className={inputClassName} value={values.person_id} onChange={(event) => setValues({ ...values, person_id: event.target.value })}><option value="">Sem pessoa</option>{people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></FieldShell>
         <FieldShell label="Status"><select className={inputClassName} value={values.status} onChange={(event) => setValues({ ...values, status: event.target.value })}>{installmentStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></FieldShell>
         <FieldShell label="Gerar parcelas em Contas?">

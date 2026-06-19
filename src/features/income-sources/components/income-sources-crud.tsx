@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
+import { categoryModuleDefinitions, filterCategoriesByScopes, isCategoryOutOfScope } from "@/features/categories/scopes";
 import {
   ActionButton,
   BulkActionsBar,
@@ -100,6 +101,10 @@ export function IncomeSourcesCrud() {
   const [bulkStatus, setBulkStatus] = useState("");
   const [bulkCategoryId, setBulkCategoryId] = useState("");
   const [bulkPersonId, setBulkPersonId] = useState("");
+  const scopedCategories = useMemo(
+    () => filterCategoriesByScopes(categories, categoryModuleDefinitions.income.scopes),
+    [categories],
+  );
 
   const periodIncome = useMemo(() => {
     return incomeSources.filter((income) =>
@@ -591,7 +596,7 @@ export function IncomeSourcesCrud() {
             <select className={inputClassName} value={bulkCategoryId} disabled={deletingSelected || bulkUpdating} onChange={(event) => setBulkCategoryId(event.target.value)}>
               <option value="">Categoria</option>
               <option value="__none">Sem categoria</option>
-              {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+              {scopedCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
             </select>
             <ActionButton type="button" variant="secondary" disabled={!bulkCategoryId || deletingSelected || bulkUpdating} onClick={() => void handleBulkUpdate("Alterar categoria", () => ({ category_id: bulkCategoryId === "__none" ? "" : bulkCategoryId }))}>
               Alterar categoria
@@ -662,6 +667,10 @@ function IncomeTable({
   selectedIds: Set<string>;
   onSelectionChange: (ids: Set<string>) => void;
 }) {
+  const scopedCategories = useMemo(
+    () => filterCategoriesByScopes(categories, categoryModuleDefinitions.income.scopes),
+    [categories],
+  );
   const allSelected = incomeSources.length > 0 && incomeSources.every((income) => selectedIds.has(income.id));
 
   function toggleAll(checked: boolean) {
@@ -752,7 +761,7 @@ function IncomeTable({
               </td>
               <td className="px-4 py-3">
                 {allowQuickTableEdit ? (
-                  <QuickEditSelect value={income.category_id ?? ""} options={[{ value: "", label: "Sem categoria" }, ...categories.map((category) => ({ value: category.id, label: category.name }))]} onCommit={(value) => onQuickUpdate(income, { category_id: value })} />
+                  <QuickEditSelect value={income.category_id ?? ""} options={[{ value: "", label: "Sem categoria" }, ...scopedCategories.map((category) => ({ value: category.id, label: category.name }))]} onCommit={(value) => onQuickUpdate(income, { category_id: value })} />
                 ) : (
                   <CategoryBadge category={categories.find((category) => category.id === income.category_id)} />
                 )}
@@ -809,6 +818,12 @@ function IncomeModal({
   const [values, setValues] = useState<IncomeSourceFormValues>(
     modal?.mode === "edit" ? incomeToFormValues(modal.income) : emptyIncomeForm,
   );
+  const scopedCategories = useMemo(
+    () => filterCategoriesByScopes(categories, categoryModuleDefinitions.income.scopes),
+    [categories],
+  );
+  const selectedCategory = categories.find((category) => category.id === values.category_id);
+  const selectedCategoryOutOfScope = isCategoryOutOfScope(selectedCategory, categoryModuleDefinitions.income.scopes);
 
   return (
     <Modal
@@ -851,7 +866,12 @@ function IncomeModal({
           </select>
         </FieldShell>
         <FieldShell label="Categoria">
-          <CategorySelect categories={categories} value={values.category_id} onChange={(category_id) => setValues({ ...values, category_id })} />
+          <CategorySelect categories={scopedCategories} value={selectedCategoryOutOfScope ? "" : values.category_id} onChange={(category_id) => setValues({ ...values, category_id })} />
+          {selectedCategoryOutOfScope ? (
+            <p className="mt-2 text-xs text-amber-700">
+              Categoria atual: <strong>{selectedCategory?.name}</strong>. Categoria fora do escopo desta tela.
+            </p>
+          ) : null}
         </FieldShell>
         <FieldShell label="Pessoa">
           <select value={values.person_id} onChange={(event) => setValues({ ...values, person_id: event.target.value })} className={inputClassName}>

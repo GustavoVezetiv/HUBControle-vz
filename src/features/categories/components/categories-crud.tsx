@@ -22,6 +22,13 @@ import { CategoryIcon, categoryIconOptions } from "@/features/shared/category-ic
 import { getQuickTableEditPreference } from "@/features/shared/quick-edit";
 import type { FeedbackState } from "@/features/shared/types";
 import {
+  categoryModuleDefinitions,
+  categoryScopeOptions,
+  defaultScopesForCategoryType,
+  getCategoryModuleLabels,
+  getCategoryScopeLabels,
+} from "@/features/categories/scopes";
+import {
   createCategory,
   createDefaultCategories,
   deleteCategory,
@@ -243,6 +250,8 @@ export function CategoriesCrud() {
                 <tr>
                   <th className="px-4 py-3">Nome</th>
                   <th className="px-4 py-3">Tipo</th>
+                  <th className="px-4 py-3">Escopos</th>
+                  <th className="px-4 py-3">Módulos</th>
                   <th className="px-4 py-3">Cor</th>
                   <th className="px-4 py-3">Ícone</th>
                   <th className="px-4 py-3">Padrão</th>
@@ -266,6 +275,24 @@ export function CategoriesCrud() {
                       {allowQuickTableEdit ? (
                         <QuickEditSelect value={category.type} options={categoryTypeOptions} onCommit={(value) => void handleQuickUpdate(category, { type: value })} />
                       ) : optionLabel(categoryTypeOptions, category.type)}
+                    </td>
+                    <td className="px-4 py-3 text-ink-600">
+                      <div className="flex flex-wrap gap-2">
+                        {getCategoryScopeLabels(category.scopes).map((label) => (
+                          <span key={`${category.id}-${label}`} className="rounded-full border border-ink-950/10 px-2.5 py-1 text-xs font-medium">
+                            {label}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-ink-600">
+                      <div className="flex flex-wrap gap-2">
+                        {getCategoryModuleLabels(category).map((label) => (
+                          <span key={`${category.id}-module-${label}`} className="rounded-full border border-ink-950/10 px-2.5 py-1 text-xs font-medium">
+                            {label}
+                          </span>
+                        ))}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       {allowQuickTableEdit ? (
@@ -371,7 +398,20 @@ function CategoryModal({
         <FieldShell label="Tipo">
           <select
             value={values.type}
-            onChange={(event) => setValues({ ...values, type: event.target.value })}
+            onChange={(event) => {
+              const nextType = event.target.value;
+              const currentDefaultScopes = defaultScopesForCategoryType(values.type);
+              const shouldResetScopes =
+                values.scopes.length === 0 ||
+                (values.scopes.length === currentDefaultScopes.length &&
+                  values.scopes.every((scope) => currentDefaultScopes.includes(scope as (typeof currentDefaultScopes)[number])));
+
+              setValues({
+                ...values,
+                type: nextType,
+                scopes: shouldResetScopes ? defaultScopesForCategoryType(nextType) : values.scopes,
+              });
+            }}
             className={inputClassName}
           >
             {categoryTypeOptions.map((option) => (
@@ -414,6 +454,41 @@ function CategoryModal({
                 {suggestion.label}
               </button>
             ))}
+          </div>
+        </FieldShell>
+
+        <FieldShell label="Escopos">
+          <p className="mb-2 text-xs text-ink-600">Defina em quais módulos essa categoria pode aparecer. Sem marcação usa o fallback do tipo.</p>
+          <div className="grid gap-2 rounded-xl border border-ink-950/10 bg-slate-50/80 p-3 md:grid-cols-2">
+            {categoryScopeOptions.map((scope) => {
+              const checked = values.scopes.includes(scope.value);
+              const moduleLabels = Object.values(categoryModuleDefinitions)
+                .filter((module) => module.scopes.includes(scope.value as never))
+                .map((module) => module.label)
+                .join(", ");
+
+              return (
+                <label key={scope.value} className="flex items-start gap-3 rounded-lg border border-transparent px-2 py-1.5 text-sm text-ink-800">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(event) =>
+                      setValues({
+                        ...values,
+                        scopes: event.target.checked
+                          ? [...values.scopes, scope.value]
+                          : values.scopes.filter((item) => item !== scope.value),
+                      })
+                    }
+                    className="mt-1 h-4 w-4 rounded border border-ink-950/20 text-mint-600 focus:ring-mint-500"
+                  />
+                  <span className="space-y-1">
+                    <span className="block font-medium">{scope.label}</span>
+                    <span className="block text-xs text-ink-600">{moduleLabels || "Uso futuro ou categorização auxiliar."}</span>
+                  </span>
+                </label>
+              );
+            })}
           </div>
         </FieldShell>
 

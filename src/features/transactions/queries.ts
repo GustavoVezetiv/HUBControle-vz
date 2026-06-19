@@ -32,7 +32,7 @@ export async function listTransactionSupportData(client: AppSupabaseClient) {
       .select("id,credit_card_id,reference_month,due_date,status")
       .is("archived_at", null)
       .order("due_date", { ascending: false }),
-    client.from("categories").select("id,name,type,color,icon").order("name", { ascending: true }),
+    client.from("categories").select("id,name,type,color,icon,scopes").order("name", { ascending: true }),
     client.from("people").select("id,name").order("name", { ascending: true }),
   ]);
 

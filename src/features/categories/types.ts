@@ -5,6 +5,7 @@ export type CategoryFormValues = {
   type: string;
   color: string;
   icon: string;
+  scopes: string[];
   is_default: boolean;
   is_active: boolean;
 };
@@ -16,6 +17,7 @@ export const emptyCategoryForm: CategoryFormValues = {
   type: "expense",
   color: "#18b98f",
   icon: "",
+  scopes: ["expense"],
   is_default: false,
   is_active: true,
 };
@@ -26,8 +28,8 @@ export function categoryToFormValues(category: CategoryRow): CategoryFormValues 
     type: category.type,
     color: category.color ?? "#18b98f",
     icon: category.icon ?? "",
+    scopes: category.scopes ?? [],
     is_default: category.is_default,
     is_active: category.is_active,
   };
 }
-

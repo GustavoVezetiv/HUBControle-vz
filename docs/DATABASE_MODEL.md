@@ -392,6 +392,43 @@ Relationships:
 
 - Can appear in payment plans and projections.
 
+### places
+
+Purpose:
+
+- Track places to visit, planned outings, visited experiences and personal ratings without mixing this data into the core financial modules.
+
+Important fields:
+
+- `id`
+- `user_id`
+- `category_id`
+- `name`
+- `description`
+- `place_type`: restaurant, bar, cafe, outing, trip, event, cinema, park, shopping, other.
+- `status`: want_to_go, planned, visited, cancelled.
+- `city`
+- `district`
+- `address`
+- `google_maps_url`
+- `latitude`
+- `longitude`
+- `planned_date`
+- `visited_date`
+- `estimated_cost`
+- `actual_cost`
+- `rating`: 1 to 5.
+- `would_repeat`
+- `companion`
+- `notes`
+- `archived_at`
+
+Relationships:
+
+- Belongs to one user and can optionally link to a category.
+- Uses the shared archive flow so visited or cancelled places can be restored later from archived records.
+- Category filtering should accept only `places`, `leisure` or `general` scopes in the UI.
+
 ### notes
 
 Purpose:

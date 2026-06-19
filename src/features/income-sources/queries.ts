@@ -174,7 +174,7 @@ export async function listIncomeSupportData(client: AppSupabaseClient) {
   const [categories, people] = await Promise.all([
     client
       .from("categories")
-      .select("id,name,type,color,icon")
+      .select("id,name,type,color,icon,scopes")
       .in("type", ["income", "reimbursement", "other"])
       .order("name", { ascending: true }),
     client.from("people").select("id,name").order("name", { ascending: true }),

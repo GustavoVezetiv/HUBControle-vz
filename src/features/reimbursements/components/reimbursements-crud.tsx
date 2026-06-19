@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
+import { categoryModuleDefinitions, filterCategoriesByScopes, isCategoryOutOfScope } from "@/features/categories/scopes";
 import { AuditRecordHistory } from "@/features/audit/components/audit-record-history";
 import {
   buildPersonDebtSummaries,
@@ -115,6 +116,10 @@ export function ReimbursementsCrud() {
   const [allowQuickTableEdit, setAllowQuickTableEdit] = useState(false);
   const [peopleSummaryView, setPeopleSummaryView] = useState<PersonDebtViewMode>("open_period");
   const [generatedInvoiceLink, setGeneratedInvoiceLink] = useState<{ invoiceId: string; transactionId?: string } | null>(null);
+  const scopedCategories = useMemo(
+    () => filterCategoriesByScopes(categories, categoryModuleDefinitions.reimbursements.scopes),
+    [categories],
+  );
 
   const periodReimbursements = useMemo(() => {
     return reimbursements.filter((reimbursement) =>
@@ -818,7 +823,7 @@ export function ReimbursementsCrud() {
             >
               <option value="">Categoria</option>
               <option value="__none">Sem categoria</option>
-              {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+              {scopedCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
             </select>
             <ActionButton
               type="button"
@@ -965,7 +970,7 @@ export function ReimbursementsCrud() {
                       {allowQuickTableEdit ? (
                         <QuickEditSelect
                           value={reimbursement.category_id ?? ""}
-                          options={[{ value: "", label: "Sem categoria" }, ...categories.map((category) => ({ value: category.id, label: category.name }))]}
+                          options={[{ value: "", label: "Sem categoria" }, ...scopedCategories.map((category) => ({ value: category.id, label: category.name }))]}
                           onCommit={(value) => void handleQuickUpdate(reimbursement, { category_id: value })}
                         />
                       ) : (
@@ -1107,6 +1112,12 @@ function ReimbursementModal({
   const [values, setValues] = useState<ReimbursementFormValues>(
     modal?.mode === "edit" ? reimbursementToFormValues(modal.reimbursement) : emptyReimbursementForm,
   );
+  const scopedCategories = useMemo(
+    () => filterCategoriesByScopes(categories, categoryModuleDefinitions.reimbursements.scopes),
+    [categories],
+  );
+  const selectedCategory = categories.find((category) => category.id === values.category_id);
+  const selectedCategoryOutOfScope = isCategoryOutOfScope(selectedCategory, categoryModuleDefinitions.reimbursements.scopes);
   const currentTransaction =
     modal?.mode === "edit" && modal.reimbursement.credit_card_transaction_id
       ? transactions.find((transaction) => transaction.id === modal.reimbursement.credit_card_transaction_id) ?? null
@@ -1210,7 +1221,12 @@ function ReimbursementModal({
           </select>
         </FieldShell>
         <FieldShell label="Categoria">
-          <CategorySelect categories={categories} value={values.category_id} onChange={(category_id) => setValues({ ...values, category_id })} />
+          <CategorySelect categories={scopedCategories} value={selectedCategoryOutOfScope ? "" : values.category_id} onChange={(category_id) => setValues({ ...values, category_id })} />
+          {selectedCategoryOutOfScope ? (
+            <p className="mt-2 text-xs text-amber-700">
+              Categoria atual: <strong>{selectedCategory?.name}</strong>. Categoria fora do escopo desta tela.
+            </p>
+          ) : null}
         </FieldShell>
         <div className="md:col-span-2">
           <FieldShell label="Descrição">
@@ -1462,8 +1478,8 @@ function ReimbursementModal({
                     />
                   </FieldShell>
                   <FieldShell label="Categoria do lançamento">
-                    <CategorySelect
-                      categories={categories}
+                      <CategorySelect
+                      categories={scopedCategories}
                       value={values.financial_link_new_category_id}
                       onChange={(category_id) => setValues({ ...values, financial_link_new_category_id: category_id })}
                     />

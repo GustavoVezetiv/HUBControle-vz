@@ -7,10 +7,12 @@ import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
 import { AuditRecordHistory } from "@/features/audit/components/audit-record-history";
+import { categoryModuleDefinitions, filterCategoriesByScopes, isCategoryOutOfScope } from "@/features/categories/scopes";
 import {
   ActionButton,
   BulkActionsBar,
   CategoryBadge,
+  CategorySelect,
   CrudFeedback,
   FieldShell,
   inputClassName,
@@ -40,7 +42,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import type { Category, Goal } from "@/lib/supabase/types";
 
-type ModalState = { mode: "create"; goal: null } | { mode: "edit"; goal: Goal } | null;
+type ModalState = { mode: "create"; goal: null; defaults?: Partial<GoalFormValues> } | { mode: "edit"; goal: Goal } | null;
 type ViewMode = "list" | "kanban";
 type KanbanGroupMode = "status" | "goal_category" | "category" | "deadline" | "progress";
 type DeadlineFilter = "all" | "overdue" | "next_30" | "future" | "no_target";
@@ -58,7 +60,6 @@ const goalCategoryOptions = [
   { value: "education", label: "Formação" },
   { value: "project", label: "Projetos" },
 ];
-
 const goalKindOptions = [
   { value: "qualitative", label: "Qualitativa" },
   { value: "financial", label: "Financeira" },
@@ -116,6 +117,18 @@ export function GoalsCrud() {
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [deadlineFilter, setDeadlineFilter] = useState<DeadlineFilter>("all");
   const [urgencyFilter, setUrgencyFilter] = useState<UrgencyFilter>("all");
+  const goalCategories = useMemo(() => {
+    const usedGoalCategoryIds = new Set(goals.map((goal) => goal.category_id).filter((id): id is string => Boolean(id)));
+    const scopedCategories = filterCategoriesByScopes(categories, categoryModuleDefinitions.goals.scopes);
+    if (scopedCategories.length > 0) return scopedCategories;
+    return categories.filter((category) => usedGoalCategoryIds.has(category.id));
+  }, [categories, goals]);
+
+  useEffect(() => {
+    if (categoryFilter === "all") return;
+    if (goalCategories.some((category) => category.id === categoryFilter)) return;
+    setCategoryFilter("all");
+  }, [categoryFilter, goalCategories]);
 
   const summary = useMemo(() => {
     const active = goals.filter((goal) => goal.status === "active");
@@ -150,7 +163,10 @@ export function GoalsCrud() {
     });
   }, [categories, categoryFilter, deadlineFilter, goals, kindFilter, search, statusFilter, urgencyFilter]);
 
-  const kanbanColumns = useMemo(() => buildKanbanColumns(filteredGoals, categories, kanbanGroup), [categories, filteredGoals, kanbanGroup]);
+  const kanbanColumns = useMemo(
+    () => buildKanbanColumns(filteredGoals, goalCategories, categories, kanbanGroup),
+    [categories, filteredGoals, goalCategories, kanbanGroup],
+  );
 
   async function loadData() {
     setLoading(true);
@@ -306,15 +322,27 @@ export function GoalsCrud() {
       return;
     }
 
+    if (kanbanGroup === "category" && columnValue === "out_of_scope_category") {
+      setFeedback({ type: "error", message: "Categoria fora do escopo é apenas visual. Edite a meta para escolher uma categoria válida." });
+      return;
+    }
+
     const patch: Partial<GoalFormValues> =
       kanbanGroup === "status"
         ? { status: columnValue }
-        : { goal_category: columnValue, goal_type: columnValue };
+        : kanbanGroup === "goal_category"
+          ? { goal_category: columnValue, goal_type: columnValue }
+          : { category_id: columnValue === "no_category" ? "" : columnValue };
 
     await handleQuickUpdate(goal, patch);
     setFeedback({
       type: "success",
-      message: kanbanGroup === "status" ? "Status da meta atualizado." : "Tipo/categoria da meta atualizado.",
+      message:
+        kanbanGroup === "status"
+          ? "Status da meta atualizado."
+          : kanbanGroup === "goal_category"
+            ? "Tipo/categoria da meta atualizado."
+            : "Categoria vinculada da meta atualizada.",
     });
   }
 
@@ -396,7 +424,7 @@ export function GoalsCrud() {
           <FieldShell label="Categoria">
             <select className={inputClassName} value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
               <option value="all">Todas</option>
-              {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+              {goalCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
             </select>
           </FieldShell>
           <FieldShell label="Prazo">
@@ -438,6 +466,7 @@ export function GoalsCrud() {
                 categories={categories}
                 columns={kanbanColumns}
                 editable={isEditableKanbanGroup(kanbanGroup)}
+                onCreate={(columnValue) => setModal({ mode: "create", goal: null, defaults: buildGoalDefaultsForKanban(kanbanGroup, columnValue) })}
                 onDrop={(goalId, columnValue) => void handleKanbanDrop(goalId, columnValue)}
                 onEdit={(goal) => setModal({ mode: "edit", goal })}
               />
@@ -499,6 +528,9 @@ export function GoalsCrud() {
                         )}
                         <div className="mt-1 flex flex-wrap gap-2">
                           {goal.category_id ? <CategoryBadge category={categories.find((category) => category.id === goal.category_id)} /> : null}
+                          {isOutOfScopeGoalCategory(categories.find((category) => category.id === goal.category_id)) ? (
+                            <TextBadge tone="warning">Categoria fora do escopo desta tela</TextBadge>
+                          ) : null}
                           {goal.source_label ? <TextBadge tone="neutral">{goal.source_label}</TextBadge> : null}
                         </div>
                         <p className="mt-1 text-xs text-ink-600">{goal.notes ?? "Sem observações"}</p>
@@ -556,7 +588,7 @@ export function GoalsCrud() {
         )}
       </SectionCard>
 
-      {modal ? <GoalModal modal={modal} saving={saving} userId={userId} onClose={() => setModal(null)} onSubmit={(values) => void handleSubmit(values)} /> : null}
+      {modal ? <GoalModal modal={modal} saving={saving} categories={goalCategories} userId={userId} onClose={() => setModal(null)} onSubmit={(values) => void handleSubmit(values)} /> : null}
     </div>
   );
 }
@@ -565,18 +597,20 @@ function GoalsKanban({
   categories,
   columns,
   editable,
+  onCreate,
   onDrop,
   onEdit,
 }: {
   categories: Pick<Category, "id" | "name" | "type" | "color" | "icon">[];
   columns: KanbanColumn[];
   editable: boolean;
+  onCreate: (columnValue: string) => void;
   onDrop: (goalId: string, columnValue: string) => void;
   onEdit: (goal: Goal) => void;
 }) {
   return (
-    <div className="overflow-x-auto pb-2">
-      <div className="grid min-w-[920px] auto-cols-fr grid-flow-col gap-4">
+    <div className="overflow-x-auto pb-3">
+      <div className="grid min-w-max grid-flow-col auto-cols-[minmax(300px,320px)] gap-4">
         {columns.map((column) => (
           <section
             key={column.value}
@@ -610,10 +644,14 @@ function GoalsKanban({
                     categories={categories}
                     draggable={editable}
                     goal={goal}
+                    onDoubleClick={onEdit}
                     onEdit={onEdit}
                   />
                 ))
               )}
+              <ActionButton type="button" variant="secondary" className="w-full justify-center" onClick={() => onCreate(column.value)}>
+                + Adicionar
+              </ActionButton>
             </div>
           </section>
         ))}
@@ -626,13 +664,18 @@ function GoalKanbanCard({
   categories,
   draggable,
   goal,
+  onDoubleClick,
   onEdit,
 }: {
   categories: Pick<Category, "id" | "name" | "type" | "color" | "icon">[];
   draggable: boolean;
   goal: Goal;
+  onDoubleClick: (goal: Goal) => void;
   onEdit: (goal: Goal) => void;
 }) {
+  const category = categories.find((currentCategory) => currentCategory.id === goal.category_id);
+  const outOfScope = isOutOfScopeGoalCategory(category);
+
   return (
     <article
       draggable={draggable}
@@ -640,7 +683,8 @@ function GoalKanbanCard({
         event.dataTransfer.setData("text/plain", goal.id);
         event.dataTransfer.effectAllowed = "move";
       }}
-      className="rounded-lg border border-slate-300 bg-white p-4 text-ink-950 shadow-sm transition hover:border-mint-500 hover:shadow-md dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+      onDoubleClick={() => onDoubleClick(goal)}
+      className="cursor-pointer rounded-lg border border-slate-300 bg-white p-4 text-ink-950 shadow-sm transition hover:border-mint-500 hover:shadow-md dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
     >
       <div className="flex items-start justify-between gap-3">
         <button type="button" className="text-left text-sm font-semibold text-ink-950 hover:text-mint-700 dark:text-slate-100 dark:hover:text-mint-200" onClick={() => onEdit(goal)}>
@@ -653,7 +697,8 @@ function GoalKanbanCard({
       <div className="mt-3 flex flex-wrap gap-2">
         <TextBadge tone="neutral">{labelFor(goalCategoryOptions, goal.goal_category ?? goal.goal_type)}</TextBadge>
         <TextBadge tone="neutral">{labelFor(goalKindOptions, goal.goal_kind ?? "qualitative")}</TextBadge>
-        {goal.category_id ? <CategoryBadge category={categories.find((category) => category.id === goal.category_id)} /> : null}
+        {goal.category_id ? <CategoryBadge category={category} /> : null}
+        {outOfScope ? <TextBadge tone="warning">Categoria fora do escopo desta tela</TextBadge> : null}
       </div>
       <div className="mt-4">
         <GoalProgress goal={goal} />
@@ -666,13 +711,17 @@ function GoalKanbanCard({
   );
 }
 
-function GoalModal({ modal, saving, userId, onClose, onSubmit }: { modal: ModalState; saving: boolean; userId: string | null; onClose: () => void; onSubmit: (values: GoalFormValues) => void }) {
-  const [values, setValues] = useState<GoalFormValues>(modal?.mode === "edit" ? goalToFormValues(modal.goal) : emptyGoalForm);
+function GoalModal({ modal, saving, categories, userId, onClose, onSubmit }: { modal: ModalState; saving: boolean; categories: Pick<Category, "id" | "name" | "type" | "color" | "icon">[]; userId: string | null; onClose: () => void; onSubmit: (values: GoalFormValues) => void }) {
+  const [values, setValues] = useState<GoalFormValues>(modal?.mode === "edit" ? goalToFormValues(modal.goal) : { ...emptyGoalForm, ...(modal?.defaults ?? {}) });
   const isFinancial = values.goal_kind === "financial";
+  const originalCategoryId = modal?.mode === "edit" ? modal.goal.category_id ?? "" : "";
+  const selectedCategory = categories.find((category) => category.id === values.category_id);
+  const selectedCategoryOutOfScope = isOutOfScopeGoalCategory(selectedCategory);
   const submitValues = isFinancial
     ? values
     : {
       ...values,
+      category_id: values.category_id || originalCategoryId,
       target_amount: "",
       current_amount: "",
       monthly_contribution: "",
@@ -683,6 +732,14 @@ function GoalModal({ modal, saving, userId, onClose, onSubmit }: { modal: ModalS
       <form className="grid gap-4 md:grid-cols-2" onSubmit={(event) => { event.preventDefault(); onSubmit(submitValues); }}>
         <FieldShell label="Nome"><input required className={inputClassName} value={values.name} onChange={(event) => setValues({ ...values, name: event.target.value })} /></FieldShell>
         <FieldShell label="Categoria ou tipo"><select className={inputClassName} value={values.goal_category} onChange={(event) => setValues({ ...values, goal_category: event.target.value, goal_type: event.target.value })}>{goalCategoryOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></FieldShell>
+        <FieldShell label="Categoria vinculada">
+          <CategorySelect categories={categories} value={selectedCategoryOutOfScope ? "" : values.category_id} onChange={(category_id) => setValues({ ...values, category_id })} />
+          {selectedCategoryOutOfScope ? (
+            <div className="mt-2 rounded-md border border-amber-500/30 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-400/30 dark:bg-amber-950/35 dark:text-amber-100">
+              Categoria atual: <strong>{selectedCategory?.name}</strong>. Categoria fora do escopo desta tela.
+            </div>
+          ) : null}
+        </FieldShell>
         <FieldShell label="Tipo de meta"><select className={inputClassName} value={values.goal_kind} onChange={(event) => setValues({ ...values, goal_kind: event.target.value })}>{goalKindOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></FieldShell>
         <FieldShell label="Data inicial"><input type="date" className={inputClassName} value={values.start_date} onChange={(event) => setValues({ ...values, start_date: event.target.value })} /></FieldShell>
         <FieldShell label="Data alvo"><input type="date" className={inputClassName} value={values.target_date} onChange={(event) => setValues({ ...values, target_date: event.target.value })} /></FieldShell>
@@ -730,20 +787,22 @@ function GoalProgress({ goal }: { goal: Goal }) {
 
 function buildKanbanColumns(
   goals: Goal[],
-  categories: Pick<Category, "id" | "name" | "type" | "color" | "icon">[],
+  visibleCategories: Pick<Category, "id" | "name" | "type" | "color" | "icon">[],
+  allCategories: Pick<Category, "id" | "name" | "type" | "color" | "icon">[],
   groupMode: KanbanGroupMode,
 ): KanbanColumn[] {
-  const definitions = getKanbanColumnDefinitions(goals, categories, groupMode);
+  const definitions = getKanbanColumnDefinitions(goals, visibleCategories, allCategories, groupMode);
 
   return definitions.map((definition) => ({
     ...definition,
-    goals: goals.filter((goal) => getKanbanValue(goal, groupMode) === definition.value),
+    goals: goals.filter((goal) => getKanbanValue(goal, allCategories, groupMode) === definition.value),
   }));
 }
 
 function getKanbanColumnDefinitions(
   goals: Goal[],
-  categories: Pick<Category, "id" | "name" | "type" | "color" | "icon">[],
+  visibleCategories: Pick<Category, "id" | "name" | "type" | "color" | "icon">[],
+  allCategories: Pick<Category, "id" | "name" | "type" | "color" | "icon">[],
   groupMode: KanbanGroupMode,
 ) {
   if (groupMode === "status") return goalStatusOptions;
@@ -766,24 +825,53 @@ function getKanbanColumnDefinitions(
   }
 
   const usedCategoryIds = new Set(goals.map((goal) => goal.category_id).filter((id): id is string => Boolean(id)));
+  const hasOutOfScope = goals.some((goal) => isOutOfScopeGoalCategory(allCategories.find((category) => category.id === goal.category_id)));
   return [
-    ...categories
+    ...visibleCategories
       .filter((category) => usedCategoryIds.has(category.id))
       .map((category) => ({ value: category.id, label: category.name })),
+    ...(hasOutOfScope ? [{ value: "out_of_scope_category", label: "Categoria fora do escopo" }] : []),
     { value: "no_category", label: "Sem categoria" },
   ];
 }
 
-function getKanbanValue(goal: Goal, groupMode: KanbanGroupMode) {
+function getKanbanValue(
+  goal: Goal,
+  categories: Pick<Category, "id" | "name" | "type" | "color" | "icon">[],
+  groupMode: KanbanGroupMode,
+) {
   if (groupMode === "status") return goal.status;
   if (groupMode === "goal_category") return goal.goal_category ?? goal.goal_type ?? "personal";
-  if (groupMode === "category") return goal.category_id ?? "no_category";
+  if (groupMode === "category") {
+    if (!goal.category_id) return "no_category";
+    const category = categories.find((currentCategory) => currentCategory.id === goal.category_id);
+    if (isOutOfScopeGoalCategory(category)) return "out_of_scope_category";
+    return goal.category_id;
+  }
   if (groupMode === "deadline") return getDeadlineBucket(goal);
   return getProgressBucket(calculateDeadlineProgress(goal));
 }
 
 function isEditableKanbanGroup(groupMode: KanbanGroupMode) {
-  return groupMode === "status" || groupMode === "goal_category";
+  return groupMode === "status" || groupMode === "goal_category" || groupMode === "category";
+}
+
+function isOutOfScopeGoalCategory(category: Pick<Category, "type"> & { scopes?: string[] | null } | undefined) {
+  return isCategoryOutOfScope(category, categoryModuleDefinitions.goals.scopes);
+}
+
+function buildGoalDefaultsForKanban(groupMode: KanbanGroupMode, columnValue: string): Partial<GoalFormValues> {
+  if (groupMode === "status") return { status: columnValue };
+  if (groupMode === "goal_category") return { goal_category: columnValue, goal_type: columnValue };
+  if (groupMode === "category") return { category_id: columnValue === "no_category" || columnValue === "out_of_scope_category" ? "" : columnValue };
+  if (groupMode === "deadline") {
+    if (columnValue === "no_target") return { target_date: "" };
+    const days =
+      columnValue === "overdue" ? -1 : columnValue === "next_30" ? 30 : 60;
+    return { target_date: toDateInputValue(addDays(new Date(), days)) };
+  }
+  if (groupMode === "progress") return {};
+  return {};
 }
 
 function getDeadlineBucket(goal: Goal): Exclude<DeadlineFilter, "all"> {
@@ -853,6 +941,16 @@ function calculateUrgency(goal: Goal) {
 function startOfDay(date: Date) {
   date.setHours(0, 0, 0, 0);
   return date;
+}
+
+function addDays(date: Date, amount: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + amount);
+  return next;
+}
+
+function toDateInputValue(date: Date) {
+  return date.toISOString().slice(0, 10);
 }
 
 function clamp(value: number) {

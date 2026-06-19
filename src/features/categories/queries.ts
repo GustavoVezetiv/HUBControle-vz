@@ -1,4 +1,5 @@
 import type { CategoryFormValues, CategoryRow } from "@/features/categories/types";
+import { defaultScopesForCategoryType, normalizeCategoryScope, type CategoryScope } from "@/features/categories/scopes";
 import type { AppSupabaseClient } from "@/features/shared/types";
 
 export async function listCategories(client: AppSupabaseClient) {
@@ -35,14 +36,18 @@ export async function createDefaultCategories(client: AppSupabaseClient) {
 }
 
 function toPayload(userId: string | undefined, values: CategoryFormValues): Partial<CategoryRow> {
+  const normalizedScopes = values.scopes
+    .map((scope) => normalizeCategoryScope(scope))
+    .filter((scope): scope is CategoryScope => Boolean(scope));
+
   return {
     ...(userId ? { user_id: userId } : {}),
     name: values.name.trim(),
     type: values.type,
     color: values.color.trim() || null,
     icon: values.icon.trim() || null,
+    scopes: normalizedScopes.length > 0 ? normalizedScopes : defaultScopesForCategoryType(values.type),
     is_default: values.is_default,
     is_active: values.is_active,
   };
 }
-

@@ -20,7 +20,7 @@ export type IncomeSourceFormValues = {
 };
 
 export type IncomeSourceRow = IncomeSource;
-export type IncomeCategory = Pick<Category, "id" | "name" | "type" | "color" | "icon">;
+export type IncomeCategory = Pick<Category, "id" | "name" | "type" | "color" | "icon" | "scopes">;
 export type IncomePerson = Pick<Person, "id" | "name">;
 
 export const emptyIncomeForm: IncomeSourceFormValues = {

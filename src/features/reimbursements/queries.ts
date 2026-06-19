@@ -36,7 +36,7 @@ export async function listReimbursementSupportData(client: AppSupabaseClient) {
       .order("transaction_date", { ascending: false }),
     client.from("accounts_payable").select("id,title,amount").order("due_date", { ascending: false }),
     client.from("income_sources").select("id,name,amount").order("expected_date", { ascending: false }),
-    client.from("categories").select("id,name,type,color,icon").order("name", { ascending: true }),
+    client.from("categories").select("id,name,type,color,icon,scopes").order("name", { ascending: true }),
     client.from("credit_cards").select("id,name,issuer").eq("is_active", true).order("name", { ascending: true }),
     client
       .from("credit_card_invoices")

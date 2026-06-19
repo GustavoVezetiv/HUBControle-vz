@@ -8,7 +8,8 @@ export type ArchiveTarget =
   | "credit_card_invoices"
   | "credit_card_transactions"
   | "planned_purchases"
-  | "goals";
+  | "goals"
+  | "places";
 
 export async function archiveRecord(
   client: AppSupabaseClient,

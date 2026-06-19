@@ -35,6 +35,7 @@ const moduleOptions: ModuleOption[] = [
   { value: "credit_card_transactions", label: "Lançamentos de fatura" },
   { value: "reimbursements", label: "Reembolsos" },
   { value: "planned_purchases", label: "Compras e desejos" },
+  { value: "places", label: "Roles e lugares" },
   { value: "goals", label: "Metas" },
 ];
 
@@ -80,6 +81,7 @@ export function ArchivedRecords() {
         transactionsResult,
         reimbursementsResult,
         purchasesResult,
+        placesResult,
         goalsResult,
       ] = await Promise.all([
         client.from("accounts_payable").select("id,title,amount,archived_at,archive_reason").not("archived_at", "is", null).order("archived_at", { ascending: false }),
@@ -88,6 +90,7 @@ export function ArchivedRecords() {
         client.from("credit_card_transactions").select("id,description,amount,archived_at,archive_reason").not("archived_at", "is", null).order("archived_at", { ascending: false }),
         client.from("reimbursements").select("id,description,expected_amount,archived_at,archive_reason").not("archived_at", "is", null).order("archived_at", { ascending: false }),
         client.from("planned_purchases").select("id,title,estimated_amount,archived_at,archive_reason").not("archived_at", "is", null).order("archived_at", { ascending: false }),
+        client.from("places").select("id,name,actual_cost,archived_at,archive_reason").not("archived_at", "is", null).order("archived_at", { ascending: false }),
         client.from("goals").select("id,name,target_amount,archived_at,archive_reason").not("archived_at", "is", null).order("archived_at", { ascending: false }),
       ]);
 
@@ -98,6 +101,7 @@ export function ArchivedRecords() {
         transactionsResult.error ||
         reimbursementsResult.error ||
         purchasesResult.error ||
+        placesResult.error ||
         goalsResult.error;
 
       if (firstError) {
@@ -158,6 +162,15 @@ export function ArchivedRecords() {
           title: item.title || "Compra sem nome",
           details: "Compra e desejo",
           amount: item.estimated_amount ? Number(item.estimated_amount) : null,
+          archivedAt: item.archived_at ?? "",
+          archiveReason: item.archive_reason,
+        })),
+        ...(placesResult.data ?? []).map((item) => ({
+          id: item.id,
+          module: "places" as const,
+          title: item.name || "Lugar sem nome",
+          details: "Rolê e lugar",
+          amount: item.actual_cost ? Number(item.actual_cost) : null,
           archivedAt: item.archived_at ?? "",
           archiveReason: item.archive_reason,
         })),
@@ -274,7 +287,7 @@ export function ArchivedRecords() {
         ) : filteredRows.length === 0 ? (
           <EmptyState
             title="Nenhum registro arquivado"
-            description="Quando você arquivar contas, receitas, faturas, lançamentos, reembolsos, compras ou metas, eles aparecerão aqui."
+            description="Quando você arquivar contas, receitas, faturas, lançamentos, reembolsos, compras, lugares ou metas, eles aparecerão aqui."
           />
         ) : (
           <div className="overflow-x-auto">
