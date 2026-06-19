@@ -6,15 +6,19 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ViewPreferenceActions } from "@/features/shared/crud-ui";
 import { parsePeriodSearchParams, type PeriodValue } from "@/features/shared/period";
 import { PeriodFilter } from "@/features/shared/period-filter";
-import { clearViewPreference, loadViewPreference, preferenceRecord, saveViewPreference } from "@/features/shared/view-preferences";
+import { clearViewPreference, loadViewPreference, preferenceRecord, preferenceString, saveViewPreference } from "@/features/shared/view-preferences";
 import { createClient } from "@/lib/supabase/client";
 
 type DashboardViewPreference = {
   period?: PeriodValue;
+  mode?: DashboardLayoutMode;
 };
+
+export type DashboardLayoutMode = "simple" | "full";
 
 const defaultDashboardPreference: Required<DashboardViewPreference> = {
   period: parsePeriodSearchParams({}),
+  mode: "simple",
 };
 
 function buildPeriodQuery(period: PeriodValue) {
@@ -27,18 +31,25 @@ function buildPeriodQuery(period: PeriodValue) {
   return params;
 }
 
+function buildDashboardQuery(period: PeriodValue, mode: DashboardLayoutMode) {
+  const params = buildPeriodQuery(period);
+  params.set("mode", mode);
+  return params;
+}
+
 export function DashboardViewPreferences({ initialPeriod }: { initialPeriod: PeriodValue }) {
   const client = useMemo(() => createClient(), []);
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [feedback, setFeedback] = useState<string | null>(null);
+  const initialMode = (searchParams.get("mode") as DashboardLayoutMode | null) ?? defaultDashboardPreference.mode;
 
   useEffect(() => {
     let active = true;
 
     async function applySavedPreference() {
-      if (searchParams.has("period") || searchParams.has("start") || searchParams.has("end")) return;
+      if (searchParams.has("period") || searchParams.has("start") || searchParams.has("end") || searchParams.has("mode")) return;
 
       const { data } = await client.auth.getUser();
       if (!active) return;
@@ -52,9 +63,10 @@ export function DashboardViewPreferences({ initialPeriod }: { initialPeriod: Per
         savedPeriod.startDate === initialPeriod.startDate &&
         savedPeriod.endDate === initialPeriod.endDate;
 
-      if (matchesCurrent) return;
+      const savedMode = preferenceString(preference.mode, ["simple", "full"] as const, defaultDashboardPreference.mode);
+      if (matchesCurrent && savedMode === initialMode) return;
 
-      router.replace(`${pathname}?${buildPeriodQuery(savedPeriod).toString()}`, { scroll: false });
+      router.replace(`${pathname}?${buildDashboardQuery(savedPeriod, savedMode).toString()}`, { scroll: false });
     }
 
     void applySavedPreference();
@@ -62,7 +74,7 @@ export function DashboardViewPreferences({ initialPeriod }: { initialPeriod: Per
     return () => {
       active = false;
     };
-  }, [client, initialPeriod.endDate, initialPeriod.preset, initialPeriod.startDate, pathname, router, searchParams]);
+  }, [client, initialMode, initialPeriod.endDate, initialPeriod.preset, initialPeriod.startDate, pathname, router, searchParams]);
 
   async function withUserId(callback: (userId: string | null) => void) {
     const { data } = await client.auth.getUser();
@@ -70,27 +82,31 @@ export function DashboardViewPreferences({ initialPeriod }: { initialPeriod: Per
   }
 
   function handleChange(period: PeriodValue) {
-    router.replace(`${pathname}?${buildPeriodQuery(period).toString()}`, { scroll: false });
+    router.replace(`${pathname}?${buildDashboardQuery(period, initialMode).toString()}`, { scroll: false });
+  }
+
+  function handleModeChange(mode: DashboardLayoutMode) {
+    router.replace(`${pathname}?${buildDashboardQuery(initialPeriod, mode).toString()}`, { scroll: false });
   }
 
   function handleSave() {
     void withUserId((userId) => {
-      const saved = saveViewPreference("dashboard", userId, { period: initialPeriod });
+      const saved = saveViewPreference("dashboard", userId, { period: initialPeriod, mode: initialMode });
       setFeedback(saved ? "Visualização padrão do dashboard salva." : "Não foi possível salvar a visualização padrão.");
     });
   }
 
   function handleRestore() {
-    void withUserId((userId) => {
-      clearViewPreference("dashboard", userId);
-      setFeedback("Visualização padrão do dashboard restaurada.");
-      router.replace(`${pathname}?${buildPeriodQuery(defaultDashboardPreference.period).toString()}`, { scroll: false });
-    });
+      void withUserId((userId) => {
+        clearViewPreference("dashboard", userId);
+        setFeedback("Visualização padrão do dashboard restaurada.");
+      router.replace(`${pathname}?${buildDashboardQuery(defaultDashboardPreference.period, defaultDashboardPreference.mode).toString()}`, { scroll: false });
+      });
   }
 
   function handleClearFilters() {
     setFeedback("Filtros do dashboard limpos.");
-    router.replace(`${pathname}?${buildPeriodQuery(defaultDashboardPreference.period).toString()}`, { scroll: false });
+    router.replace(`${pathname}?${buildDashboardQuery(defaultDashboardPreference.period, defaultDashboardPreference.mode).toString()}`, { scroll: false });
   }
 
   return (
@@ -100,6 +116,22 @@ export function DashboardViewPreferences({ initialPeriod }: { initialPeriod: Per
         onChange={handleChange}
         description="Escolha o período usado nos cards, listas e resumo financeiro do dashboard."
       />
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          className={`rounded-full border px-3 py-1.5 text-sm font-semibold transition ${initialMode === "simple" ? "border-mint-500 bg-mint-50 text-mint-700 dark:bg-mint-500/15 dark:text-mint-200" : "border-ink-950/10 bg-white text-ink-700 dark:border-white/10 dark:bg-slate-950/60 dark:text-slate-200"}`}
+          onClick={() => handleModeChange("simple")}
+        >
+          Resumo simples
+        </button>
+        <button
+          type="button"
+          className={`rounded-full border px-3 py-1.5 text-sm font-semibold transition ${initialMode === "full" ? "border-mint-500 bg-mint-50 text-mint-700 dark:bg-mint-500/15 dark:text-mint-200" : "border-ink-950/10 bg-white text-ink-700 dark:border-white/10 dark:bg-slate-950/60 dark:text-slate-200"}`}
+          onClick={() => handleModeChange("full")}
+        >
+          Visão completa
+        </button>
+      </div>
       <ViewPreferenceActions onSave={handleSave} onRestore={handleRestore} onClearFilters={handleClearFilters} />
       {feedback ? <p className="text-sm text-ink-600">{feedback}</p> : null}
     </div>

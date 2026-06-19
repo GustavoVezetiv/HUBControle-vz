@@ -54,6 +54,18 @@ type ArchivedRow = {
 };
 
 const appVersion = "0.1.0";
+const lastExportStoragePrefix = "hubvz:last-export";
+
+export type LastExportSummary = {
+  fileName: string;
+  format: "xlsx" | "json";
+  scope: "all" | ExportModule;
+  exportedAt: string;
+  user: {
+    id: string;
+    email: string | null;
+  };
+};
 
 export const exportModuleOptions: Array<{ value: ExportModule; label: string }> = [
   { value: "accounts_payable", label: "Contas" },
@@ -226,6 +238,7 @@ export async function exportBundleAsJson(
   scope: "all" | ExportModule,
 ) {
   const bundle = await fetchExportBundle(client, userId, email, scope);
+  const fileName = buildFileName("json", scope, email, bundle.metadata.exportedAt);
   const payload = {
     metadata: {
       versao: bundle.metadata.version,
@@ -236,11 +249,14 @@ export async function exportBundleAsJson(
     modules: bundle.modules,
   };
 
-  downloadBlob(
-    JSON.stringify(payload, null, 2),
-    buildFileName("json", scope, email, bundle.metadata.exportedAt),
-    "application/json;charset=utf-8",
-  );
+  downloadBlob(JSON.stringify(payload, null, 2), fileName, "application/json;charset=utf-8");
+  saveLastExportSummary(userId, {
+    fileName,
+    format: "json",
+    scope,
+    exportedAt: bundle.metadata.exportedAt,
+    user: bundle.metadata.user,
+  });
 }
 
 export async function exportBundleAsXlsx(
@@ -251,6 +267,7 @@ export async function exportBundleAsXlsx(
 ) {
   const bundle = await fetchExportBundle(client, userId, email, scope);
   const workbook = utils.book_new();
+  const fileName = buildFileName("xlsx", scope, email, bundle.metadata.exportedAt);
 
   const metadataRows = [
     {
@@ -272,7 +289,28 @@ export async function exportBundleAsXlsx(
     utils.book_append_sheet(workbook, sheet, moduleSheetNames[moduleName]);
   }
 
-  writeFileXLSX(workbook, buildFileName("xlsx", scope, email, bundle.metadata.exportedAt));
+  writeFileXLSX(workbook, fileName);
+  saveLastExportSummary(userId, {
+    fileName,
+    format: "xlsx",
+    scope,
+    exportedAt: bundle.metadata.exportedAt,
+    user: bundle.metadata.user,
+  });
+}
+
+export function loadLastExportSummary(userId: string | null) {
+  if (typeof window === "undefined" || !userId) return null;
+
+  try {
+    const raw = window.localStorage.getItem(buildLastExportKey(userId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as LastExportSummary;
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch (error) {
+    console.error("Erro técnico ao carregar último backup/exportação:", error);
+    return null;
+  }
 }
 
 function emptyModules(): Record<ExportModule, unknown[]> {
@@ -408,6 +446,20 @@ function downloadBlob(content: string, fileName: string, type: string) {
   anchor.download = fileName;
   anchor.click();
   URL.revokeObjectURL(url);
+}
+
+function saveLastExportSummary(userId: string, summary: LastExportSummary) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(buildLastExportKey(userId), JSON.stringify(summary));
+  } catch (error) {
+    console.error("Erro técnico ao salvar último backup/exportação:", error);
+  }
+}
+
+function buildLastExportKey(userId: string) {
+  return `${lastExportStoragePrefix}:${userId}`;
 }
 
 function sanitizeFileNamePart(value: string) {

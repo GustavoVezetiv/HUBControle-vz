@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
 import { DashboardViewPreferences } from "@/features/dashboard/components/dashboard-view-preferences";
+import type { DashboardLayoutMode } from "@/features/dashboard/components/dashboard-view-preferences";
 import { buildFinancialSummary, type DecisionItem } from "@/features/decision/financial-summary";
 import { calculatePaymentPlanScenario } from "@/features/payment-plans/simulator";
 import { formatCurrency, formatDate, todayISO } from "@/features/shared/format";
@@ -49,6 +50,8 @@ type DashboardSuggestion = {
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
   const params = await searchParams;
   const period = parsePeriodSearchParams(params ?? {});
+  const dashboardMode = parseDashboardMode(params ?? {});
+  const compactDashboard = dashboardMode === "simple";
   const periodQuery = buildPeriodQuery(period);
   const supabase = await createClient();
 
@@ -184,6 +187,50 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     purchases: periodPlannedPurchases,
     incomeSources: periodIncomeSources,
   });
+  const overviewCards = getOverviewCards(summary, decisionSummary, periodQuery, compactDashboard);
+  const quickActions = getQuickActions();
+  const importantLists = compactDashboard
+    ? [
+        {
+          title: "Pagar agora",
+          description: "Itens mais urgentes do período.",
+          items: decisionSummary.payNowItems.slice(0, 4),
+          empty: "Sem itens críticos agora.",
+        },
+        {
+          title: "Atenção na próxima fatura",
+          description: "Cartão e parcelas que pressionam o mês seguinte.",
+          items: decisionSummary.nextInvoiceItems.slice(0, 4),
+          empty: "Sem pressão relevante de fatura no momento.",
+        },
+      ]
+    : [
+        {
+          title: "Pagar agora",
+          description: "Itens vencidos, críticos ou que não foram marcados como seguros para atrasar.",
+          items: decisionSummary.payNowItems,
+          empty: "Nenhum item crítico para pagar agora.",
+        },
+        {
+          title: "Pode esperar",
+          description: "Itens com atraso permitido e risco controlado.",
+          items: decisionSummary.canWaitItems,
+          empty: "Nenhum item claramente seguro para esperar.",
+        },
+        {
+          title: "Atenção na próxima fatura",
+          description: "Faturas e parcelas que pressionam o cartão e o próximo mês.",
+          items: decisionSummary.nextInvoiceItems,
+          empty: "Sem pressão relevante de fatura no mês atual.",
+        },
+        {
+          title: "Risco alto do mês",
+          description: "Valores atrasados, críticos ou de alta prioridade.",
+          items: decisionSummary.highRiskItems,
+          empty: "Nenhum risco alto identificado.",
+        },
+      ];
+  const visibleFlowRows = compactDashboard ? summary.flowRows.slice(0, 5) : summary.flowRows.slice(0, 10);
 
   return (
     <div className="space-y-6">
@@ -195,104 +242,27 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
       <DashboardViewPreferences initialPeriod={period} />
 
+      <SectionCard title="Resumo financeiro" description={compactDashboard ? "Visão simples com o que pede atenção agora." : "Visão completa com o resumo principal do período."}>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {overviewCards.map((card) => (
+            <StatCard key={card.label} label={card.label} value={card.value} helper={card.helper} tone={card.tone} href={card.href} />
+          ))}
+        </div>
+      </SectionCard>
+
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-base font-semibold text-ink-950 dark:text-slate-100">Pendências importantes</h2>
+          <p className="mt-1 text-sm leading-6 text-ink-600 dark:text-slate-300">O que merece atenção primeiro.</p>
+        </div>
+        <div className="grid gap-4 xl:grid-cols-2">
+          {importantLists.map((list) => (
+            <DecisionList key={list.title} title={list.title} description={list.description} items={list.items} empty={list.empty} compact={compactDashboard} />
+          ))}
+        </div>
+      </section>
+
       <SmartSuggestions suggestions={smartSuggestions} />
-
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <StatCard
-          label="Contas pendentes"
-          value={formatCurrency(summary.pendingAccounts)}
-          helper="Contas abertas que ainda pressionam o caixa."
-          tone="warning"
-          href={`/dashboard/accounts?status=pending&${periodQuery}`}
-        />
-        <StatCard
-          label="Entradas previstas"
-          value={formatCurrency(summary.expectedRealIncome)}
-          helper="Somente renda real prevista."
-          tone="success"
-          href={`/dashboard/income?status=expected&${periodQuery}`}
-        />
-        <StatCard
-          label="Saldo projetado"
-          value={formatCurrency(summary.projectedBalance)}
-          helper="Inclui reembolsos e dinheiro de terceiros, que não são renda livre."
-          tone="info"
-        />
-        <StatCard
-          label="Prioridade alta"
-          value={formatCurrency(summary.highPriorityAccounts)}
-          helper="Contas altas ou críticas."
-          tone="danger"
-          href={`/dashboard/accounts?priority=high&${periodQuery}`}
-        />
-        <StatCard
-          label="Fatura crítica"
-          value={formatCurrency(summary.criticalInvoiceAmount)}
-          helper="Fatura aberta, parcial ou atrasada mais pesada."
-          tone={summary.criticalInvoiceAmount > 0 ? "danger" : "neutral"}
-          href={`/dashboard/invoices?status=open&${periodQuery}`}
-        />
-        <StatCard
-          label="Reembolsos pendentes"
-          value={formatCurrency(summary.openReimbursements)}
-          helper="Pix esperado para cobrir despesas anteriores."
-          tone="warning"
-          href={`/dashboard/reimbursements?status=expected&${periodQuery}`}
-        />
-        <StatCard
-          label="Dinheiro de terceiros em aberto"
-          value={formatCurrency(summary.thirdPartyOpenAmount)}
-          helper="Lançamentos de terceiros ou família ainda vinculados."
-          tone="warning"
-          href={`/dashboard/reimbursements?status=expected&${periodQuery}`}
-        />
-        <StatCard
-          label="Custo pessoal líquido estimado"
-          value={formatCurrency(summary.estimatedNetPersonalCost)}
-          helper="Faturas abertas menos reembolsos esperados."
-          tone="info"
-        />
-        <StatCard
-          label="Compras planejadas"
-          value={formatCurrency(summary.plannedPurchasePressure)}
-          helper="Desejos ativos que podem virar gasto."
-          tone={summary.plannedPurchasePressure > 0 ? "warning" : "neutral"}
-          href={`/dashboard/purchases?status=planned&${periodQuery}`}
-        />
-        <StatCard
-          label="Anotações fixadas"
-          value={String(summary.pinnedNotesCount)}
-          helper="Lembretes importantes para decisões."
-          tone={summary.pinnedNotesCount > 0 ? "info" : "neutral"}
-        />
-      </section>
-
-      <section className="grid gap-4 xl:grid-cols-2">
-        <DecisionList
-          title="Pagar agora"
-          description="Itens vencidos, críticos ou que não foram marcados como seguros para atrasar."
-          items={decisionSummary.payNowItems}
-          empty="Nenhum item crítico para pagar agora."
-        />
-        <DecisionList
-          title="Pode esperar"
-          description="Itens com atraso permitido e risco controlado."
-          items={decisionSummary.canWaitItems}
-          empty="Nenhum item claramente seguro para esperar."
-        />
-        <DecisionList
-          title="Atenção na próxima fatura"
-          description="Faturas e parcelas que pressionam o cartão e o próximo mês."
-          items={decisionSummary.nextInvoiceItems}
-          empty="Sem pressão relevante de fatura no mês atual."
-        />
-        <DecisionList
-          title="Risco alto do mês"
-          description="Valores atrasados, críticos ou de alta prioridade."
-          items={decisionSummary.highRiskItems}
-          empty="Nenhum risco alto identificado."
-        />
-      </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
@@ -405,6 +375,26 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         </SectionCard>
       </section>
 
+      <SectionCard title="Atalhos rápidos" description="Acesso direto às telas mais usadas.">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {quickActions.map((action) => (
+            <Link
+              key={action.href}
+              href={action.href}
+              className="rounded-lg border border-ink-950/10 bg-white p-4 text-sm font-semibold text-ink-950 transition hover:border-mint-500 hover:shadow-sm dark:border-white/10 dark:bg-slate-950/60 dark:text-slate-100"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p>{action.label}</p>
+                  <p className="mt-1 text-xs font-normal text-ink-600 dark:text-slate-300">{action.description}</p>
+                </div>
+                <span className="text-lg text-mint-600">+</span>
+              </div>
+            </Link>
+          ))}
+        </div>
+      </SectionCard>
+
       <SectionCard title="Fluxo dos próximos dias" description="Contas e entradas previstas mais próximas.">
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-ink-950/10 text-left text-sm">
@@ -418,7 +408,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
               </tr>
             </thead>
             <tbody className="divide-y divide-ink-950/10">
-              {summary.flowRows.map((row) => (
+              {visibleFlowRows.map((row) => (
                 <tr key={`${row.type}-${row.description}-${row.date}`}>
                   <td className="px-4 py-3 text-ink-600">{formatDate(row.date)}</td>
                   <td className="px-4 py-3 text-ink-600">{row.type}</td>
@@ -437,6 +427,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             </tbody>
           </table>
         </div>
+        {compactDashboard && summary.flowRows.length > visibleFlowRows.length ? (
+          <p className="mt-3 text-sm text-ink-600">Mostrando as movimentações mais próximas. Abra a visão completa para ver a lista inteira.</p>
+        ) : null}
       </SectionCard>
     </div>
   );
@@ -447,23 +440,25 @@ function DecisionList({
   description,
   items,
   empty,
+  compact = false,
 }: {
   title: string;
   description: string;
   items: DecisionItem[];
   empty: string;
+  compact?: boolean;
 }) {
   return (
     <SectionCard title={title} description={description}>
       {items.length === 0 ? (
         <EmptyState title={empty} description="Os itens aparecerão aqui conforme contas, faturas e parcelas forem cadastradas." />
       ) : (
-        <div className="space-y-3">
+        <div className={compact ? "space-y-2" : "space-y-3"}>
           {items.map((item) => (
             <Link
               key={`${item.href}-${item.id}`}
               href={item.href}
-              className="block rounded-md border border-ink-950/10 bg-white p-4 transition hover:border-mint-500"
+              className={`block rounded-md border border-ink-950/10 bg-white transition hover:border-mint-500 dark:border-white/10 dark:bg-slate-950/60 ${compact ? "p-3" : "p-4"}`}
             >
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -501,7 +496,7 @@ function SmartSuggestions({ suggestions }: { suggestions: DashboardSuggestion[] 
           <Link
             key={`${suggestion.href}-${suggestion.title}`}
             href={suggestion.href}
-            className="hub-card block rounded-lg border border-ink-950/10 bg-white p-4 shadow-sm"
+            className="hub-card block rounded-lg border border-ink-950/10 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-950/60"
           >
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -546,6 +541,108 @@ function buildPeriodQuery(period: PeriodValue) {
   }
 
   return params.toString();
+}
+
+function parseDashboardMode(searchParams: Record<string, string | string[] | undefined>): DashboardLayoutMode {
+  const value = typeof searchParams.mode === "string" ? searchParams.mode : null;
+  return value === "full" ? "full" : "simple";
+}
+
+function getOverviewCards(
+  summary: ReturnType<typeof buildDashboardSummary>,
+  decisionSummary: ReturnType<typeof buildFinancialSummary>,
+  periodQuery: string,
+  compactDashboard: boolean,
+) {
+  const baseCards = [
+    {
+      label: "Contas pendentes",
+      value: formatCurrency(summary.pendingAccounts),
+      helper: "Contas abertas que ainda pressionam o caixa.",
+      tone: "warning" as const,
+      href: `/dashboard/accounts?status=pending&${periodQuery}`,
+    },
+    {
+      label: "Saldo projetado",
+      value: formatCurrency(summary.projectedBalance),
+      helper: "Inclui reembolsos e dinheiro de terceiros, que não são renda livre.",
+      tone: "info" as const,
+    },
+    {
+      label: "Fatura crítica",
+      value: formatCurrency(summary.criticalInvoiceAmount),
+      helper: "Fatura aberta, parcial ou atrasada mais pesada.",
+      tone: summary.criticalInvoiceAmount > 0 ? ("danger" as const) : ("neutral" as const),
+      href: `/dashboard/invoices?status=open&${periodQuery}`,
+    },
+    {
+      label: "Reembolsos pendentes",
+      value: formatCurrency(summary.openReimbursements),
+      helper: "Pix esperado para cobrir despesas anteriores.",
+      tone: "warning" as const,
+      href: `/dashboard/reimbursements?status=expected&${periodQuery}`,
+    },
+    {
+      label: "Próxima pressão",
+      value: formatCurrency(decisionSummary.nextInvoiceItems.reduce((sum, item) => sum + item.amount, 0)),
+      helper: "Itens que pressionam a próxima fatura.",
+      tone: "warning" as const,
+    },
+  ];
+
+  if (compactDashboard) {
+    return baseCards;
+  }
+
+  return [
+    ...baseCards,
+    {
+      label: "Entradas previstas",
+      value: formatCurrency(summary.expectedRealIncome),
+      helper: "Somente renda real prevista.",
+      tone: "success" as const,
+      href: `/dashboard/income?status=expected&${periodQuery}`,
+    },
+    {
+      label: "Prioridade alta",
+      value: formatCurrency(summary.highPriorityAccounts),
+      helper: "Contas altas ou críticas.",
+      tone: "danger" as const,
+      href: `/dashboard/accounts?priority=high&${periodQuery}`,
+    },
+    {
+      label: "Dinheiro de terceiros em aberto",
+      value: formatCurrency(summary.thirdPartyOpenAmount),
+      helper: "Lançamentos de terceiros ou família ainda vinculados.",
+      tone: "warning" as const,
+      href: `/dashboard/reimbursements?status=expected&${periodQuery}`,
+    },
+    {
+      label: "Custo pessoal líquido estimado",
+      value: formatCurrency(summary.estimatedNetPersonalCost),
+      helper: "Faturas abertas menos reembolsos esperados.",
+      tone: "info" as const,
+    },
+    {
+      label: "Compras planejadas",
+      value: formatCurrency(summary.plannedPurchasePressure),
+      helper: "Desejos ativos que podem virar gasto.",
+      tone: summary.plannedPurchasePressure > 0 ? ("warning" as const) : ("neutral" as const),
+      href: `/dashboard/purchases?status=planned&${periodQuery}`,
+    },
+  ];
+}
+
+function getQuickActions() {
+  return [
+    { label: "Nova conta", description: "Abrir cadastro de conta a pagar.", href: "/dashboard/accounts" },
+    { label: "Nova receita", description: "Registrar entrada prevista ou recebida.", href: "/dashboard/income" },
+    { label: "Nova compra", description: "Adicionar compra ou desejo.", href: "/dashboard/purchases" },
+    { label: "Novo reembolso", description: "Lançar valor a receber de alguém.", href: "/dashboard/reimbursements" },
+    { label: "Nova meta", description: "Cadastrar meta pessoal ou profissional.", href: "/dashboard/goals" },
+    { label: "Revisão semanal", description: "Abrir o fechamento guiado da semana.", href: "/dashboard/weekly-review" },
+    { label: "Diagnóstico financeiro", description: "Ver alertas e saúde geral do sistema.", href: "/dashboard/diagnostics" },
+  ];
 }
 
 function buildDashboardSuggestions({
