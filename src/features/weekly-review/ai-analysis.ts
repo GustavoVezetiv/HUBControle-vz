@@ -1,7 +1,9 @@
+import { defaultAiUserPreferences, profileToAiPreferences, type AiUserPreferences } from "@/features/ai/preferences";
 import type { AppSupabaseClient } from "@/features/shared/types";
 import { buildWeeklyDerivedData, resolveRoutineTaskContext } from "@/features/weekly-review/derived";
 import type {
   Json,
+  Profile,
   RoutineAiSummary,
   RoutineCategory,
   RoutineTask,
@@ -47,6 +49,19 @@ export type WeeklyAiEventItem = {
 
 export type WeeklyAiInputSummary = {
   periodo: string;
+  contexto_usuario: {
+    areas_da_vida: string[];
+    objetivos: string;
+    prioridades: string;
+    rotina: string;
+    categorias_importantes: string[];
+    tom_analise: string;
+    nivel_detalhe: string;
+    areas_prioritarias: string[];
+    areas_sem_urgencia: string[];
+    considerar: string;
+    evitar: string;
+  };
   sincronizacao_base: {
     sincronizado_em: string | null;
     tipo: "manual" | "automatico" | "indisponivel";
@@ -83,6 +98,10 @@ export type WeeklyAiInputSummary = {
   tarefas_em_listas_execucao: WeeklyAiTaskItem[];
   tarefas_em_listas_referencia: WeeklyAiTaskItem[];
   eventos_relevantes: WeeklyAiEventItem[];
+  historico_recente: Array<{
+    semana: string;
+    resumo: string;
+  }>;
   observacoes_do_sistema: string[];
 };
 
@@ -112,6 +131,8 @@ type WeeklyAiSourceData = {
   events: RoutineTaskEvent[];
   taskLists: RoutineTaskList[];
   categories: RoutineCategory[];
+  profile: Profile | null;
+  priorSummaries: RoutineAiSummary[];
   connection: RoutineGoogleConnection | null;
   syncRuns: RoutineSyncRun[];
 };
@@ -195,7 +216,7 @@ export async function loadWeeklyAiSourceData(
   weekStart: string,
   weekEnd: string,
 ): Promise<{ data: WeeklyAiSourceData | null; error: { message: string; technical?: string } | null }> {
-  const [tasksResult, eventsResult, listsResult, categoriesResult, connectionResult, syncRunsResult] = await Promise.all([
+  const [tasksResult, eventsResult, listsResult, categoriesResult, profileResult, priorSummariesResult, connectionResult, syncRunsResult] = await Promise.all([
     client.from("routine_tasks").select("*").eq("user_id", userId),
     client
       .from("routine_task_events")
@@ -206,6 +227,14 @@ export async function loadWeeklyAiSourceData(
       .order("event_at", { ascending: false }),
     client.from("routine_task_lists").select("*").eq("user_id", userId),
     client.from("routine_categories").select("*").eq("user_id", userId),
+    client.from("profiles").select("*").eq("id", userId).maybeSingle(),
+    client
+      .from("routine_ai_summaries")
+      .select("*")
+      .eq("user_id", userId)
+      .lt("week_start", weekStart)
+      .order("week_start", { ascending: false })
+      .limit(4),
     client.from("routine_google_connections").select("*").eq("user_id", userId).eq("provider", "google_tasks").maybeSingle(),
     client.from("routine_sync_runs").select("*").eq("user_id", userId).eq("provider", "google_tasks").order("started_at", { ascending: false }).limit(3),
   ]);
@@ -215,6 +244,8 @@ export async function loadWeeklyAiSourceData(
     eventsResult.error ||
     listsResult.error ||
     categoriesResult.error ||
+    profileResult.error ||
+    priorSummariesResult.error ||
     connectionResult.error ||
     syncRunsResult.error;
   if (error) {
@@ -234,6 +265,8 @@ export async function loadWeeklyAiSourceData(
       events: (eventsResult.data ?? []) as RoutineTaskEvent[],
       taskLists: (listsResult.data ?? []) as RoutineTaskList[],
       categories: (categoriesResult.data ?? []) as RoutineCategory[],
+      profile: (profileResult.data ?? null) as Profile | null,
+      priorSummaries: (priorSummariesResult.data ?? []) as RoutineAiSummary[],
       connection: (connectionResult.data ?? null) as RoutineGoogleConnection | null,
       syncRuns: (syncRunsResult.data ?? []) as RoutineSyncRun[],
     },
@@ -265,6 +298,7 @@ export function buildWeeklyAiInputSummary(
   const taskByGoogleId = new Map(data.tasks.map((task) => [task.google_task_id, task]));
   const derived = buildWeeklyDerivedData(data.tasks, data.events, data.taskLists, data.categories, weekStart, weekEnd);
   const syncBase = resolveWeeklyAiSyncBase(data.connection, data.syncRuns);
+  const aiPreferences = profileToAiPreferences(data.profile);
   const neglectedCategories = derived.countByCategory
     .filter((row) => row.label !== (derived.areaMostWorked?.label ?? ""))
     .slice(0, 3)
@@ -281,6 +315,9 @@ export function buildWeeklyAiInputSummary(
   if (derived.realEventsThisWeek.length === 0) observations.push("Nenhum evento real de mudança foi registrado no período selecionado.");
   if (derived.prioritizedEvents.length > 0) observations.push("Geral/Hoje foi tratado como fila de prioridade, não como categoria real.");
   if (derived.inheritedPriorityEventsThisWeek.length >= 5) observations.push("A fila Geral/Hoje ainda contém muitos itens herdados da primeira sincronização. Use a análise como referência inicial.");
+  if (!aiPreferences.useTaskHistory) observations.push("O usuário pediu para reduzir o peso do histórico de tarefas na análise.");
+  if (!aiPreferences.useFinancialHistory) observations.push("O usuário pediu para não puxar histórico financeiro como fator de urgência.");
+  if (!aiPreferences.usePlacesHistory) observations.push("Roles e lugares não devem influenciar a leitura desta semana.");
 
   const executionTasks = derived.openTasks
     .filter((task) => {
@@ -297,6 +334,7 @@ export function buildWeeklyAiInputSummary(
 
   return {
     periodo: `${formatDateForPrompt(weekStart)} até ${formatDateForPrompt(weekEnd)}`,
+    contexto_usuario: buildWeeklyAiContext(aiPreferences),
     sincronizacao_base: syncBase,
     listas: data.taskLists.map((list) => {
       const openInList = derived.openTasks.filter((task) => task.google_task_list_id === list.google_task_list_id);
@@ -341,6 +379,10 @@ export function buildWeeklyAiInputSummary(
       ...derived.dueDateChangedEvents,
       ...derived.createdAfterBaselineEvents,
     ].slice(0, limits.events).map((event) => toAiEventItem(event, taskByGoogleId, listByGoogleId)),
+    historico_recente: aiPreferences.useTaskHistory ? data.priorSummaries.slice(0, 3).map((summary) => ({
+      semana: `${formatDateForPrompt(summary.week_start)} até ${formatDateForPrompt(summary.week_end)}`,
+      resumo: summarizePriorWeeklyAnalysis(summary.summary_text),
+    })) : [],
     observacoes_do_sistema: observations,
   };
 }
@@ -369,6 +411,7 @@ async function requestGeminiWeeklyAnalysis(
     "Responda em Markdown simples ou texto estruturado. Não retorne JSON. Não use bloco de código. Não use ```json.",
     "Não invente tarefas, não cite IDs e não encerre frase pela metade.",
     "Geral/Hoje é fila de prioridade, não categoria. Não deixe Geral/Hoje dominar a análise.",
+    "Considere o contexto do usuário, especialmente áreas prioritárias, áreas sem urgência, notas para considerar e notas para evitar.",
     "Considere o nome da lista do Google Tasks como forte sinal de contexto quando a categoria não estiver confirmada no Hub.",
     "Listas de referencia, lazer, backlog, jogos, coisas para assistir e lugares para fazer nao devem ser tratadas como urgencia so por terem itens abertos.",
     "Se citar tarefas concluídas, destaque no máximo 5 exemplos relevantes.",
@@ -381,6 +424,9 @@ async function requestGeminiWeeklyAnalysis(
     "Sugestões práticas",
     "Ideias opcionais",
     "Coisas para revisar",
+    "Ação recomendada",
+    "Observação",
+    "Alerta",
     "",
     "Dados compactos do Hub:",
     JSON.stringify(inputSummary),
@@ -451,6 +497,29 @@ async function requestGeminiWeeklyAnalysis(
       metadata: { ...baseMetadata, rawError: summarizeRawError(technical) },
     };
   }
+}
+
+function buildWeeklyAiContext(preferences: AiUserPreferences): WeeklyAiInputSummary["contexto_usuario"] {
+  const normalized = preferences ?? defaultAiUserPreferences;
+  return {
+    areas_da_vida: normalized.areasOfLife,
+    objetivos: normalized.objectives,
+    prioridades: normalized.priorities,
+    rotina: normalized.routineNotes,
+    categorias_importantes: normalized.importantCategories,
+    tom_analise: normalized.analysisTone,
+    nivel_detalhe: normalized.detailLevel,
+    areas_prioritarias: normalized.priorityAreas,
+    areas_sem_urgencia: normalized.nonUrgentAreas,
+    considerar: normalized.considerNotes,
+    evitar: normalized.avoidNotes,
+  };
+}
+
+function summarizePriorWeeklyAnalysis(value: string | null) {
+  if (!value) return "Sem resumo salvo.";
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length <= 220 ? normalized : `${normalized.slice(0, 217)}...`;
 }
 
 function validateGeminiAnalysisText(text: string): { error: { message: string; technical: string }; metadata: { characterCount: number; matchedSections: string[] } } | { error: null; metadata: { characterCount: number; matchedSections: string[] } } {

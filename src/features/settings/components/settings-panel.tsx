@@ -6,6 +6,14 @@ import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
+import {
+  aiAreaOptions,
+  aiDetailLevelOptions,
+  aiToneOptions,
+  defaultAiUserPreferences,
+  profileToAiPreferences,
+  type AiUserPreferences,
+} from "@/features/ai/preferences";
 import { ExportBackupPanel } from "@/features/settings/components/export-backup-panel";
 import { FinancialRecalculationPanel } from "@/features/settings/components/financial-recalculation-panel";
 import { getProfile, upsertProfile } from "@/features/settings/queries";
@@ -44,6 +52,7 @@ export function SettingsPanel() {
   const [email, setEmail] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [systemPreferences, setSystemPreferences] = useState<SystemPreferences>(defaultSystemPreferences);
+  const [aiPreferences, setAiPreferences] = useState<AiUserPreferences>(defaultAiUserPreferences);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
@@ -67,6 +76,7 @@ export function SettingsPanel() {
       setProfile(data);
       setValues(profileToFormValues(data));
       setSystemPreferences(loadSystemPreferences(auth.user.id));
+      setAiPreferences(profileToAiPreferences(data));
     }
     setLoading(false);
   }, []);
@@ -89,7 +99,7 @@ export function SettingsPanel() {
 
     setSaving(true);
     try {
-      const { data, error } = await upsertProfile(createClient(), userId, values);
+      const { data, error } = await upsertProfile(createClient(), userId, values, aiPreferences);
       if (error) {
         console.error("Erro técnico ao salvar configurações:", error);
         setFeedback({ type: "error", message: error.message });
@@ -139,6 +149,16 @@ export function SettingsPanel() {
   function handleRestoreSystemDefaults() {
     setSystemPreferences(defaultSystemPreferences);
     setFeedback({ type: "success", message: "Padrões carregados. Salve as configurações para aplicar." });
+  }
+
+  function toggleAiOption(field: "areasOfLife" | "importantCategories" | "priorityAreas" | "nonUrgentAreas", value: string) {
+    setAiPreferences((current) => {
+      const exists = current[field].includes(value);
+      return {
+        ...current,
+        [field]: exists ? current[field].filter((item) => item !== value) : [...current[field], value],
+      };
+    });
   }
 
   return (
@@ -387,6 +407,188 @@ export function SettingsPanel() {
               </div>
             </div>
 
+            <div className="hub-card rounded-lg border border-ink-950/10 bg-slate-50 p-4">
+              <div className="mb-4">
+                <h3 className="text-sm font-semibold text-ink-950">Preferências da IA</h3>
+                <p className="mt-1 text-sm leading-6 text-ink-600">
+                  Esse contexto orienta análises, briefings e explicações da IA. A IA não altera dados automaticamente.
+                </p>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <FieldShell label="Tom da análise">
+                  <select
+                    className={inputClassName}
+                    value={aiPreferences.analysisTone}
+                    onChange={(event) =>
+                      setAiPreferences((current) => ({
+                        ...current,
+                        analysisTone: event.target.value as AiUserPreferences["analysisTone"],
+                      }))
+                    }
+                  >
+                    {aiToneOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </FieldShell>
+
+                <FieldShell label="Nível de detalhe">
+                  <select
+                    className={inputClassName}
+                    value={aiPreferences.detailLevel}
+                    onChange={(event) =>
+                      setAiPreferences((current) => ({
+                        ...current,
+                        detailLevel: event.target.value as AiUserPreferences["detailLevel"],
+                      }))
+                    }
+                  >
+                    {aiDetailLevelOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </FieldShell>
+              </div>
+
+              <div className="mt-6 grid gap-4 md:grid-cols-2">
+                <FieldShell label="Objetivos e momento atual">
+                  <textarea
+                    className={inputClassName}
+                    rows={4}
+                    value={aiPreferences.objectives}
+                    onChange={(event) => setAiPreferences((current) => ({ ...current, objectives: event.target.value }))}
+                    placeholder="Ex.: consolidar rotina, reduzir pendências financeiras, avançar no trabalho."
+                  />
+                </FieldShell>
+
+                <FieldShell label="Prioridades e critérios">
+                  <textarea
+                    className={inputClassName}
+                    rows={4}
+                    value={aiPreferences.priorities}
+                    onChange={(event) => setAiPreferences((current) => ({ ...current, priorities: event.target.value }))}
+                    placeholder="Ex.: priorizar entregas profissionais, saúde e contas críticas."
+                  />
+                </FieldShell>
+
+                <FieldShell label="Rotina e contexto">
+                  <textarea
+                    className={inputClassName}
+                    rows={4}
+                    value={aiPreferences.routineNotes}
+                    onChange={(event) => setAiPreferences((current) => ({ ...current, routineNotes: event.target.value }))}
+                    placeholder="Ex.: trabalho mais pesado no início da semana, noites reservadas para estudo."
+                  />
+                </FieldShell>
+
+                <FieldShell label="O que a IA deve considerar">
+                  <textarea
+                    className={inputClassName}
+                    rows={4}
+                    value={aiPreferences.considerNotes}
+                    onChange={(event) => setAiPreferences((current) => ({ ...current, considerNotes: event.target.value }))}
+                    placeholder="Ex.: evitar sugerir urgência para backlog de lazer; considerar fluxo de caixa apertado."
+                  />
+                </FieldShell>
+
+                <FieldShell label="O que a IA deve evitar">
+                  <textarea
+                    className={inputClassName}
+                    rows={4}
+                    value={aiPreferences.avoidNotes}
+                    onChange={(event) => setAiPreferences((current) => ({ ...current, avoidNotes: event.target.value }))}
+                    placeholder="Ex.: não dramatizar jogos, filmes ou listas de referência."
+                  />
+                </FieldShell>
+
+                <FieldShell label="Categorias importantes">
+                  <textarea
+                    className={inputClassName}
+                    rows={4}
+                    value={aiPreferences.importantCategories.join(", ")}
+                    onChange={(event) =>
+                      setAiPreferences((current) => ({
+                        ...current,
+                        importantCategories: event.target.value
+                          .split(",")
+                          .map((item) => item.trim())
+                          .filter(Boolean),
+                      }))
+                    }
+                    placeholder="Ex.: Trabalho, Finanças, Saúde"
+                  />
+                </FieldShell>
+              </div>
+
+              <div className="mt-6 grid gap-6 xl:grid-cols-2">
+                <PreferenceChipGroup
+                  title="Áreas da vida"
+                  description="Base geral de contexto que a IA pode citar e cruzar."
+                  selected={aiPreferences.areasOfLife}
+                  options={aiAreaOptions}
+                  onToggle={(value) => toggleAiOption("areasOfLife", value)}
+                />
+                <PreferenceChipGroup
+                  title="Áreas prioritárias"
+                  description="Essas áreas merecem mais peso nas análises."
+                  selected={aiPreferences.priorityAreas}
+                  options={aiAreaOptions}
+                  onToggle={(value) => toggleAiOption("priorityAreas", value)}
+                />
+                <PreferenceChipGroup
+                  title="Áreas sem urgência"
+                  description="A IA evita transformar isso em alerta principal."
+                  selected={aiPreferences.nonUrgentAreas}
+                  options={aiAreaOptions}
+                  onToggle={(value) => toggleAiOption("nonUrgentAreas", value)}
+                />
+              </div>
+
+              <div className="mt-6 grid gap-4 md:grid-cols-3">
+                <FieldShell label="Usar histórico financeiro">
+                  <select
+                    className={inputClassName}
+                    value={String(aiPreferences.useFinancialHistory)}
+                    onChange={(event) =>
+                      setAiPreferences((current) => ({ ...current, useFinancialHistory: event.target.value === "true" }))
+                    }
+                  >
+                    <option value="true">Sim</option>
+                    <option value="false">Não</option>
+                  </select>
+                </FieldShell>
+                <FieldShell label="Usar histórico de tarefas">
+                  <select
+                    className={inputClassName}
+                    value={String(aiPreferences.useTaskHistory)}
+                    onChange={(event) =>
+                      setAiPreferences((current) => ({ ...current, useTaskHistory: event.target.value === "true" }))
+                    }
+                  >
+                    <option value="true">Sim</option>
+                    <option value="false">Não</option>
+                  </select>
+                </FieldShell>
+                <FieldShell label="Usar histórico de roles/lugares">
+                  <select
+                    className={inputClassName}
+                    value={String(aiPreferences.usePlacesHistory)}
+                    onChange={(event) =>
+                      setAiPreferences((current) => ({ ...current, usePlacesHistory: event.target.value === "true" }))
+                    }
+                  >
+                    <option value="true">Sim</option>
+                    <option value="false">Não</option>
+                  </select>
+                </FieldShell>
+              </div>
+            </div>
+
             <div className="flex items-end justify-end"><ActionButton type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar configurações"}</ActionButton></div>
           </form>
         )}
@@ -404,6 +606,49 @@ export function SettingsPanel() {
       <FinancialRecalculationPanel userId={userId} />
       <div id="backup-exportacao">
         <ExportBackupPanel userId={userId} email={email} />
+      </div>
+    </div>
+  );
+}
+
+function PreferenceChipGroup({
+  title,
+  description,
+  options,
+  selected,
+  onToggle,
+}: {
+  title: string;
+  description: string;
+  options: readonly string[];
+  selected: string[];
+  onToggle: (value: string) => void;
+}) {
+  return (
+    <div>
+      <div className="mb-3">
+        <h4 className="text-sm font-semibold text-ink-950">{title}</h4>
+        <p className="mt-1 text-sm text-ink-600">{description}</p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {options.map((option) => {
+          const isSelected = selected.includes(option);
+          return (
+            <button
+              key={option}
+              type="button"
+              onClick={() => onToggle(option)}
+              className={[
+                "rounded-full border px-3 py-1.5 text-xs font-semibold transition",
+                isSelected
+                  ? "border-mint-500 bg-mint-50 text-mint-900 dark:bg-mint-500/10 dark:text-mint-100"
+                  : "border-ink-950/10 bg-white text-ink-700 dark:border-white/10 dark:bg-slate-950/60 dark:text-slate-200",
+              ].join(" ")}
+            >
+              {option}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

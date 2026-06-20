@@ -41,6 +41,7 @@ export type Profile = {
   interactive_cards_enabled: boolean;
   card_glow_enabled: boolean;
   surface_radius: string;
+  ai_preferences: Json | null;
   created_at: string;
   updated_at: string;
 };

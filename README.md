@@ -1166,3 +1166,36 @@ Esse script simula uma semana com primeira sincronização inflada e valida que:
 Pendências para sync automático:
 - definir janela de sincronização automática e retenção de snapshots
 - avaliar versionamento de múltiplas análises por semana, se houver necessidade histórica
+
+## Preferências da IA
+
+O Hub agora salva contexto de IA por usuário em `profiles.ai_preferences`.
+
+Essa base guarda:
+- áreas da vida
+- objetivos e prioridades
+- rotina e notas de contexto
+- categorias importantes
+- áreas prioritárias
+- áreas que não devem virar urgência
+- instruções do que a IA deve considerar e evitar
+- flags para usar ou não histórico financeiro, de tarefas e de roles/lugares
+
+Na tela de `Configurações`, a seção `Preferências da IA` permite ajustar esse contexto. A Revisão semanal já injeta essas preferências e um resumo curto das últimas semanas no payload enviado ao Gemini.
+
+Aplicações atuais dessa base:
+- `Revisão semanal`: análise contextual da semana com histórico recente
+- `Dashboard`: botão `Gerar briefing`
+- `Diagnóstico financeiro`: ação `Explicar com IA` por alerta
+- `Metas`: botão `Analisar metas`
+- `Compras e desejos`: botão `Analisar compras`
+
+Toda resposta nova da IA nessas telas permite:
+- aceitar
+- ignorar
+- copiar
+- marcar como útil
+- marcar como não útil
+
+Migration necessária antes de testar no Supabase:
+- `supabase/migrations/202606200001_profile_ai_preferences.sql`

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { AiResponsePanel } from "@/features/ai/components/ai-response-panel";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
@@ -418,6 +419,49 @@ export function PlannedPurchasesCrud() {
         <StatCard label="Comprados" value={String(summary.purchasedCount)} helper="Com data de compra." tone="success" />
         <StatCard label="Pendentes" value={String(summary.pendingCount)} helper="Sem data de compra." tone="warning" />
       </section>
+
+      <AiResponsePanel
+        title="Análise opcional de compras e desejos"
+        description="A IA pode ajudar a priorizar compras, separar o que pode esperar e destacar itens parados."
+        buttonLabel="Analisar compras"
+        loadingLabel="Analisando compras..."
+        target="planned_purchases_review"
+        payload={{
+          resumo: {
+            total_estimado: summary.totalEstimated,
+            total_pago: summary.totalPaid,
+            diferenca: summary.difference,
+            comprados: summary.purchasedCount,
+            pendentes: summary.pendingCount,
+          },
+          filtros: {
+            busca: search,
+            status: statusFilter,
+            prioridade: priorityFilter,
+            categoria: categoryFilter,
+            projeto: projectFilter,
+            comprado_ou_pendente: purchaseStateFilter,
+          },
+          compras: filtered.slice(0, 15).map((item) => {
+            const category = support.categories.find((categoryItem) => categoryItem.id === item.category_id);
+            return {
+              nome: item.title,
+              status: item.decision_status,
+              prioridade: item.risk_level,
+              categoria: category?.name ?? null,
+              projeto: item.project ?? null,
+              valor_estimado: Number(item.estimated_amount ?? 0),
+              valor_pago: Number(item.paid_amount ?? 0),
+              data_alvo: item.target_date ?? null,
+              data_compra: item.purchase_date ?? null,
+              forma_planejada: item.payment_method,
+              parcelas: item.installment_count ?? null,
+              observacoes: item.notes ?? null,
+            };
+          }),
+        }}
+        emptyState="Gere uma leitura opcional para ver prioridades, itens parados e o que pode esperar."
+      />
 
       <SectionCard title="Visualização e filtros" description="A data de compra define se o item foi comprado; data alvo é apenas planejamento.">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">

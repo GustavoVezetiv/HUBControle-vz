@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { AiResponsePanel } from "@/features/ai/components/ai-response-panel";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
@@ -388,6 +389,48 @@ export function GoalsCrud() {
           <StatCard label="Valores financeiros" value={formatCurrency(summary.targetTotal)} helper="Somente metas financeiras ou mensuráveis com valor." tone="success" />
         ) : null}
       </section>
+
+      <AiResponsePanel
+        title="Análise opcional de metas"
+        description="A IA pode sugerir a próxima ação, apontar metas paradas e separar o que realmente merece urgência."
+        buttonLabel="Analisar metas"
+        loadingLabel="Analisando metas..."
+        target="goals_review"
+        payload={{
+          resumo: {
+            metas_ativas: summary.activeCount,
+            qualitativas: summary.qualitativeCount,
+            com_prazo: summary.withTargetDateCount,
+            financeiras: summary.financialCount,
+          },
+          filtros: {
+            busca: search,
+            status: statusFilter,
+            tipo: kindFilter,
+            categoria: categoryFilter,
+            prazo: deadlineFilter,
+            urgencia: urgencyFilter,
+          },
+          metas: filteredGoals.slice(0, 12).map((goal) => {
+            const category = categories.find((item) => item.id === goal.category_id);
+            return {
+              nome: goal.name,
+              status: goal.status,
+              tipo_meta: goal.goal_kind,
+              categoria_meta: goal.goal_category ?? goal.goal_type,
+              categoria_real: category?.name ?? null,
+              prazo: goal.target_date ?? null,
+              urgencia: calculateUrgency(goal),
+              progresso_percentual_prazo: calculateDeadlineProgress(goal),
+              valor_objetivo: goal.goal_kind === "financial" ? Number(goal.target_amount ?? 0) : null,
+              valor_atual: goal.goal_kind === "financial" ? Number(goal.current_amount ?? 0) : null,
+              aporte_mensal: goal.goal_kind === "financial" ? Number(goal.monthly_contribution ?? 0) : null,
+              observacoes: goal.notes ?? null,
+            };
+          }),
+        }}
+        emptyState="Gere uma leitura opcional para priorizar metas e detectar itens parados."
+      />
 
       <SectionCard title="Visualização e filtros">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
