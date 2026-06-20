@@ -16,7 +16,7 @@ export function EmptyState({ title, description, actionLabel }: EmptyStateProps)
         <button
           type="button"
           disabled
-          className="mt-5 rounded-md bg-ink-950 px-4 py-2.5 text-sm font-semibold text-white opacity-60"
+          className="hub-action hub-action-secondary mt-5 rounded-md px-4 py-2.5 text-sm font-semibold opacity-60"
         >
           {actionLabel}
         </button>
@@ -24,4 +24,3 @@ export function EmptyState({ title, description, actionLabel }: EmptyStateProps)
     </div>
   );
 }
-

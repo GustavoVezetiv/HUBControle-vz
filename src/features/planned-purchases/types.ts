@@ -19,7 +19,7 @@ export type PlannedPurchaseFormValues = {
 };
 
 export type PlannedPurchaseSupportData = {
-  categories: Pick<Category, "id" | "name" | "type" | "color" | "icon">[];
+  categories: Pick<Category, "id" | "name" | "type" | "color" | "icon" | "scopes">[];
 };
 
 export const decisionStatusOptions = [

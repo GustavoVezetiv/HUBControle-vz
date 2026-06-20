@@ -1,14 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
+import { loadSystemPreferences } from "@/features/settings/system-preferences";
 import { ActionButton, CrudFeedback, FieldShell, inputClassName, TextBadge } from "@/features/shared/crud-ui";
 import { formatDate } from "@/features/shared/format";
 import type { FeedbackState } from "@/features/shared/types";
+import { buildWeeklyDerivedData, resolveRoutineTaskContext } from "@/features/weekly-review/derived";
 import { loadWeeklyReviewData, updateTaskConfirmedCategory } from "@/features/weekly-review/queries";
 import type { WeeklyReviewData, WeeklyReviewSummary } from "@/features/weekly-review/types";
 import type { RoutineAiSummary, RoutineCategory, RoutineTask, RoutineTaskEvent, RoutineTaskList } from "@/lib/supabase/types";
@@ -25,17 +28,22 @@ type SyncResult = {
   reportsUpdated: number;
 };
 
-type ReviewTab = "completed" | "priorities" | "open" | "month" | "technical";
+type ReviewTab = "summary" | "completed" | "priorities" | "pending" | "kanban" | "month" | "technical";
 
 const reviewTabs: Array<{ id: ReviewTab; label: string }> = [
+  { id: "summary", label: "Resumo" },
   { id: "completed", label: "Concluídas" },
   { id: "priorities", label: "Prioridades" },
-  { id: "open", label: "Abertas e paradas" },
+  { id: "pending", label: "Pendências" },
+  { id: "kanban", label: "Kanban" },
   { id: "month", label: "Mês" },
   { id: "technical", label: "Dados técnicos" },
 ];
 
 export function WeeklyReviewPage() {
+  const searchParams = useSearchParams();
+  const actionHandledRef = useRef<string | null>(null);
+  const defaultTabAppliedForUserRef = useRef<string | null>(null);
   const [data, setData] = useState<WeeklyReviewData | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -46,7 +54,7 @@ export function WeeklyReviewPage() {
   const [lastSyncResult, setLastSyncResult] = useState<SyncResult | null>(null);
   const [monthFilter, setMonthFilter] = useState(() => new Date().toISOString().slice(0, 7));
   const [selectedWeekStart, setSelectedWeekStart] = useState(() => toDateInputValue(startOfWeek(new Date())));
-  const [activeTab, setActiveTab] = useState<ReviewTab>("completed");
+  const [activeTab, setActiveTab] = useState<ReviewTab>("summary");
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -60,6 +68,10 @@ export function WeeklyReviewPage() {
       }
 
       setUserId(authResult.data.user.id);
+      if (defaultTabAppliedForUserRef.current !== authResult.data.user.id) {
+        setActiveTab(loadSystemPreferences(authResult.data.user.id).weeklyReviewDefaultTab);
+        defaultTabAppliedForUserRef.current = authResult.data.user.id;
+      }
       const result = await loadWeeklyReviewData(client, authResult.data.user.id);
 
       if (result.error || !result.data) {
@@ -94,6 +106,14 @@ export function WeeklyReviewPage() {
     }
   }, []);
 
+  useEffect(() => {
+    const requestedTab = searchParams.get("tab");
+    if (!requestedTab) return;
+    if (reviewTabs.some((tab) => tab.id === requestedTab)) {
+      setActiveTab(requestedTab as ReviewTab);
+    }
+  }, [searchParams]);
+
   const selectedWeekEnd = useMemo(() => addDays(selectedWeekStart, 6), [selectedWeekStart]);
   const summary = useMemo(() => buildWeeklySummary(data, selectedWeekStart, selectedWeekEnd), [data, selectedWeekStart, selectedWeekEnd]);
   const taskByGoogleId = useMemo(() => new Map((data?.tasks ?? []).map((task) => [task.google_task_id, task])), [data?.tasks]);
@@ -105,7 +125,7 @@ export function WeeklyReviewPage() {
   const latestSyncRun = data?.syncRuns[0] ?? null;
   const monthlyWeeks = useMemo(() => buildMonthlyWeeks(data, monthFilter), [data, monthFilter]);
 
-  async function handleSync() {
+  const handleSync = useCallback(async () => {
     setSyncing(true);
     setFeedback(null);
     setLastSyncResult(null);
@@ -128,7 +148,7 @@ export function WeeklyReviewPage() {
     } finally {
       setSyncing(false);
     }
-  }
+  }, [loadData]);
 
   async function handleConfirmCategory(task: RoutineTask, categoryId: string) {
     if (!userId) return;
@@ -150,7 +170,7 @@ export function WeeklyReviewPage() {
     }
   }
 
-  async function handleGenerateAnalysis() {
+  const handleGenerateAnalysis = useCallback(async () => {
     setAnalyzing(true);
     setFeedback(null);
 
@@ -177,7 +197,21 @@ export function WeeklyReviewPage() {
     } finally {
       setAnalyzing(false);
     }
-  }
+  }, [loadData, selectedWeekEnd, selectedWeekStart]);
+
+  useEffect(() => {
+    const requestedAction = searchParams.get("action");
+    if (!requestedAction || actionHandledRef.current === requestedAction) return;
+    if (requestedAction === "sync" && !syncing && data?.connection?.status === "connected") {
+      actionHandledRef.current = requestedAction;
+      void handleSync();
+      return;
+    }
+    if (requestedAction === "analyze" && !analyzing) {
+      actionHandledRef.current = requestedAction;
+      void handleGenerateAnalysis();
+    }
+  }, [analyzing, data?.connection?.status, handleGenerateAnalysis, handleSync, searchParams, syncing]);
 
   return (
     <div className="space-y-6">
@@ -218,7 +252,6 @@ export function WeeklyReviewPage() {
             summary={summary}
             selectedWeekStart={selectedWeekStart}
             selectedWeekEnd={selectedWeekEnd}
-            latestSyncLabel={data.connection.last_successful_sync_at || data.connection.last_sync_at ? formatDate((data.connection.last_successful_sync_at ?? data.connection.last_sync_at ?? "").slice(0, 10)) : "-"}
             onWeekChange={setSelectedWeekStart}
           />
 
@@ -228,9 +261,10 @@ export function WeeklyReviewPage() {
             hasInflatedInitialEvents={summary.hasInflatedInitialEvents}
             analyzing={analyzing}
             onGenerate={() => void handleGenerateAnalysis()}
+            syncRun={latestSyncRun}
           />
 
-          <div className="flex flex-wrap gap-2 rounded-xl border border-ink-950/10 bg-white p-2 shadow-sm dark:border-white/10 dark:bg-slate-950/70">
+          <div className="hub-card flex flex-wrap gap-2 rounded-xl border border-ink-950/10 p-2 shadow-sm dark:border-white/10">
             {reviewTabs.map((tab) => (
               <button
                 key={tab.id}
@@ -238,8 +272,8 @@ export function WeeklyReviewPage() {
                 onClick={() => setActiveTab(tab.id)}
                 className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
                   activeTab === tab.id
-                    ? "bg-ink-950 text-white dark:bg-slate-100 dark:text-slate-950"
-                    : "text-ink-700 hover:bg-ink-950/5 dark:text-slate-200 dark:hover:bg-white/10"
+                    ? "hub-filter-chip hub-filter-chip-active"
+                    : "hub-filter-chip"
                 }`}
               >
                 {tab.label}
@@ -251,8 +285,20 @@ export function WeeklyReviewPage() {
             <CompletedByCategorySection
               tasks={summary.completedThisWeek}
               categories={data.categories}
+              taskLists={data.taskLists}
               onConfirmCategory={(task, categoryId) => void handleConfirmCategory(task, categoryId)}
               savingCategoryId={savingCategoryId}
+            />
+          ) : null}
+
+          {activeTab === "summary" ? (
+            <WeeklySummaryDetailSection
+              completedThisWeek={summary.completedThisWeek}
+              prioritizedEvents={summary.prioritizedEvents}
+              overdueTasks={summary.overdueTasks}
+              staleTasks={summary.staleTasks}
+              tasksWithoutDate={summary.tasksWithoutDate}
+              taskByGoogleId={taskByGoogleId}
             />
           ) : null}
 
@@ -260,16 +306,22 @@ export function WeeklyReviewPage() {
             <PrioritiesSection events={summary.prioritizedEvents} taskByGoogleId={taskByGoogleId} listByGoogleId={listByGoogleId} />
           ) : null}
 
-          {activeTab === "open" ? (
+          {activeTab === "pending" ? (
             <OpenAndStaleSection
+              overdueTasks={summary.overdueTasks}
               openRecentTasks={summary.openRecentTasks}
               staleTasks={summary.staleTasks}
               tasksWithoutDate={summary.tasksWithoutDate}
               tasksDueThisWeek={summary.tasksDueThisWeek}
               categories={data.categories}
+              taskLists={data.taskLists}
               onConfirmCategory={(task, categoryId) => void handleConfirmCategory(task, categoryId)}
               savingCategoryId={savingCategoryId}
             />
+          ) : null}
+
+          {activeTab === "kanban" ? (
+            <WeeklyKanbanSection tasks={summary.openTasks} taskLists={data.taskLists} categories={data.categories} />
           ) : null}
 
           {activeTab === "month" ? (
@@ -300,21 +352,159 @@ export function WeeklyReviewPage() {
   );
 }
 
+function WeeklySummaryDetailSection({
+  completedThisWeek,
+  prioritizedEvents,
+  overdueTasks,
+  staleTasks,
+  tasksWithoutDate,
+  taskByGoogleId,
+}: {
+  completedThisWeek: RoutineTask[];
+  prioritizedEvents: RoutineTaskEvent[];
+  overdueTasks: RoutineTask[];
+  staleTasks: RoutineTask[];
+  tasksWithoutDate: RoutineTask[];
+  taskByGoogleId: Map<string, RoutineTask>;
+}) {
+  const priorityTasks = prioritizedEvents
+    .map((event) => taskByGoogleId.get(event.google_task_id) ?? null)
+    .filter((task): task is RoutineTask => Boolean(task))
+    .slice(0, 5);
+
+  return (
+    <section className="grid gap-4 xl:grid-cols-3">
+      <SectionCard title="Concluídas recentes" description="Amostra rápida do que saiu do papel na semana.">
+        {completedThisWeek.length === 0 ? (
+          <EmptyState title="Nada concluído" description="Quando houver entregas concluídas, elas aparecem aqui." />
+        ) : (
+          <div className="space-y-2">
+            {completedThisWeek.slice(0, 5).map((task) => (
+              <div key={task.id} className="hub-card rounded-md border border-ink-950/10 px-3 py-2 text-sm dark:border-white/10">
+                <p className="font-medium text-ink-950 dark:text-slate-100">{task.title}</p>
+                <p className="mt-1 text-xs text-ink-600 dark:text-slate-300">
+                  {task.completed_at ? formatDate(task.completed_at.slice(0, 10)) : "Sem data de conclusão"}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </SectionCard>
+
+      <SectionCard title="Prioridades reais" description="Itens realmente movidos para a fila Geral/Hoje após o baseline.">
+        {priorityTasks.length === 0 ? (
+          <EmptyState title="Sem prioridades reais" description="Nenhuma tarefa foi movida para a fila Geral/Hoje nesta semana." />
+        ) : (
+          <div className="space-y-2">
+            {priorityTasks.map((task) => (
+              <div key={task.id} className="hub-card rounded-md border border-ink-950/10 px-3 py-2 text-sm dark:border-white/10">
+                <p className="font-medium text-ink-950 dark:text-slate-100">{task.title}</p>
+                <p className="mt-1 text-xs text-ink-600 dark:text-slate-300">
+                  {task.due_date ? `Prazo ${formatDate(task.due_date)}` : "Sem prazo"}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </SectionCard>
+
+      <SectionCard title="O que está parado" description="Vencidas, antigas ou sem data para você decidir o próximo passo.">
+        <div className="space-y-2 text-sm text-ink-700 dark:text-slate-200">
+          <SummaryCountRow label="Vencidas" value={overdueTasks.length} />
+          <SummaryCountRow label="Paradas há mais de 14 dias" value={staleTasks.length} />
+          <SummaryCountRow label="Sem data" value={tasksWithoutDate.length} />
+        </div>
+      </SectionCard>
+    </section>
+  );
+}
+
+function SummaryCountRow({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="hub-card flex items-center justify-between rounded-md border border-ink-950/10 px-3 py-2 dark:border-white/10">
+      <span>{label}</span>
+      <span className="font-semibold text-ink-950 dark:text-slate-100">{value}</span>
+    </div>
+  );
+}
+
+function WeeklyKanbanSection({
+  tasks,
+  taskLists,
+  categories,
+}: {
+  tasks: RoutineTask[];
+  taskLists: RoutineTaskList[];
+  categories: RoutineCategory[];
+}) {
+  const listByGoogleId = new Map(taskLists.map((list) => [list.google_task_list_id, list]));
+  const categoryById = new Map(categories.map((category) => [category.id, category.name]));
+  const columns = taskLists
+    .map((list) => ({
+      id: list.google_task_list_id,
+      title: list.title,
+      tasks: tasks.filter((task) => task.google_task_list_id === list.google_task_list_id),
+    }))
+    .filter((column) => column.tasks.length > 0);
+
+  return (
+    <SectionCard title="Kanban da semana" description="Visão das tarefas abertas por lista atual do Google Tasks.">
+      {columns.length === 0 ? (
+        <EmptyState title="Sem tarefas abertas" description="Quando houver tarefas abertas sincronizadas, o kanban aparece aqui." />
+      ) : (
+        <div className="overflow-x-auto">
+          <div className="flex min-w-max gap-4 pb-2">
+            {columns.map((column) => (
+              <div
+                key={column.id}
+                className="hub-kanban-column w-[280px] shrink-0 rounded-xl border p-4"
+              >
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <h3 className="text-sm font-semibold text-ink-950 dark:text-slate-100">{column.title}</h3>
+                  <TextBadge tone="neutral">{column.tasks.length}</TextBadge>
+                </div>
+                <div className="space-y-3">
+                  {column.tasks.map((task) => {
+                    const categoryLabel = resolveRoutineTaskContext(task, listByGoogleId, categoryById).categoryLabel;
+
+                    return (
+                      <article
+                        key={task.id}
+                        className="hub-card rounded-lg border border-ink-950/10 p-3 shadow-sm"
+                      >
+                        <p className="text-sm font-semibold text-ink-950 dark:text-slate-100">{task.title}</p>
+                        <p className="mt-2 text-xs text-ink-600 dark:text-slate-300">{categoryLabel}</p>
+                        <p className="mt-1 text-xs text-ink-600 dark:text-slate-300">
+                          {task.due_date ? `Prazo ${formatDate(task.due_date)}` : "Sem data"}
+                        </p>
+                      </article>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </SectionCard>
+  );
+}
+
 function SummarySection({
   summary,
   selectedWeekStart,
   selectedWeekEnd,
-  latestSyncLabel,
   onWeekChange,
 }: {
   summary: WeeklyReviewSummary;
   selectedWeekStart: string;
   selectedWeekEnd: string;
-  latestSyncLabel: string;
   onWeekChange: (weekStart: string) => void;
 }) {
+  const overdueOrUndatedCount = summary.overdueTasks.length + summary.tasksWithoutDate.length;
+
   return (
-    <SectionCard title="Resumo" description="Visão curta do que aconteceu na semana selecionada. Geral/Hoje é fila de prioridade, não categoria principal.">
+    <SectionCard title="Resumo" description="Leitura rápida da semana: o que você fez, priorizou, deixou parado e o que merece atenção agora.">
       <div className="mb-4 grid gap-4 lg:grid-cols-[minmax(0,240px)_1fr]">
         <FieldShell label="Início da semana">
           <input
@@ -324,11 +514,11 @@ function SummarySection({
             onChange={(event) => onWeekChange(toDateInputValue(startOfWeek(new Date(`${event.target.value}T00:00:00`))))}
           />
         </FieldShell>
-        <div className="rounded-lg border border-ink-950/10 bg-white p-4 dark:border-white/10 dark:bg-slate-950/50">
+        <div className="hub-card rounded-lg border border-ink-950/10 p-4 dark:border-white/10">
           <p className="text-sm font-semibold text-ink-950 dark:text-slate-100">
             Período: {formatDate(selectedWeekStart)} a {formatDate(selectedWeekEnd)}
           </p>
-          <p className="mt-1 text-sm text-ink-600 dark:text-slate-300">Use as abas abaixo para revisar tarefas concluídas, prioridades, pendências e dados técnicos.</p>
+          <p className="mt-1 text-sm text-ink-600 dark:text-slate-300">Use as abas abaixo para revisar entregas da semana, fila de prioridade, pendências e detalhes técnicos quando precisar.</p>
         </div>
       </div>
 
@@ -338,14 +528,13 @@ function SummarySection({
         </div>
       ) : null}
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <StatCard label="Concluídas na semana" value={String(summary.completedThisWeek.length)} helper="Tarefas finalizadas no período." tone="success" />
-        <StatCard label="Movidas para prioridade" value={String(summary.prioritizedEvents.length)} helper="Mudanças reais para Geral/Hoje." tone="warning" />
-        <StatCard label="Abertas" value={String(summary.openTasks.length)} helper="Ainda não concluídas." tone="info" />
-        <StatCard label="Paradas" value={String(summary.staleTasks.length)} helper="Sem atualização há 14 dias ou mais." tone="danger" />
-        <StatCard label="Área mais trabalhada" value={summary.areaMostWorked?.label ?? "-"} helper={summary.areaMostWorked ? `${summary.areaMostWorked.count} concluídas` : "Sem conclusão no período."} tone="success" />
-        <StatCard label="Área com menos atenção" value={summary.areaLeastAttention?.label ?? "-"} helper={summary.areaLeastAttention ? `${summary.areaLeastAttention.count} item(ns)` : "Sem sinal suficiente."} tone="warning" />
-        <StatCard label="Última sincronização" value={latestSyncLabel} helper="Manual ou automática." tone="neutral" />
+        <StatCard label="Priorizadas reais" value={String(summary.prioritizedEvents.length)} helper="Mudanças reais para Geral/Hoje após o baseline." tone="warning" />
+        <StatCard label="Pendências paradas" value={String(summary.staleTasks.length)} helper="Sem atualização há 14 dias ou mais." tone="danger" />
+        <StatCard label="Vencidas ou sem data" value={String(overdueOrUndatedCount)} helper={`${summary.overdueTasks.length} vencida(s) e ${summary.tasksWithoutDate.length} sem data.`} tone="warning" />
+        <StatCard label="Área mais ativa" value={summary.areaMostWorked?.label ?? "-"} helper={summary.areaMostWorked ? `${summary.areaMostWorked.count} concluída(s) na semana.` : "Sem conclusão no período."} tone="success" />
+        <StatCard label="Área negligenciada" value={summary.areaLeastAttention?.label ?? "-"} helper={summary.areaLeastAttention ? `${summary.areaLeastAttention.count} item(ns) ainda em aberto.` : "Sem sinal suficiente."} tone="warning" />
       </section>
     </SectionCard>
   );
@@ -357,14 +546,18 @@ function WeeklyAiAnalysisSection({
   hasInflatedInitialEvents,
   analyzing,
   onGenerate,
+  syncRun,
 }: {
   aiSummary: RoutineAiSummary | null;
   hasEnoughData: boolean;
   hasInflatedInitialEvents: boolean;
   analyzing: boolean;
   onGenerate: () => void;
+  syncRun: WeeklyReviewData["syncRuns"][number] | null;
 }) {
   const status = aiSummary?.summary_text ? "Pronta" : aiSummary?.error_message ? "Erro" : "Não gerada";
+  const analysisBase = readAiSyncBase(aiSummary);
+  const suggestions = readAiSuggestionSections(aiSummary?.summary_text ?? "");
 
   return (
     <SectionCard title="Análise da IA" description="Resumo interpretativo gerado com Gemini somente quando você solicita.">
@@ -384,6 +577,15 @@ function WeeklyAiAnalysisSection({
         />
       </div>
 
+      <div className="mb-4 rounded-lg border border-ink-950/10 bg-slate-50 p-4 text-sm text-ink-700 dark:border-white/10 dark:bg-slate-950/50 dark:text-slate-200">
+        <p className="font-semibold text-ink-950 dark:text-slate-100">
+          Base da análise: {analysisBase?.syncText ?? "Sem sincronização identificada."}
+        </p>
+        <p className="mt-1 text-xs text-ink-600 dark:text-slate-300">
+          {analysisBase?.origin ?? (syncRun ? "Usando a sincronização mais recente registrada no Hub." : "Gere uma sincronização antes de pedir análise.")}
+        </p>
+      </div>
+
       {!hasEnoughData ? (
         <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-400/30 dark:bg-amber-500/10 dark:text-amber-100">
           Não há muitos dados sincronizados para essa semana. Você ainda pode gerar a análise, mas ela ficará limitada ao que existe no Hub.
@@ -397,7 +599,7 @@ function WeeklyAiAnalysisSection({
       ) : null}
 
       {aiSummary?.summary_text ? (
-        <AiSummaryReport text={aiSummary.summary_text} />
+        <AiSummaryReport text={aiSummary.summary_text} suggestions={suggestions} />
       ) : aiSummary?.error_message ? (
         <EmptyState title="A última análise falhou" description={formatAiError(aiSummary.error_message)} />
       ) : (
@@ -407,15 +609,50 @@ function WeeklyAiAnalysisSection({
   );
 }
 
-function AiSummaryReport({ text }: { text: string }) {
+function AiSummaryReport({
+  text,
+  suggestions,
+}: {
+  text: string;
+  suggestions: ReturnType<typeof readAiSuggestionSections>;
+}) {
   const sections = parseAiReportSections(text);
+  const mainSections = sections.filter(
+    (section) => !["Sugestões práticas", "Ideias opcionais", "Coisas para revisar"].includes(section.title),
+  );
 
   return (
-    <div className="grid gap-4 md:grid-cols-2">
-      {sections.map((section, index) => (
+    <div className="space-y-4">
+      {suggestions.some((group) => group.items.length > 0) ? (
+        <article className="rounded-xl border border-emerald-500/20 bg-emerald-50/80 p-5 shadow-sm dark:border-emerald-400/20 dark:bg-emerald-500/10">
+          <h3 className="text-base font-semibold text-emerald-950 dark:text-emerald-100">Sugestões da IA</h3>
+          <div className="mt-3 grid gap-4 md:grid-cols-3">
+            {suggestions.map((group) => (
+              <div key={group.title} className="hub-card rounded-lg border border-emerald-500/20 bg-white/70 p-4 dark:bg-slate-950/30">
+                <h4 className="text-sm font-semibold text-emerald-950 dark:text-emerald-100">{group.title}</h4>
+                {group.items.length > 0 ? (
+                  <ul className="mt-2 space-y-2 text-sm leading-6 text-emerald-900 dark:text-emerald-100">
+                    {group.items.map((item) => (
+                      <li key={item} className="flex gap-2">
+                        <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-600 dark:bg-emerald-300" />
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-2 text-sm text-emerald-800/80 dark:text-emerald-100/80">Sem itens nesta parte.</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </article>
+      ) : null}
+
+      <div className="grid gap-4 md:grid-cols-2">
+      {mainSections.map((section, index) => (
         <article
           key={`${section.title}-${index}`}
-          className={`rounded-xl border border-ink-950/10 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-slate-950/50 ${
+          className={`hub-card rounded-xl border border-ink-950/10 p-5 shadow-sm dark:border-white/10 ${
             index === 0 ? "md:col-span-2" : ""
           }`}
         >
@@ -436,6 +673,7 @@ function AiSummaryReport({ text }: { text: string }) {
           </div>
         </article>
       ))}
+      </div>
     </div>
   );
 }
@@ -443,15 +681,17 @@ function AiSummaryReport({ text }: { text: string }) {
 function CompletedByCategorySection({
   tasks,
   categories,
+  taskLists,
   savingCategoryId,
   onConfirmCategory,
 }: {
   tasks: RoutineTask[];
   categories: RoutineCategory[];
+  taskLists: RoutineTaskList[];
   savingCategoryId: string | null;
   onConfirmCategory: (task: RoutineTask, categoryId: string) => void;
 }) {
-  const groups = groupTasksByCategory(tasks, categories);
+  const groups = groupTasksByCategory(tasks, categories, taskLists);
 
   return (
     <SectionCard title="Concluídas" description="Tarefas finalizadas na semana, agrupadas por categoria do Hub.">
@@ -460,7 +700,7 @@ function CompletedByCategorySection({
       ) : (
         <div className="space-y-4">
           {groups.map((group) => (
-            <div key={group.label} className="rounded-xl border border-ink-950/10 bg-white p-4 dark:border-white/10 dark:bg-slate-950/50">
+            <div key={group.label} className="hub-card rounded-xl border border-ink-950/10 p-4 dark:border-white/10">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <h3 className="text-sm font-semibold text-ink-950 dark:text-slate-100">{group.label}</h3>
                 <TextBadge tone="success">{group.tasks.length} concluída(s)</TextBadge>
@@ -471,6 +711,7 @@ function CompletedByCategorySection({
                     key={task.id}
                     task={task}
                     categories={categories}
+                    taskLists={taskLists}
                     savingCategoryId={savingCategoryId}
                     onConfirmCategory={onConfirmCategory}
                     mode="completed"
@@ -499,14 +740,14 @@ function PrioritiesSection({
   return (
     <SectionCard title="Prioridades" description="Tarefas movidas para Geral/Hoje nesta semana. A lista é tratada como fila de prioridade.">
       {visibleEvents.length === 0 ? (
-        <EmptyState title="Nenhuma tarefa movida para prioridade" description="Somente mudanças reais para Geral/Hoje entram nesta lista." />
+        <EmptyState title="Nenhuma tarefa foi movida para a fila Geral/Hoje nesta semana." description="Somente mudanças reais para Geral/Hoje depois do baseline entram nesta lista." />
       ) : (
         <div className="space-y-3">
           {visibleEvents.map((event) => {
             const task = taskByGoogleId.get(event.google_task_id);
             const previousList = extractPreviousListLabel(event.previous_value, listByGoogleId);
             return (
-              <div key={event.id} className="rounded-lg border border-ink-950/10 bg-white p-4 dark:border-white/10 dark:bg-slate-950/50">
+              <div key={event.id} className="hub-card rounded-lg border border-ink-950/10 p-4 dark:border-white/10">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold text-ink-950 dark:text-slate-100">{task?.title}</p>
@@ -527,28 +768,33 @@ function PrioritiesSection({
 }
 
 function OpenAndStaleSection({
+  overdueTasks,
   openRecentTasks,
   staleTasks,
   tasksWithoutDate,
   tasksDueThisWeek,
   categories,
+  taskLists,
   savingCategoryId,
   onConfirmCategory,
 }: {
+  overdueTasks: RoutineTask[];
   openRecentTasks: RoutineTask[];
   staleTasks: RoutineTask[];
   tasksWithoutDate: RoutineTask[];
   tasksDueThisWeek: RoutineTask[];
   categories: RoutineCategory[];
+  taskLists: RoutineTaskList[];
   savingCategoryId: string | null;
   onConfirmCategory: (task: RoutineTask, categoryId: string) => void;
 }) {
   return (
     <div className="grid gap-4 xl:grid-cols-2">
-      <TaskMiniSection title="Abertas recentes" empty="Nenhuma tarefa aberta recente." tasks={openRecentTasks.slice(0, 15)} categories={categories} savingCategoryId={savingCategoryId} onConfirmCategory={onConfirmCategory} />
-      <TaskMiniSection title="Paradas há mais de 14 dias" empty="Nenhuma tarefa parada há mais de 14 dias." tasks={staleTasks.slice(0, 15)} categories={categories} savingCategoryId={savingCategoryId} onConfirmCategory={onConfirmCategory} />
-      <TaskMiniSection title="Sem data" empty="Nenhuma tarefa aberta sem data." tasks={tasksWithoutDate.slice(0, 15)} categories={categories} savingCategoryId={savingCategoryId} onConfirmCategory={onConfirmCategory} />
-      <TaskMiniSection title="Vencendo esta semana" empty="Nenhuma tarefa aberta vencendo nesta semana." tasks={tasksDueThisWeek.slice(0, 15)} categories={categories} savingCategoryId={savingCategoryId} onConfirmCategory={onConfirmCategory} />
+      <TaskMiniSection title="Vencidas" empty="Nenhuma tarefa aberta vencida." tasks={overdueTasks.slice(0, 15)} categories={categories} taskLists={taskLists} savingCategoryId={savingCategoryId} onConfirmCategory={onConfirmCategory} />
+      <TaskMiniSection title="Sem data" empty="Nenhuma tarefa aberta sem data." tasks={tasksWithoutDate.slice(0, 15)} categories={categories} taskLists={taskLists} savingCategoryId={savingCategoryId} onConfirmCategory={onConfirmCategory} />
+      <TaskMiniSection title="Paradas há mais de 14 dias" empty="Nenhuma tarefa parada há mais de 14 dias." tasks={staleTasks.slice(0, 15)} categories={categories} taskLists={taskLists} savingCategoryId={savingCategoryId} onConfirmCategory={onConfirmCategory} />
+      <TaskMiniSection title="Abertas recentes" empty="Nenhuma tarefa aberta recente." tasks={openRecentTasks.slice(0, 15)} categories={categories} taskLists={taskLists} savingCategoryId={savingCategoryId} onConfirmCategory={onConfirmCategory} />
+      <TaskMiniSection title="Vencendo nesta semana" empty="Nenhuma tarefa aberta vencendo nesta semana." tasks={tasksDueThisWeek.slice(0, 15)} categories={categories} taskLists={taskLists} savingCategoryId={savingCategoryId} onConfirmCategory={onConfirmCategory} />
     </div>
   );
 }
@@ -558,6 +804,7 @@ function TaskMiniSection({
   empty,
   tasks,
   categories,
+  taskLists,
   savingCategoryId,
   onConfirmCategory,
 }: {
@@ -565,6 +812,7 @@ function TaskMiniSection({
   empty: string;
   tasks: RoutineTask[];
   categories: RoutineCategory[];
+  taskLists: RoutineTaskList[];
   savingCategoryId: string | null;
   onConfirmCategory: (task: RoutineTask, categoryId: string) => void;
 }) {
@@ -575,7 +823,7 @@ function TaskMiniSection({
       ) : (
         <div className="space-y-3">
           {tasks.map((task) => (
-            <TaskReviewCard key={task.id} task={task} categories={categories} savingCategoryId={savingCategoryId} onConfirmCategory={onConfirmCategory} mode="open" />
+            <TaskReviewCard key={task.id} task={task} categories={categories} taskLists={taskLists} savingCategoryId={savingCategoryId} onConfirmCategory={onConfirmCategory} mode="open" />
           ))}
         </div>
       )}
@@ -586,27 +834,31 @@ function TaskMiniSection({
 function TaskReviewCard({
   task,
   categories,
+  taskLists,
   savingCategoryId,
   onConfirmCategory,
   mode,
 }: {
   task: RoutineTask;
   categories: RoutineCategory[];
+  taskLists: RoutineTaskList[];
   savingCategoryId: string | null;
   onConfirmCategory: (task: RoutineTask, categoryId: string) => void;
   mode: "completed" | "open";
 }) {
   const currentCategoryId = task.confirmed_category_id ?? task.detected_category_id ?? "";
   const currentCategory = categories.find((category) => category.id === currentCategoryId);
+  const categoryById = new Map(categories.map((category) => [category.id, category.name]));
+  const taskContext = resolveRoutineTaskContext(task, new Map(taskLists.map((list) => [list.google_task_list_id, list])), categoryById);
 
   return (
-    <div className="rounded-lg border border-ink-950/10 bg-white p-4 dark:border-white/10 dark:bg-slate-950/50">
+    <div className="hub-card rounded-lg border border-ink-950/10 p-4 dark:border-white/10">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-sm font-semibold text-ink-950 dark:text-slate-100">{task.title}</p>
           <p className="mt-1 text-xs text-ink-600 dark:text-slate-300">
             {mode === "completed" && task.completed_at ? `Concluída em ${formatDate(task.completed_at.slice(0, 10))}` : task.due_date ? `Vence em ${formatDate(task.due_date)}` : "Sem data"}
-            {currentCategory ? ` · ${currentCategory.name}` : " · Sem categoria"}
+            {currentCategory ? ` · ${currentCategory.name}` : ` · ${taskContext.categoryLabel}`}
           </p>
         </div>
         <TextBadge tone={task.status === "completed" ? "success" : "info"}>{task.status === "completed" ? "Concluída" : "Aberta"}</TextBadge>
@@ -647,7 +899,7 @@ function MonthSection({
   onSelectWeek: (weekStart: string) => void;
 }) {
   return (
-    <SectionCard title="Mês" description="Semanas compactas do mês selecionado. Clique em uma semana para carregar a revisão correspondente.">
+    <SectionCard title="Mês" description="Semanas compactas do mês selecionado, focadas em concluídas, prioridades reais e pendências.">
       <div className="mb-4 max-w-xs">
         <FieldShell label="Mês">
           <input type="month" className={inputClassName} value={monthFilter} onChange={(event) => onMonthChange(event.target.value)} />
@@ -664,16 +916,15 @@ function MonthSection({
               className={`rounded-lg border p-4 text-left transition ${
                 active
                   ? "border-emerald-500 bg-emerald-50 text-emerald-950 dark:border-emerald-400 dark:bg-emerald-500/10 dark:text-emerald-100"
-                  : "border-ink-950/10 bg-white text-ink-950 hover:border-ink-950/30 dark:border-white/10 dark:bg-slate-950/50 dark:text-slate-100 dark:hover:border-white/30"
+                  : "hub-card border-ink-950/10 bg-white text-ink-950 hover:border-ink-950/30 dark:border-white/10 dark:text-slate-100 dark:hover:border-white/30"
               }`}
             >
               <p className="text-sm font-semibold">{week.label}</p>
               <p className="mt-1 text-xs opacity-75">{week.range}</p>
               <div className="mt-3 space-y-1 text-sm">
                 <p>Concluídas: {week.completed}</p>
-                <p>Priorizadas: {week.prioritized}</p>
-                <p>Abertas: {week.open}</p>
-                <p>Eventos: {week.events}</p>
+                <p>Priorizadas reais: {week.prioritized}</p>
+                <p>Pendências: {week.open}</p>
               </div>
             </button>
           );
@@ -698,9 +949,16 @@ function TechnicalSection({
 }) {
   return (
     <SectionCard title="Dados técnicos" description="Informações de sincronização, eventos e IDs ficam recolhidas para não poluir a revisão.">
-      <details className="rounded-lg border border-ink-950/10 bg-white p-4 dark:border-white/10 dark:bg-slate-950/50">
+      <details className="hub-card rounded-lg border border-ink-950/10 p-4 dark:border-white/10">
         <summary className="cursor-pointer text-sm font-semibold text-ink-950 dark:text-slate-100">Abrir dados técnicos</summary>
         <div className="mt-4 space-y-4">
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <StatCard label="Eventos reais na semana" value={String(summary.realEventsThisWeek.length)} helper="Usados nos cards, no mês e na IA." tone="success" />
+            <StatCard label="Criadas após baseline" value={String(summary.createdAfterBaselineEvents.length)} helper="Novas tarefas detectadas depois da carga inicial." tone="info" />
+            <StatCard label="Priorizadas herdadas" value={String(summary.eventsThisWeek.filter((event) => event.event_type === 'PRIORITIZED' && event.previous_value === null).length)} helper="Ignoradas nos cálculos principais." tone="warning" />
+            <StatCard label="Em Geral/Hoje agora" value={String(summary.priorityQueueTasks.length)} helper="Estado atual da fila de prioridade." tone="neutral" />
+          </section>
+
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <StatCard label="Status Google" value={data.connection?.status === "connected" ? "Conectado" : "Desconectado"} helper="Escopo somente leitura do Google Tasks." tone={data.connection?.status === "connected" ? "success" : "warning"} />
             <StatCard label="Última tentativa" value={data.connection?.last_sync_attempt_at ? formatDate(data.connection.last_sync_attempt_at.slice(0, 10)) : "-"} helper="Manual ou automática." tone="info" />
@@ -741,7 +999,7 @@ function TechnicalEventsList({ events, taskByGoogleId }: { events: RoutineTaskEv
           {events.slice(0, 40).map((event) => {
             const task = taskByGoogleId.get(event.google_task_id);
             return (
-              <div key={event.id} className="rounded-lg border border-ink-950/10 bg-white p-4 dark:border-white/10 dark:bg-slate-950/50">
+              <div key={event.id} className="hub-card rounded-lg border border-ink-950/10 p-4 dark:border-white/10">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold text-ink-950 dark:text-slate-100">{event.event_type}</p>
@@ -767,7 +1025,7 @@ function CountSection({ title, rows }: { title: string; rows: Array<{ label: str
       ) : (
         <div className="space-y-2">
           {rows.map((row) => (
-            <div key={row.label} className="flex items-center justify-between rounded-md border border-ink-950/10 bg-white px-3 py-2 text-sm dark:border-white/10 dark:bg-slate-950/50">
+            <div key={row.label} className="hub-card flex items-center justify-between rounded-md border border-ink-950/10 px-3 py-2 text-sm dark:border-white/10">
               <span className="font-medium text-ink-950 dark:text-slate-100">{row.label}</span>
               <span className="text-ink-600 dark:text-slate-300">{row.count}</span>
             </div>
@@ -782,10 +1040,16 @@ function buildWeeklySummary(data: WeeklyReviewData | null, weekStartDate: string
   if (!data) {
     return {
       completedThisWeek: [],
+      createdAfterBaselineEvents: [],
       prioritizedEvents: [],
+      reopenedEvents: [],
+      dueDateChangedEvents: [],
+      realEventsThisWeek: [],
       openTasks: [],
+      priorityQueueTasks: [],
       openRecentTasks: [],
       staleTasks: [],
+      overdueTasks: [],
       tasksWithoutDate: [],
       tasksDueThisWeek: [],
       eventsThisWeek: [],
@@ -797,41 +1061,33 @@ function buildWeeklySummary(data: WeeklyReviewData | null, weekStartDate: string
     };
   }
 
-  const today = new Date();
-  const todayValue = toDateInputValue(today);
-  const listByGoogleId = new Map(data.taskLists.map((list) => [list.google_task_list_id, list.title]));
-  const categoryById = new Map(data.categories.map((category) => [category.id, category.name]));
-  const completedThisWeek = data.tasks.filter((task) => task.completed_at && inDateRange(task.completed_at.slice(0, 10), weekStartDate, weekEndDate));
-  const openTasks = data.tasks.filter((task) => task.status !== "completed");
-  const eventsThisWeek = data.events.filter((event) => inDateRange(event.event_at.slice(0, 10), weekStartDate, weekEndDate));
-  const priorityEvents = eventsThisWeek.filter((event) => event.event_type === "PRIORITIZED" && event.previous_value !== null);
-  const staleTasks = openTasks.filter((task) => task.updated_at_google && daysBetween(task.updated_at_google.slice(0, 10), todayValue) >= 14);
-  const tasksWithoutDate = openTasks.filter((task) => !task.due_date);
-  const tasksDueThisWeek = openTasks.filter((task) => task.due_date && inDateRange(task.due_date, weekStartDate, weekEndDate));
-  const openRecentTasks = openTasks.filter((task) => task.updated_at_google && daysBetween(task.updated_at_google.slice(0, 10), todayValue) < 14);
-  const completedByCategory = countRows(completedThisWeek, (task) => categoryById.get(task.confirmed_category_id ?? task.detected_category_id ?? "") ?? "Sem categoria");
-  const openByCategory = countRows(openTasks, (task) => categoryById.get(task.confirmed_category_id ?? task.detected_category_id ?? "") ?? "Sem categoria");
+  const derived = buildWeeklyDerivedData(data.tasks, data.events, data.taskLists, data.categories, weekStartDate, weekEndDate);
 
   return {
-    completedThisWeek,
-    prioritizedEvents: priorityEvents,
-    openTasks,
-    openRecentTasks,
-    staleTasks,
-    tasksWithoutDate,
-    tasksDueThisWeek,
-    eventsThisWeek,
-    areaMostWorked: completedByCategory[0] ?? null,
-    areaLeastAttention: findLeastAttentionArea(completedByCategory, openByCategory),
-    hasInflatedInitialEvents: eventsThisWeek.some((event) => event.event_type === "PRIORITIZED" && event.previous_value === null),
-    countByList: countRows(data.tasks, (task) => listByGoogleId.get(task.google_task_list_id) ?? "Lista desconhecida"),
-    countByCategory: countRows(data.tasks, (task) => categoryById.get(task.confirmed_category_id ?? task.detected_category_id ?? "") ?? "Sem categoria"),
+    completedThisWeek: derived.completedThisWeek,
+    createdAfterBaselineEvents: derived.createdAfterBaselineEvents,
+    prioritizedEvents: derived.prioritizedEvents,
+    reopenedEvents: derived.reopenedEvents,
+    dueDateChangedEvents: derived.dueDateChangedEvents,
+    realEventsThisWeek: derived.realEventsThisWeek,
+    openTasks: derived.openTasks,
+    priorityQueueTasks: derived.priorityQueueTasks,
+    openRecentTasks: derived.openRecentTasks,
+    staleTasks: derived.staleTasks,
+    overdueTasks: derived.overdueTasks,
+    tasksWithoutDate: derived.tasksWithoutDate,
+    tasksDueThisWeek: derived.tasksDueThisWeek,
+    eventsThisWeek: derived.technicalEventsThisWeek,
+    areaMostWorked: derived.areaMostWorked,
+    areaLeastAttention: derived.areaLeastAttention,
+    hasInflatedInitialEvents: derived.hasInflatedInitialEvents,
+    countByList: derived.countByList,
+    countByCategory: derived.countByCategory,
   };
 }
 
 function buildMonthlyWeeks(data: WeeklyReviewData | null, month: string) {
   const [year, monthNumber] = month.split("-").map(Number);
-  const reportsByWeek = new Map((data?.weeklyReports ?? []).map((report) => [report.week_start_date, report]));
   const monthStart = new Date(year, monthNumber - 1, 1);
   const weeks: Array<{ weekStart: string; label: string; range: string; completed: number; prioritized: number; open: number; events: number }> = [];
   const cursor = new Date(monthStart);
@@ -841,15 +1097,16 @@ function buildMonthlyWeeks(data: WeeklyReviewData | null, month: string) {
     const end = new Date(cursor);
     end.setDate(cursor.getDate() + 6);
     const weekStart = toDateInputValue(cursor);
-    const report = reportsByWeek.get(weekStart);
+    const weekEnd = toDateInputValue(end);
+    const derived = data ? buildWeeklyDerivedData(data.tasks, data.events, data.taskLists, data.categories, weekStart, weekEnd) : null;
     weeks.push({
       weekStart,
       label: `Semana ${index}`,
-      range: `${formatDate(weekStart)} a ${formatDate(toDateInputValue(end))}`,
-      completed: report?.completed_count ?? 0,
-      prioritized: report?.prioritized_count ?? 0,
-      open: report?.open_count ?? 0,
-      events: report?.events_count ?? 0,
+      range: `${formatDate(weekStart)} a ${formatDate(weekEnd)}`,
+      completed: derived?.completedThisWeek.length ?? 0,
+      prioritized: derived?.prioritizedEvents.length ?? 0,
+      open: (derived?.overdueTasks.length ?? 0) + (derived?.tasksWithoutDate.length ?? 0) + (derived?.staleTasks.length ?? 0),
+      events: derived?.realEventsThisWeek.length ?? 0,
     });
     cursor.setDate(cursor.getDate() + 7);
     index += 1;
@@ -858,10 +1115,11 @@ function buildMonthlyWeeks(data: WeeklyReviewData | null, month: string) {
   return weeks;
 }
 
-function groupTasksByCategory(tasks: RoutineTask[], categories: RoutineCategory[]) {
+function groupTasksByCategory(tasks: RoutineTask[], categories: RoutineCategory[], taskLists: RoutineTaskList[]) {
   const categoryById = new Map(categories.map((category) => [category.id, category.name]));
+  const listByGoogleId = new Map(taskLists.map((list) => [list.google_task_list_id, list]));
   const groups = tasks.reduce<Map<string, RoutineTask[]>>((acc, task) => {
-    const label = categoryById.get(task.confirmed_category_id ?? task.detected_category_id ?? "") ?? "Sem categoria";
+    const label = resolveRoutineTaskContext(task, listByGoogleId, categoryById).categoryLabel;
     acc.set(label, [...(acc.get(label) ?? []), task]);
     return acc;
   }, new Map());
@@ -871,36 +1129,68 @@ function groupTasksByCategory(tasks: RoutineTask[], categories: RoutineCategory[
     .sort((left, right) => right.tasks.length - left.tasks.length || left.label.localeCompare(right.label));
 }
 
-function findLeastAttentionArea(completedByCategory: Array<{ label: string; count: number }>, openByCategory: Array<{ label: string; count: number }>) {
-  const completedLabels = new Set(completedByCategory.map((item) => item.label));
-  const openWithoutCompletion = openByCategory.find((item) => !completedLabels.has(item.label));
-  if (openWithoutCompletion) return openWithoutCompletion;
-  return [...completedByCategory].sort((left, right) => left.count - right.count)[0] ?? null;
-}
-
 type AiReportSection = {
   title: string;
   paragraphs: string[];
   items: string[];
 };
 
+function splitAiParagraph(paragraph: string) {
+  return paragraph
+    .split(/(?:\.\s+|;\s+|\n+)/)
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+    .map((item) => item.endsWith(".") ? item : `${item}.`);
+}
+
+function readAiSyncBase(aiSummary: RoutineAiSummary | null) {
+  const record = isRecord(aiSummary?.input_summary_json) ? aiSummary?.input_summary_json : null;
+  const syncBase = record && isRecord(record.sincronizacao_base) ? record.sincronizacao_base : null;
+  const syncAt = syncBase && typeof syncBase.sincronizado_em === "string" ? syncBase.sincronizado_em : null;
+  const syncText = syncAt ? `Análise baseada na sincronização de ${formatDateTime(syncAt)}.` : null;
+  const origin = syncBase && typeof syncBase.origem === "string" ? syncBase.origem : null;
+
+  return { syncText, origin };
+}
+
+function readAiSuggestionSections(text: string) {
+  const sections = parseAiReportSections(text);
+  return ["Sugestões práticas", "Ideias opcionais", "Coisas para revisar"].map((title) => {
+    const section = sections.find((item) => item.title === title);
+    return {
+      title,
+      items: section
+        ? [...section.items, ...section.paragraphs.flatMap((paragraph) => splitAiParagraph(paragraph))].filter(Boolean).slice(0, 5)
+        : [],
+    };
+  });
+}
+
 const aiReportTitles = [
   "Resumo da semana",
-  "Avanços",
-  "Focos da semana",
-  "Pontos negligenciados",
-  "Pendências",
-  "Próxima semana",
+  "O que foi feito",
+  "O que está pendente",
+  "Listas de referência",
+  "Sugestões práticas",
+  "Ideias opcionais",
+  "Coisas para revisar",
 ];
 
 const aiReportTitleAliases: Record<string, string> = {
-  "Principais avanços": "Avanços",
-  "Áreas mais trabalhadas": "Focos da semana",
-  "Áreas negligenciadas": "Pontos negligenciados",
-  "Tarefas que viraram prioridade": "Focos da semana",
-  "Pendências que ficaram paradas": "Pendências",
-  "Sugestões para a próxima semana": "Próxima semana",
-  "Sugestão para a próxima semana": "Próxima semana",
+  "Avanços": "O que foi feito",
+  "Principais avanços": "O que foi feito",
+  "Focos da semana": "O que foi feito",
+  "Pendências": "O que está pendente",
+  "Pendencias": "O que está pendente",
+  "Pontos negligenciados": "O que está pendente",
+  "Áreas negligenciadas": "O que está pendente",
+  "Tarefas que viraram prioridade": "O que foi feito",
+  "Listas de referencia": "Listas de referência",
+  "Sugestões da IA": "Sugestões práticas",
+  "Sugestoes da IA": "Sugestões práticas",
+  "Próxima semana": "Sugestões práticas",
+  "Sugestões para a próxima semana": "Sugestões práticas",
+  "Sugestão para a próxima semana": "Sugestões práticas",
 };
 
 function parseAiReportSections(text: string): AiReportSection[] {
@@ -1018,6 +1308,22 @@ function cleanAiLine(line: string) {
     .trim();
 }
 
+function formatDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
 function normalizeAiText(value: string) {
   return value
     .normalize("NFD")
@@ -1064,26 +1370,4 @@ function addDays(date: string, days: number) {
   const next = new Date(`${date}T00:00:00`);
   next.setDate(next.getDate() + days);
   return toDateInputValue(next);
-}
-
-function inDateRange(date: string, start: string, end: string) {
-  return date >= start && date <= end;
-}
-
-function daysBetween(left: string, right: string) {
-  const leftDate = new Date(`${left}T00:00:00`);
-  const rightDate = new Date(`${right}T00:00:00`);
-  return Math.floor((rightDate.getTime() - leftDate.getTime()) / 86_400_000);
-}
-
-function countRows<T>(items: T[], getLabel: (item: T) => string) {
-  const counts = items.reduce<Map<string, number>>((acc, item) => {
-    const label = getLabel(item);
-    acc.set(label, (acc.get(label) ?? 0) + 1);
-    return acc;
-  }, new Map());
-
-  return Array.from(counts.entries())
-    .map(([label, count]) => ({ label, count }))
-    .sort((left, right) => right.count - left.count);
 }

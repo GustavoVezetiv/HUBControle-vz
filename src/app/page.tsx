@@ -24,13 +24,13 @@ export default function HomePage() {
       <div className="mt-8 flex flex-col gap-3 sm:flex-row">
         <Link
           href="/dashboard"
-          className="hub-action hub-action-primary inline-flex items-center justify-center rounded-md bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-soft transition hover:bg-slate-800"
+          className="hub-action hub-action-primary inline-flex items-center justify-center rounded-md px-5 py-3 text-sm font-semibold shadow-soft transition"
         >
           Abrir dashboard
         </Link>
         <Link
           href="/login"
-          className="hub-action hub-action-secondary inline-flex items-center justify-center rounded-md border border-ink-950/10 bg-white px-5 py-3 text-sm font-semibold text-ink-950 transition hover:border-mint-500 hover:text-mint-600"
+          className="hub-action hub-action-secondary inline-flex items-center justify-center rounded-md px-5 py-3 text-sm font-semibold transition"
         >
           Ver tela de login
         </Link>

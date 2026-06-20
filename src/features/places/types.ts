@@ -104,11 +104,11 @@ export function placeToFormValues(item: PlaceRow): PlaceFormValues {
   };
 }
 
-export function isPlaceCategory(category: Pick<Category, "type"> | undefined) {
+export function isPlaceCategory(category: (Pick<Category, "type"> & { scopes?: string[] | null }) | undefined) {
   return categorySupportsAnyScope(category, categoryModuleDefinitions.places.scopes);
 }
 
-export function isOutOfScopePlaceCategory(category: Pick<Category, "type"> | undefined) {
+export function isOutOfScopePlaceCategory(category: (Pick<Category, "type"> & { scopes?: string[] | null }) | undefined) {
   return isCategoryOutOfScope(category, categoryModuleDefinitions.places.scopes);
 }
 

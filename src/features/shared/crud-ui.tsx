@@ -21,7 +21,7 @@ export function FieldShell({ label, children }: FieldShellProps) {
 }
 
 export const inputClassName =
-  "hub-input w-full rounded-md border border-ink-950/10 bg-white px-3 py-2.5 text-sm text-ink-950 outline-none transition focus:border-mint-500 focus:ring-4 focus:ring-mint-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-ink-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-400 dark:focus:border-mint-400 dark:focus:ring-mint-400/20 dark:disabled:bg-slate-800 dark:disabled:text-slate-500";
+  "hub-input w-full rounded-md border border-ink-950/10 px-3 py-2.5 text-sm text-ink-950 outline-none transition focus:border-mint-500 focus:ring-4 focus:ring-mint-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-ink-600 dark:focus:border-mint-400 dark:focus:ring-mint-400/20 dark:disabled:bg-slate-800 dark:disabled:text-slate-500";
 
 export function CrudFeedback({
   feedback,
@@ -99,13 +99,13 @@ export function Modal({ title, description, children, onClose, headerAction }: M
     >
       <section
         ref={sectionRef}
-        className="hub-modal max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-lg border border-ink-950/10 bg-white shadow-soft"
+        className="hub-modal max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-lg border border-ink-950/10 shadow-soft"
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <div className="hub-modal-header sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-ink-950/10 bg-white px-6 py-4">
+        <div className="hub-modal-header sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-ink-950/10 px-6 py-4">
           <div>
             <h2 id="modal-title" className="text-lg font-semibold text-ink-950">{title}</h2>
             {description ? (
@@ -142,10 +142,10 @@ export function ActionButton({
 }) {
   const className =
     variant === "primary"
-      ? "hub-action-primary bg-slate-950 text-white hover:bg-slate-800"
+      ? "hub-action-primary"
       : variant === "danger"
-        ? "hub-action-danger border border-danger-600/20 bg-danger-100 text-danger-600 hover:border-danger-600"
-        : "hub-action-secondary border border-ink-950/10 bg-white text-ink-950 hover:border-mint-500 hover:text-mint-600";
+        ? "hub-action-danger border border-danger-600/20 hover:border-danger-600"
+        : "hub-action-secondary border border-ink-950/10 hover:border-mint-500 hover:text-mint-600";
 
   return (
     <button
@@ -285,7 +285,7 @@ export function CategorySelect({
       {open ? (
         <div
           role="listbox"
-          className="absolute z-30 mt-2 max-h-72 w-full overflow-y-auto rounded-md border border-ink-950/10 bg-white p-1 shadow-soft dark:border-slate-700 dark:bg-slate-900"
+          className="hub-card absolute z-30 mt-2 max-h-72 w-full overflow-y-auto rounded-md border border-ink-950/10 p-1 shadow-soft"
         >
           <button
             type="button"
@@ -302,7 +302,7 @@ export function CategorySelect({
               type="button"
               role="option"
               aria-selected={category.id === value}
-              className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm text-ink-800 hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-800"
+              className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm text-ink-800 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
               onClick={() => selectCategory(category.id)}
             >
               <CategoryOptionContent category={category} placeholder={placeholder} />
@@ -348,7 +348,7 @@ export function TitleButton({
     <button
       type="button"
       onClick={onClick}
-      className="text-left font-medium text-ink-950 underline-offset-4 transition hover:text-mint-600 hover:underline dark:text-slate-100 dark:hover:text-mint-300"
+      className="text-left font-medium text-ink-950 underline-offset-4 transition hover:text-mint-600 hover:underline dark:text-slate-200 dark:hover:text-mint-300"
     >
       {children}
     </button>
@@ -377,7 +377,7 @@ export function BulkActionsBar({
   }
 
   return (
-    <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-ink-950/10 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-900/75">
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-ink-950/10 bg-slate-50 px-4 py-3 dark:border-white/10 dark:bg-slate-950/60">
       <p className="text-sm font-medium text-ink-800 dark:text-slate-200">
         {selectedCount} item(ns) selecionado(s)
       </p>
@@ -437,7 +437,7 @@ export function QuickEditInput({
 
   return (
     <input
-      className="hub-input w-full min-w-28 rounded-md border border-ink-950/10 bg-white px-2 py-1 text-sm text-ink-950 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+      className="hub-input w-full min-w-28 rounded-md border border-ink-950/10 px-2 py-1 text-sm text-ink-950"
       type={type}
       value={draft}
       onBlur={commit}
@@ -461,7 +461,7 @@ export function QuickEditSelect({
 }) {
   return (
     <select
-      className="hub-input w-full min-w-32 rounded-md border border-ink-950/10 bg-white px-2 py-1 text-sm text-ink-950 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+      className="hub-input w-full min-w-32 rounded-md border border-ink-950/10 px-2 py-1 text-sm text-ink-950"
       value={value}
       onChange={(event) => onCommit(event.target.value)}
     >

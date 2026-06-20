@@ -125,14 +125,14 @@ export function AuditHistoryPage() {
           <>
             <div className="mb-4 flex flex-wrap gap-2 text-xs text-ink-600 dark:text-slate-300">
               {Object.entries(countByAction).map(([name, count]) => (
-                <span key={name} className="rounded-full border border-ink-950/10 px-3 py-1 dark:border-white/10">
+                <span key={name} className="hub-filter-chip rounded-full px-3 py-1">
                   {getAuditActionLabel(name)}: {count}
                 </span>
               ))}
             </div>
-            <div className="overflow-x-auto">
+            <div className="hub-card overflow-x-auto rounded-xl border border-ink-950/10 p-0 dark:border-white/10">
               <table className="min-w-full text-sm">
-                <thead className="bg-ink-950/[0.03] text-left text-xs uppercase tracking-wide text-ink-500 dark:bg-white/[0.04] dark:text-slate-400">
+                <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-ink-500 dark:bg-white/[0.04] dark:text-slate-400">
                   <tr>
                     <th className="px-4 py-3">Quando</th>
                     <th className="px-4 py-3">Módulo</th>
@@ -147,12 +147,12 @@ export function AuditHistoryPage() {
                   {rows.map((row) => (
                     <tr key={row.id} className="border-t border-ink-950/10 align-top dark:border-white/10">
                       <td className="px-4 py-3 text-ink-600 dark:text-slate-300">{formatDateTime(row.created_at)}</td>
-                      <td className="px-4 py-3">{getAuditModuleLabel(row.module)}</td>
-                      <td className="px-4 py-3">{getAuditActionLabel(row.action)}</td>
-                      <td className="px-4 py-3 font-mono text-xs">{row.record_id ?? "-"}</td>
-                      <td className="px-4 py-3">{row.field_name ?? "-"}</td>
-                      <td className="px-4 py-3">{formatAuditValue(row.old_value)}</td>
-                      <td className="px-4 py-3">{formatAuditValue(row.new_value)}</td>
+                      <td className="px-4 py-3 text-ink-800 dark:text-slate-200">{getAuditModuleLabel(row.module)}</td>
+                      <td className="px-4 py-3 text-ink-800 dark:text-slate-200">{getAuditActionLabel(row.action)}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-ink-600 dark:text-slate-300">{row.record_id ?? "-"}</td>
+                      <td className="px-4 py-3 text-ink-700 dark:text-slate-200">{row.field_name ?? "-"}</td>
+                      <td className="px-4 py-3 text-ink-700 dark:text-slate-200">{formatAuditValue(row.old_value)}</td>
+                      <td className="px-4 py-3 text-ink-700 dark:text-slate-200">{formatAuditValue(row.new_value)}</td>
                     </tr>
                   ))}
                 </tbody>

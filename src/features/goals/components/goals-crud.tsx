@@ -52,6 +52,7 @@ type KanbanColumn = {
   label: string;
   goals: Goal[];
 };
+type GoalCategoryOption = Pick<Category, "id" | "name" | "type" | "color" | "icon" | "scopes">;
 
 const goalCategoryOptions = [
   { value: "personal", label: "Pessoal" },
@@ -100,7 +101,7 @@ const goalsDefaultViewPreference: Required<GoalsViewPreference> = {
 
 export function GoalsCrud() {
   const [goals, setGoals] = useState<Goal[]>([]);
-  const [categories, setCategories] = useState<Pick<Category, "id" | "name" | "type" | "color" | "icon">[]>([]);
+  const [categories, setCategories] = useState<GoalCategoryOption[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -601,7 +602,7 @@ function GoalsKanban({
   onDrop,
   onEdit,
 }: {
-  categories: Pick<Category, "id" | "name" | "type" | "color" | "icon">[];
+  categories: GoalCategoryOption[];
   columns: KanbanColumn[];
   editable: boolean;
   onCreate: (columnValue: string) => void;
@@ -614,7 +615,7 @@ function GoalsKanban({
         {columns.map((column) => (
           <section
             key={column.value}
-            className="flex min-h-96 flex-col rounded-lg border border-slate-300 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-950/55"
+            className="hub-kanban-column flex min-h-96 flex-col rounded-lg border p-3"
             onDragOver={(event) => {
               if (!editable) return;
               event.preventDefault();
@@ -634,7 +635,7 @@ function GoalsKanban({
             </div>
             <div className="flex flex-1 flex-col gap-3">
               {column.goals.length === 0 ? (
-                <div className="rounded-md border border-dashed border-slate-300 bg-white/70 px-3 py-8 text-center text-sm text-ink-600 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-300">
+                <div className="hub-kanban-empty rounded-md border border-dashed px-3 py-8 text-center text-sm text-ink-600 dark:text-slate-300">
                   Nenhuma meta
                 </div>
               ) : (
@@ -667,7 +668,7 @@ function GoalKanbanCard({
   onDoubleClick,
   onEdit,
 }: {
-  categories: Pick<Category, "id" | "name" | "type" | "color" | "icon">[];
+  categories: GoalCategoryOption[];
   draggable: boolean;
   goal: Goal;
   onDoubleClick: (goal: Goal) => void;
@@ -684,7 +685,7 @@ function GoalKanbanCard({
         event.dataTransfer.effectAllowed = "move";
       }}
       onDoubleClick={() => onDoubleClick(goal)}
-      className="cursor-pointer rounded-lg border border-slate-300 bg-white p-4 text-ink-950 shadow-sm transition hover:border-mint-500 hover:shadow-md dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+      className="hub-card cursor-pointer rounded-lg border border-ink-950/10 p-4 text-ink-950 shadow-sm transition hover:border-mint-500 hover:shadow-md dark:text-slate-100"
     >
       <div className="flex items-start justify-between gap-3">
         <button type="button" className="text-left text-sm font-semibold text-ink-950 hover:text-mint-700 dark:text-slate-100 dark:hover:text-mint-200" onClick={() => onEdit(goal)}>
@@ -711,7 +712,7 @@ function GoalKanbanCard({
   );
 }
 
-function GoalModal({ modal, saving, categories, userId, onClose, onSubmit }: { modal: ModalState; saving: boolean; categories: Pick<Category, "id" | "name" | "type" | "color" | "icon">[]; userId: string | null; onClose: () => void; onSubmit: (values: GoalFormValues) => void }) {
+function GoalModal({ modal, saving, categories, userId, onClose, onSubmit }: { modal: ModalState; saving: boolean; categories: GoalCategoryOption[]; userId: string | null; onClose: () => void; onSubmit: (values: GoalFormValues) => void }) {
   const [values, setValues] = useState<GoalFormValues>(modal?.mode === "edit" ? goalToFormValues(modal.goal) : { ...emptyGoalForm, ...(modal?.defaults ?? {}) });
   const isFinancial = values.goal_kind === "financial";
   const originalCategoryId = modal?.mode === "edit" ? modal.goal.category_id ?? "" : "";
@@ -750,7 +751,7 @@ function GoalModal({ modal, saving, categories, userId, onClose, onSubmit }: { m
             <FieldShell label="Aporte mensal"><input min="0" step="0.01" type="number" className={inputClassName} value={values.monthly_contribution} onChange={(event) => setValues({ ...values, monthly_contribution: event.target.value })} /></FieldShell>
           </>
         ) : (
-          <div className="rounded-md border border-ink-950/10 bg-slate-50 p-4 text-sm leading-6 text-ink-600 md:col-span-2">
+          <div className="hub-card rounded-md border border-ink-950/10 bg-slate-50 p-4 text-sm leading-6 text-ink-600 md:col-span-2">
             Esta meta será acompanhada por prazo. Valores financeiros ficam ocultos para metas qualitativas ou numéricas.
           </div>
         )}
@@ -787,8 +788,8 @@ function GoalProgress({ goal }: { goal: Goal }) {
 
 function buildKanbanColumns(
   goals: Goal[],
-  visibleCategories: Pick<Category, "id" | "name" | "type" | "color" | "icon">[],
-  allCategories: Pick<Category, "id" | "name" | "type" | "color" | "icon">[],
+  visibleCategories: GoalCategoryOption[],
+  allCategories: GoalCategoryOption[],
   groupMode: KanbanGroupMode,
 ): KanbanColumn[] {
   const definitions = getKanbanColumnDefinitions(goals, visibleCategories, allCategories, groupMode);
@@ -801,8 +802,8 @@ function buildKanbanColumns(
 
 function getKanbanColumnDefinitions(
   goals: Goal[],
-  visibleCategories: Pick<Category, "id" | "name" | "type" | "color" | "icon">[],
-  allCategories: Pick<Category, "id" | "name" | "type" | "color" | "icon">[],
+  visibleCategories: GoalCategoryOption[],
+  allCategories: GoalCategoryOption[],
   groupMode: KanbanGroupMode,
 ) {
   if (groupMode === "status") return goalStatusOptions;
@@ -837,7 +838,7 @@ function getKanbanColumnDefinitions(
 
 function getKanbanValue(
   goal: Goal,
-  categories: Pick<Category, "id" | "name" | "type" | "color" | "icon">[],
+  categories: GoalCategoryOption[],
   groupMode: KanbanGroupMode,
 ) {
   if (groupMode === "status") return goal.status;
