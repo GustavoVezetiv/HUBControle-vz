@@ -272,7 +272,7 @@ export function WeeklyReviewPage() {
                 onClick={() => setActiveTab(tab.id)}
                 className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
                   activeTab === tab.id
-                    ? "bg-ink-950 text-white dark:bg-slate-100 dark:text-slate-950"
+                    ? "border-mint-500 bg-mint-50 text-ink-950 dark:bg-slate-100 dark:text-slate-950"
                     : "text-ink-700 hover:bg-ink-950/5 dark:text-slate-200 dark:hover:bg-white/10"
                 }`}
               >
@@ -457,7 +457,7 @@ function WeeklyKanbanSection({
             {columns.map((column) => (
               <div
                 key={column.id}
-                className="w-[280px] shrink-0 rounded-xl border border-ink-950/10 bg-slate-50 p-4 dark:border-white/10 dark:bg-slate-950/50"
+                className="hub-kanban-column w-[280px] shrink-0 rounded-xl border p-4"
               >
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <h3 className="text-sm font-semibold text-ink-950 dark:text-slate-100">{column.title}</h3>
@@ -470,7 +470,7 @@ function WeeklyKanbanSection({
                     return (
                       <article
                         key={task.id}
-                        className="rounded-lg border border-ink-950/10 bg-white p-3 shadow-sm dark:border-white/10 dark:bg-slate-950/70"
+                        className="hub-card rounded-lg border border-ink-950/10 p-3 shadow-sm"
                       >
                         <p className="text-sm font-semibold text-ink-950 dark:text-slate-100">{task.title}</p>
                         <p className="mt-2 text-xs text-ink-600 dark:text-slate-300">{categoryLabel}</p>

@@ -19,7 +19,7 @@ export function StatusBadge({ children, tone = "neutral" }: StatusBadgeProps) {
 }
 
 const toneClassName: Record<StatusTone, string> = {
-  neutral: "bg-ink-950/6 text-ink-600 dark:bg-slate-700/70 dark:text-slate-200",
+  neutral: "bg-slate-100 text-ink-700 dark:bg-slate-700/70 dark:text-slate-200",
   success: "bg-mint-100 text-mint-600 dark:bg-emerald-950/55 dark:text-emerald-200",
   warning: "bg-amberRisk-100 text-amberRisk-500 dark:bg-amber-950/55 dark:text-amber-200",
   danger: "bg-danger-100 text-danger-600 dark:bg-red-950/55 dark:text-red-200",

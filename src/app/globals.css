@@ -23,6 +23,19 @@
   --hub-surface-muted: #f8fafc;
   --hub-surface-soft: rgba(255, 255, 255, 0.82);
   --hub-overlay: rgba(18, 20, 23, 0.45);
+  --hub-nav-bg: rgba(255, 255, 255, 0.84);
+  --hub-nav-border: rgba(15, 23, 42, 0.1);
+  --hub-nav-text: #4b5563;
+  --hub-nav-text-strong: #121417;
+  --hub-nav-active-bg: linear-gradient(180deg, #ecfdf5 0%, #dcfce7 100%);
+  --hub-nav-active-border: rgba(24, 185, 143, 0.34);
+  --hub-nav-active-text: #0f172a;
+  --hub-nav-badge-bg: rgba(15, 23, 42, 0.06);
+  --hub-nav-badge-text: #4b5563;
+  --hub-nav-badge-active-bg: rgba(15, 23, 42, 0.08);
+  --hub-nav-badge-active-text: #0f172a;
+  --hub-subtle-surface: #f8fafc;
+  --hub-subtle-surface-strong: #eef2f7;
 }
 
 :root.dark {
@@ -46,6 +59,19 @@
   --hub-surface-muted: #0f172a;
   --hub-surface-soft: rgba(17, 24, 39, 0.86);
   --hub-overlay: rgba(3, 7, 18, 0.7);
+  --hub-nav-bg: rgba(15, 23, 42, 0.88);
+  --hub-nav-border: rgba(148, 163, 184, 0.18);
+  --hub-nav-text: #cbd5e1;
+  --hub-nav-text-strong: #f8fafc;
+  --hub-nav-active-bg: rgba(45, 212, 191, 0.14);
+  --hub-nav-active-border: rgba(45, 212, 191, 0.28);
+  --hub-nav-active-text: #f8fafc;
+  --hub-nav-badge-bg: rgba(148, 163, 184, 0.14);
+  --hub-nav-badge-text: #cbd5e1;
+  --hub-nav-badge-active-bg: rgba(45, 212, 191, 0.18);
+  --hub-nav-badge-active-text: #f8fafc;
+  --hub-subtle-surface: #0f172a;
+  --hub-subtle-surface-strong: rgba(15, 23, 42, 0.84);
 }
 
 * {
@@ -208,6 +234,57 @@ select {
   border-radius: var(--hub-card-radius);
   box-shadow: var(--hub-card-shadow);
   padding: var(--hub-card-padding);
+}
+
+.hub-sidebar,
+.hub-topbar {
+  background: var(--hub-nav-bg);
+  border-color: var(--hub-nav-border);
+}
+
+.hub-nav-group-title {
+  color: rgb(var(--hub-ink-600));
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.hub-nav-item {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--hub-nav-text);
+}
+
+.hub-nav-item:hover {
+  background: rgba(24, 185, 143, 0.08);
+  color: var(--hub-nav-text-strong);
+}
+
+.hub-nav-item-active {
+  background: var(--hub-nav-active-bg);
+  border-color: var(--hub-nav-active-border);
+  color: var(--hub-nav-active-text);
+}
+
+.hub-nav-badge {
+  background: var(--hub-nav-badge-bg);
+  color: var(--hub-nav-badge-text);
+}
+
+.hub-nav-badge-active {
+  background: var(--hub-nav-badge-active-bg);
+  color: var(--hub-nav-badge-active-text);
+}
+
+.hub-kanban-column {
+  background: var(--hub-subtle-surface-strong);
+  border-color: var(--hub-card-border);
+}
+
+.hub-kanban-empty {
+  background: color-mix(in srgb, var(--hub-surface) 80%, transparent);
+  border-color: color-mix(in srgb, var(--hub-card-border) 92%, transparent);
 }
 
 .hub-shell[data-animation-level="off"] *,
@@ -560,6 +637,36 @@ select {
   background-color: #fff1f2 !important;
   border-color: rgba(194, 65, 49, 0.22) !important;
   color: rgb(var(--hub-danger-600)) !important;
+}
+
+:root:not(.dark) .hub-shell .bg-slate-50,
+:root:not(.dark) .hub-shell .bg-slate-100 {
+  background-color: var(--hub-subtle-surface) !important;
+}
+
+:root:not(.dark) .hub-shell .text-ink-950,
+:root:not(.dark) .hub-shell .text-slate-950 {
+  color: #121417 !important;
+}
+
+:root:not(.dark) .hub-shell .text-ink-800,
+:root:not(.dark) .hub-shell .text-ink-700 {
+  color: #374151 !important;
+}
+
+:root:not(.dark) .hub-shell .text-ink-600,
+:root:not(.dark) .hub-shell .text-slate-500,
+:root:not(.dark) .hub-shell .text-slate-600 {
+  color: #4b5563 !important;
+}
+
+:root:not(.dark) .hub-shell .dark\:bg-slate-950\/50,
+:root:not(.dark) .hub-shell .dark\:bg-slate-950\/55,
+:root:not(.dark) .hub-shell .dark\:bg-slate-950\/60,
+:root:not(.dark) .hub-shell .dark\:bg-slate-950\/70,
+:root:not(.dark) .hub-shell .dark\:bg-slate-900,
+:root:not(.dark) .hub-shell .dark\:bg-slate-900\/70 {
+  background-color: transparent;
 }
 
 .hub-shell table {

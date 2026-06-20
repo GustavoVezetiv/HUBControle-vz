@@ -659,7 +659,7 @@ function PurchasesKanban({
         {columns.map((column) => (
           <section
             key={column.value}
-            className="flex min-h-96 flex-col rounded-lg border border-slate-300 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-950/55"
+            className="hub-kanban-column flex min-h-96 flex-col rounded-lg border p-3"
             onDragOver={(event) => event.preventDefault()}
             onDrop={(event) => {
               const itemId = event.dataTransfer.getData("text/plain");
@@ -674,7 +674,7 @@ function PurchasesKanban({
             </div>
             <div className="flex flex-1 flex-col gap-3">
               {column.items.length === 0 ? (
-                <div className="rounded-md border border-dashed border-slate-300 bg-white/70 px-3 py-8 text-center text-sm text-ink-600 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-300">
+                <div className="hub-kanban-empty rounded-md border border-dashed px-3 py-8 text-center text-sm text-ink-600 dark:text-slate-300">
                   Nenhuma compra
                 </div>
               ) : (
@@ -714,7 +714,7 @@ function PurchaseKanbanCard({
         event.dataTransfer.effectAllowed = "move";
       }}
       onDoubleClick={() => onDoubleClick(item)}
-      className="cursor-pointer rounded-lg border border-slate-300 bg-white p-4 text-ink-950 shadow-sm transition hover:border-mint-500 hover:shadow-md dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+      className="hub-card cursor-pointer rounded-lg border border-ink-950/10 p-4 text-ink-950 shadow-sm transition hover:border-mint-500 hover:shadow-md dark:text-slate-100"
     >
       <div className="flex items-start justify-between gap-3">
         <button type="button" className="text-left text-sm font-semibold text-ink-950 hover:text-mint-700 dark:text-slate-100 dark:hover:text-mint-200" onClick={() => onEdit(item)}>
