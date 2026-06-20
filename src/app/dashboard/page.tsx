@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
 import { DashboardFavoriteShortcuts } from "@/features/dashboard/components/dashboard-favorite-shortcuts";
+import { DashboardAiBriefing } from "@/features/dashboard/components/dashboard-ai-briefing";
 import { DashboardViewPreferences } from "@/features/dashboard/components/dashboard-view-preferences";
 import type { DashboardLayoutMode } from "@/features/dashboard/components/dashboard-view-preferences";
 import { buildFinancialDiagnosticsFromSource, loadFinancialDiagnosticsSourceData } from "@/features/diagnostics/queries";
@@ -299,6 +300,19 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       <SectionCard title="Atalhos rápidos" description="Acesso direto ao que você mais faz no dia a dia.">
         <DashboardFavoriteShortcuts userId={user.id} />
       </SectionCard>
+
+      <DashboardAiBriefing
+        periodLabel={formatPeriodLabel(period)}
+        compactMode={compactDashboard}
+        overviewCards={overviewCards.map((card) => ({ label: card.label, value: card.value, helper: card.helper }))}
+        attentionBlocks={attentionBlocks.map((block) => ({
+          title: block.title,
+          value: block.value,
+          helper: block.helper,
+          items: block.items.map((item) => ({ label: item.label, meta: item.meta })),
+        }))}
+        monthSummaryRows={monthSummaryRows.map((row) => ({ label: row.label, value: row.value, helper: row.helper }))}
+      />
 
       <section className="grid gap-4 xl:grid-cols-[1.1fr,0.9fr]">
         <SectionCard title="Resumo do mês" description="Leitura compacta de entradas, saídas e pendências do período.">
@@ -776,6 +790,11 @@ function addDaysISO(date: string, days: number) {
 function getVisibleDiagnosticAlertCount(diagnostics: FinancialDiagnosticsData | null) {
   if (!diagnostics) return 0;
   return diagnostics.sections.reduce((sum, section) => sum + Math.max(section.count - section.ignoredCount, 0), 0);
+}
+
+function formatPeriodLabel(period: PeriodValue) {
+  if (period.preset === "all") return "Todos os registros";
+  return `${formatDate(period.startDate)} até ${formatDate(period.endDate)}`;
 }
 
 function DashboardError({ message }: { message: string }) {

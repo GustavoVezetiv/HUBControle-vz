@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
+import { AiResponsePanel } from "@/features/ai/components/ai-response-panel";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
@@ -48,6 +49,7 @@ export function FinancialDiagnosticsPage() {
   const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [invoicePreview, setInvoicePreview] = useState<InvoiceRecalculationPreview>(null);
   const [fixInvoicePreview, setFixInvoicePreview] = useState<FixInvoicePreview>(null);
+  const [selectedAiItem, setSelectedAiItem] = useState<FinancialDiagnosticItem | null>(null);
 
   const loadData = useCallback(async () => {
     setRefreshing(true);
@@ -185,6 +187,29 @@ export function FinancialDiagnosticsPage() {
         <StatCard label="Última leitura" value={data ? formatDate(data.generatedAt.slice(0, 10)) : "-"} helper="Gerada com base nos dados atuais do usuário." tone="neutral" />
       </section>
 
+      {selectedAiItem ? (
+        <AiResponsePanel
+          title={`Explicação com IA: ${selectedAiItem.title}`}
+          description="Leitura opcional do alerta selecionado. A IA explica o risco e sugere ordem de correção, sem executar nada."
+          buttonLabel="Explicar alerta com IA"
+          loadingLabel="Gerando explicação..."
+          target="diagnostic_alert"
+          payload={{
+            alerta: {
+              tipo: selectedAiItem.alertType,
+              titulo: selectedAiItem.title,
+              descricao: selectedAiItem.description,
+              detalhes: selectedAiItem.details.slice(0, 8),
+              referencias: selectedAiItem.references.slice(0, 4),
+              valor: selectedAiItem.amount ?? null,
+              possui_previa_correcao: Boolean(selectedAiItem.suggestedInvoicePreview),
+            },
+            contexto_bloco: sections.find((section) => section.items.some((item) => item.alertKey === selectedAiItem.alertKey))?.title ?? null,
+          }}
+          emptyState="Selecione um alerta e gere a explicação da IA para entender o risco e a ordem sugerida."
+        />
+      ) : null}
+
       {loading ? (
         <SectionCard title="Carregando diagnóstico">
           <p className="text-sm text-ink-600 dark:text-slate-300">Analisando transações, faturas, reembolsos, parcelamentos e categorias.</p>
@@ -297,6 +322,13 @@ export function FinancialDiagnosticsPage() {
                             {busyKey === item.alertKey ? "Ignorando..." : "Ignorar alerta"}
                           </ActionButton>
                         ) : null}
+                        <ActionButton
+                          type="button"
+                          variant="secondary"
+                          onClick={() => setSelectedAiItem(item)}
+                        >
+                          Explicar com IA
+                        </ActionButton>
                       </div>
                     </div>
                   </article>

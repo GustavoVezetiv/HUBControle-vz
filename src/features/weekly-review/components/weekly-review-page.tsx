@@ -558,6 +558,21 @@ function WeeklyAiAnalysisSection({
   const status = aiSummary?.summary_text ? "Pronta" : aiSummary?.error_message ? "Erro" : "Não gerada";
   const analysisBase = readAiSyncBase(aiSummary);
   const suggestions = readAiSuggestionSections(aiSummary?.summary_text ?? "");
+  const [accepted, setAccepted] = useState(false);
+  const [hidden, setHidden] = useState(false);
+  const [usefulness, setUsefulness] = useState<"useful" | "not_useful" | null>(null);
+  const [actionFeedback, setActionFeedback] = useState<FeedbackState>(null);
+
+  async function handleCopy() {
+    if (!aiSummary?.summary_text) return;
+    try {
+      await navigator.clipboard.writeText(aiSummary.summary_text);
+      setActionFeedback({ type: "success", message: "Análise copiada." });
+    } catch (error) {
+      console.error("Erro técnico ao copiar análise da IA:", error);
+      setActionFeedback({ type: "error", message: "Não foi possível copiar a análise." });
+    }
+  }
 
   return (
     <SectionCard title="Análise da IA" description="Resumo interpretativo gerado com Gemini somente quando você solicita.">
@@ -566,6 +581,7 @@ function WeeklyAiAnalysisSection({
           {analyzing ? "Gerando..." : aiSummary ? "Gerar novamente" : "Gerar análise da semana"}
         </ActionButton>
       </div>
+      <CrudFeedback feedback={actionFeedback} />
       <div className="mb-4 grid gap-4 md:grid-cols-3">
         <StatCard label="Status da análise" value={status} helper="A IA não executa em sincronizações." tone={aiSummary?.summary_text ? "success" : aiSummary?.error_message ? "danger" : "neutral"} />
         <StatCard label="Última análise" value={aiSummary?.updated_at ? formatDate(aiSummary.updated_at.slice(0, 10)) : "-"} helper={aiSummary?.model ?? "Modelo configurado no servidor."} tone="info" />
@@ -599,12 +615,42 @@ function WeeklyAiAnalysisSection({
       ) : null}
 
       {aiSummary?.summary_text ? (
+        <div className="mb-4 flex flex-wrap gap-2">
+          {accepted ? <TextBadge tone="success">Aceita</TextBadge> : null}
+          {usefulness === "useful" ? <TextBadge tone="success">Marcada como útil</TextBadge> : null}
+          {usefulness === "not_useful" ? <TextBadge tone="warning">Marcada como pouco útil</TextBadge> : null}
+        </div>
+      ) : null}
+
+      {aiSummary?.summary_text ? hidden ? (
+        <p className="text-sm text-ink-600 dark:text-slate-300">Análise ignorada nesta visualização.</p>
+      ) : (
         <AiSummaryReport text={aiSummary.summary_text} suggestions={suggestions} />
       ) : aiSummary?.error_message ? (
         <EmptyState title="A última análise falhou" description={formatAiError(aiSummary.error_message)} />
       ) : (
         <EmptyState title="Análise ainda não gerada" description="Clique em Gerar análise da semana para enviar o resumo estruturado ao Gemini." />
       )}
+
+      {aiSummary?.summary_text && !hidden ? (
+        <div className="mt-4 flex flex-wrap gap-2">
+          <ActionButton type="button" variant="secondary" onClick={() => setAccepted(true)}>
+            Aceitar
+          </ActionButton>
+          <ActionButton type="button" variant="secondary" onClick={() => setHidden(true)}>
+            Ignorar
+          </ActionButton>
+          <ActionButton type="button" variant="secondary" onClick={() => void handleCopy()}>
+            Copiar
+          </ActionButton>
+          <ActionButton type="button" variant="secondary" onClick={() => setUsefulness("useful")}>
+            Útil
+          </ActionButton>
+          <ActionButton type="button" variant="secondary" onClick={() => setUsefulness("not_useful")}>
+            Não útil
+          </ActionButton>
+        </div>
+      ) : null}
     </SectionCard>
   );
 }
