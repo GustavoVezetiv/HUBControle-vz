@@ -132,7 +132,7 @@ export function AuditHistoryPage() {
             </div>
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
-                <thead className="bg-ink-950/[0.03] text-left text-xs uppercase tracking-wide text-ink-500 dark:bg-white/[0.04] dark:text-slate-400">
+                <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-ink-500 dark:bg-white/[0.04] dark:text-slate-400">
                   <tr>
                     <th className="px-4 py-3">Quando</th>
                     <th className="px-4 py-3">Módulo</th>

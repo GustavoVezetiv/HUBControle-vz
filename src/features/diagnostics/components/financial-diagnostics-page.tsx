@@ -214,7 +214,7 @@ export function FinancialDiagnosticsPage() {
             ) : (
               <div className="space-y-4">
                 {section.items.map((item) => (
-                  <article key={item.alertKey} className="rounded-lg border border-ink-950/10 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-950/50">
+                  <article key={item.alertKey} className="hub-card rounded-lg border border-ink-950/10 p-4 shadow-sm">
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                       <div className="space-y-3">
                         <div>
@@ -387,7 +387,7 @@ function InvoiceTotalsCard({
   };
 }) {
   return (
-    <div className="rounded-lg border border-ink-950/10 bg-white p-4 dark:border-white/10 dark:bg-slate-950/50">
+    <div className="hub-card rounded-lg border border-ink-950/10 p-4">
       <p className="text-sm font-semibold text-ink-950 dark:text-slate-100">{title}</p>
       <div className="mt-3 space-y-2 text-sm text-ink-700 dark:text-slate-200">
         <div className="flex items-center justify-between gap-4"><span>Total</span><span>{formatCurrency(values.totalAmount)}</span></div>

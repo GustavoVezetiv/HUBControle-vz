@@ -285,7 +285,7 @@ export function CategorySelect({
       {open ? (
         <div
           role="listbox"
-          className="absolute z-30 mt-2 max-h-72 w-full overflow-y-auto rounded-md border border-ink-950/10 bg-white p-1 shadow-soft dark:border-slate-700 dark:bg-slate-900"
+          className="hub-card absolute z-30 mt-2 max-h-72 w-full overflow-y-auto rounded-md border border-ink-950/10 p-1 shadow-soft"
         >
           <button
             type="button"
@@ -302,7 +302,7 @@ export function CategorySelect({
               type="button"
               role="option"
               aria-selected={category.id === value}
-              className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm text-ink-800 hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-800"
+              className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm text-ink-800 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
               onClick={() => selectCategory(category.id)}
             >
               <CategoryOptionContent category={category} placeholder={placeholder} />
@@ -348,7 +348,7 @@ export function TitleButton({
     <button
       type="button"
       onClick={onClick}
-      className="text-left font-medium text-ink-950 underline-offset-4 transition hover:text-mint-600 hover:underline dark:text-slate-100 dark:hover:text-mint-300"
+      className="text-left font-medium text-ink-950 underline-offset-4 transition hover:text-mint-600 hover:underline dark:text-slate-200 dark:hover:text-mint-300"
     >
       {children}
     </button>
@@ -377,7 +377,7 @@ export function BulkActionsBar({
   }
 
   return (
-    <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-ink-950/10 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-900/75">
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-ink-950/10 bg-slate-50 px-4 py-3 dark:border-white/10 dark:bg-slate-950/60">
       <p className="text-sm font-medium text-ink-800 dark:text-slate-200">
         {selectedCount} item(ns) selecionado(s)
       </p>

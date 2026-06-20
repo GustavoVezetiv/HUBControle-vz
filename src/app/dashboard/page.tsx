@@ -440,7 +440,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
 function AttentionCard({ block, compact }: { block: AttentionBlock; compact: boolean }) {
   return (
-    <div className="rounded-lg border border-ink-950/10 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-950/60">
+    <div className="hub-card rounded-lg border border-ink-950/10 shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-sm font-semibold text-ink-950 dark:text-slate-100">{block.title}</p>
@@ -479,7 +479,7 @@ function AttentionCard({ block, compact }: { block: AttentionBlock; compact: boo
 
 function MonthSummaryLine({ row }: { row: MonthSummaryRow }) {
   return (
-    <div className="flex items-start justify-between gap-4 rounded-lg border border-ink-950/10 bg-white px-4 py-3 dark:border-white/10 dark:bg-slate-950/60">
+    <div className="hub-card flex items-start justify-between gap-4 rounded-lg border border-ink-950/10 px-4 py-3">
       <div className="min-w-0">
         <p className="text-sm font-semibold text-ink-950 dark:text-slate-100">{row.label}</p>
         <p className="mt-1 text-xs leading-5 text-ink-600 dark:text-slate-300">{row.helper}</p>

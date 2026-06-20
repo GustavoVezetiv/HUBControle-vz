@@ -644,6 +644,19 @@ select {
   background-color: var(--hub-subtle-surface) !important;
 }
 
+:root:not(.dark) .hub-shell .bg-white,
+:root:not(.dark) .hub-shell .bg-white\/70,
+:root:not(.dark) .hub-shell .bg-white\/80,
+:root:not(.dark) .hub-shell .bg-white\/82,
+:root:not(.dark) .hub-shell .bg-white\/86 {
+  background-color: var(--hub-surface-soft) !important;
+}
+
+:root:not(.dark) .hub-shell .border-slate-200,
+:root:not(.dark) .hub-shell .border-slate-300 {
+  border-color: rgba(15, 23, 42, 0.14) !important;
+}
+
 :root:not(.dark) .hub-shell .text-ink-950,
 :root:not(.dark) .hub-shell .text-slate-950 {
   color: #121417 !important;
@@ -658,6 +671,11 @@ select {
 :root:not(.dark) .hub-shell .text-slate-500,
 :root:not(.dark) .hub-shell .text-slate-600 {
   color: #4b5563 !important;
+}
+
+:root:not(.dark) .hub-shell .text-ink-500,
+:root:not(.dark) .hub-shell .text-slate-400 {
+  color: #6b7280 !important;
 }
 
 :root:not(.dark) .hub-shell .dark\:bg-slate-950\/50,

@@ -116,13 +116,15 @@ export function AuthForm({ isConfigured }: AuthFormProps) {
         </div>
       ) : null}
 
-      <div className="grid grid-cols-2 rounded-md bg-ink-950/5 p-1">
+      <div className="grid grid-cols-2 rounded-md border border-ink-950/10 bg-slate-100 p-1 dark:border-white/10 dark:bg-white/5">
         <button
           type="button"
           onClick={() => setMode("sign-in")}
           className={[
             "rounded px-3 py-2 text-sm font-semibold transition",
-            mode === "sign-in" ? "bg-white text-ink-950 shadow-sm" : "text-ink-600",
+            mode === "sign-in"
+              ? "bg-white text-ink-950 shadow-sm dark:bg-slate-900 dark:text-slate-100"
+              : "text-ink-600 dark:text-slate-300",
           ].join(" ")}
         >
           Entrar
@@ -132,7 +134,9 @@ export function AuthForm({ isConfigured }: AuthFormProps) {
           onClick={() => setMode("sign-up")}
           className={[
             "rounded px-3 py-2 text-sm font-semibold transition",
-            mode === "sign-up" ? "bg-white text-ink-950 shadow-sm" : "text-ink-600",
+            mode === "sign-up"
+              ? "bg-white text-ink-950 shadow-sm dark:bg-slate-900 dark:text-slate-100"
+              : "text-ink-600 dark:text-slate-300",
           ].join(" ")}
         >
           Criar conta
@@ -179,7 +183,7 @@ export function AuthForm({ isConfigured }: AuthFormProps) {
       <button
         type="submit"
         disabled={loading || !isConfigured}
-        className="inline-flex w-full items-center justify-center rounded-md bg-ink-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-ink-800 disabled:cursor-not-allowed disabled:opacity-60"
+        className="hub-action hub-action-primary inline-flex w-full items-center justify-center rounded-md px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
       >
         {loading ? "Processando..." : mode === "sign-in" ? "Entrar" : "Criar conta"}
       </button>
