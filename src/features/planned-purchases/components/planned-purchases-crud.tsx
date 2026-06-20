@@ -801,7 +801,7 @@ function PlannedPurchaseModal({
         <FieldShell label="Categoria">
           <CategorySelect categories={purchaseCategories} value={selectedCategoryOutOfScope ? "" : values.category_id} onChange={(category_id) => setValues({ ...values, category_id })} />
           {selectedCategoryOutOfScope ? (
-            <div className="mt-2 rounded-md border border-amber-500/30 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-400/30 dark:bg-amber-950/35 dark:text-amber-100">
+            <div className="hub-card mt-2 rounded-md border border-amber-500/30 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-400/30 dark:text-amber-100">
               Categoria atual: <strong>{selectedCategory?.name}</strong>. Categoria fora do escopo desta tela.
             </div>
           ) : null}

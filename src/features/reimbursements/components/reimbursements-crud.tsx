@@ -715,7 +715,7 @@ export function ReimbursementsCrud() {
               <button
                 key={item.person.id}
                 type="button"
-                className={`flex h-full flex-col rounded-xl border bg-white p-4 text-left text-ink-950 shadow-sm transition hover:border-mint-500 hover:bg-mint-50/60 hover:shadow-md dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800/90 ${
+                className={`hub-card flex h-full flex-col rounded-xl border p-4 text-left text-ink-950 shadow-sm transition hover:border-mint-500 hover:bg-mint-50/60 hover:shadow-md dark:text-slate-100 dark:hover:bg-slate-800/90 ${
                   personFilter === item.person.id
                     ? "border-mint-500 ring-2 ring-mint-500/25 dark:border-mint-400 dark:ring-mint-400/25"
                     : "border-slate-300 dark:border-slate-700"
@@ -1283,7 +1283,7 @@ function ReimbursementModal({
             </p>
           </>
         ) : null}
-        <div className="rounded-lg border border-slate-300 bg-slate-50 p-4 text-ink-900 shadow-sm dark:border-slate-600 dark:bg-slate-950/70 dark:text-slate-100 md:col-span-2">
+        <div className="hub-card rounded-lg border border-ink-950/10 bg-slate-50 p-4 text-ink-900 shadow-sm dark:border-white/10 dark:text-slate-100 md:col-span-2">
           <div className="flex flex-col gap-1">
             <h3 className="text-sm font-semibold text-ink-950 dark:text-slate-100">Vínculo financeiro</h3>
             <p className="text-sm text-ink-700 dark:text-slate-200">
@@ -1301,12 +1301,12 @@ function ReimbursementModal({
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {currentInvoice ? (
-                    <Link className="inline-flex items-center rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-ink-800 hover:border-mint-500 hover:text-mint-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:border-mint-400 dark:hover:text-mint-200" href={`/dashboard/invoices/${currentInvoice.id}`}>
+                    <Link className="hub-action hub-action-secondary inline-flex items-center rounded-md border border-ink-950/10 px-3 py-2 text-sm font-medium text-ink-800 hover:border-mint-500 hover:text-mint-700 dark:border-white/10 dark:text-slate-100 dark:hover:border-mint-400 dark:hover:text-mint-200" href={`/dashboard/invoices/${currentInvoice.id}`}>
                       Abrir fatura
                     </Link>
                   ) : null}
                   {currentInvoice && currentTransaction ? (
-                    <Link className="inline-flex items-center rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-ink-800 hover:border-mint-500 hover:text-mint-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:border-mint-400 dark:hover:text-mint-200" href={`/dashboard/invoices/${currentInvoice.id}?transaction=${currentTransaction.id}`}>
+                    <Link className="hub-action hub-action-secondary inline-flex items-center rounded-md border border-ink-950/10 px-3 py-2 text-sm font-medium text-ink-800 hover:border-mint-500 hover:text-mint-700 dark:border-white/10 dark:text-slate-100 dark:hover:border-mint-400 dark:hover:text-mint-200" href={`/dashboard/invoices/${currentInvoice.id}?transaction=${currentTransaction.id}`}>
                       Abrir lançamento
                     </Link>
                   ) : null}
@@ -1426,7 +1426,7 @@ function ReimbursementModal({
                     </FieldShell>
                   </div>
                   {selectedFinancialTransaction ? (
-                    <div className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-ink-800 shadow-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 md:col-span-2">
+                    <div className="hub-card rounded-md border border-ink-950/10 px-3 py-2 text-sm text-ink-800 shadow-sm dark:border-white/10 dark:text-slate-100 md:col-span-2">
                       {selectedTransactionUsedByOtherReimbursement ? (
                         <>
                           <p className="font-medium text-amber-900 dark:text-amber-200">

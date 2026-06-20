@@ -751,7 +751,7 @@ function GoalModal({ modal, saving, categories, userId, onClose, onSubmit }: { m
             <FieldShell label="Aporte mensal"><input min="0" step="0.01" type="number" className={inputClassName} value={values.monthly_contribution} onChange={(event) => setValues({ ...values, monthly_contribution: event.target.value })} /></FieldShell>
           </>
         ) : (
-          <div className="rounded-md border border-ink-950/10 bg-slate-50 p-4 text-sm leading-6 text-ink-600 md:col-span-2">
+          <div className="hub-card rounded-md border border-ink-950/10 bg-slate-50 p-4 text-sm leading-6 text-ink-600 md:col-span-2">
             Esta meta será acompanhada por prazo. Valores financeiros ficam ocultos para metas qualitativas ou numéricas.
           </div>
         )}

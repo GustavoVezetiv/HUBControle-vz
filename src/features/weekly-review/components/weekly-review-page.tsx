@@ -264,7 +264,7 @@ export function WeeklyReviewPage() {
             syncRun={latestSyncRun}
           />
 
-          <div className="flex flex-wrap gap-2 rounded-xl border border-ink-950/10 bg-white p-2 shadow-sm dark:border-white/10 dark:bg-slate-950/70">
+          <div className="hub-card flex flex-wrap gap-2 rounded-xl border border-ink-950/10 p-2 shadow-sm dark:border-white/10">
             {reviewTabs.map((tab) => (
               <button
                 key={tab.id}
@@ -380,7 +380,7 @@ function WeeklySummaryDetailSection({
         ) : (
           <div className="space-y-2">
             {completedThisWeek.slice(0, 5).map((task) => (
-              <div key={task.id} className="rounded-md border border-ink-950/10 bg-white px-3 py-2 text-sm dark:border-white/10 dark:bg-slate-950/50">
+              <div key={task.id} className="hub-card rounded-md border border-ink-950/10 px-3 py-2 text-sm dark:border-white/10">
                 <p className="font-medium text-ink-950 dark:text-slate-100">{task.title}</p>
                 <p className="mt-1 text-xs text-ink-600 dark:text-slate-300">
                   {task.completed_at ? formatDate(task.completed_at.slice(0, 10)) : "Sem data de conclusão"}
@@ -397,7 +397,7 @@ function WeeklySummaryDetailSection({
         ) : (
           <div className="space-y-2">
             {priorityTasks.map((task) => (
-              <div key={task.id} className="rounded-md border border-ink-950/10 bg-white px-3 py-2 text-sm dark:border-white/10 dark:bg-slate-950/50">
+              <div key={task.id} className="hub-card rounded-md border border-ink-950/10 px-3 py-2 text-sm dark:border-white/10">
                 <p className="font-medium text-ink-950 dark:text-slate-100">{task.title}</p>
                 <p className="mt-1 text-xs text-ink-600 dark:text-slate-300">
                   {task.due_date ? `Prazo ${formatDate(task.due_date)}` : "Sem prazo"}
@@ -421,7 +421,7 @@ function WeeklySummaryDetailSection({
 
 function SummaryCountRow({ label, value }: { label: string; value: number }) {
   return (
-    <div className="flex items-center justify-between rounded-md border border-ink-950/10 bg-white px-3 py-2 dark:border-white/10 dark:bg-slate-950/50">
+    <div className="hub-card flex items-center justify-between rounded-md border border-ink-950/10 px-3 py-2 dark:border-white/10">
       <span>{label}</span>
       <span className="font-semibold text-ink-950 dark:text-slate-100">{value}</span>
     </div>
@@ -514,7 +514,7 @@ function SummarySection({
             onChange={(event) => onWeekChange(toDateInputValue(startOfWeek(new Date(`${event.target.value}T00:00:00`))))}
           />
         </FieldShell>
-        <div className="rounded-lg border border-ink-950/10 bg-white p-4 dark:border-white/10 dark:bg-slate-950/50">
+        <div className="hub-card rounded-lg border border-ink-950/10 p-4 dark:border-white/10">
           <p className="text-sm font-semibold text-ink-950 dark:text-slate-100">
             Período: {formatDate(selectedWeekStart)} a {formatDate(selectedWeekEnd)}
           </p>
@@ -628,7 +628,7 @@ function AiSummaryReport({
           <h3 className="text-base font-semibold text-emerald-950 dark:text-emerald-100">Sugestões da IA</h3>
           <div className="mt-3 grid gap-4 md:grid-cols-3">
             {suggestions.map((group) => (
-              <div key={group.title} className="rounded-lg border border-emerald-500/20 bg-white/70 p-4 dark:bg-slate-950/30">
+              <div key={group.title} className="hub-card rounded-lg border border-emerald-500/20 bg-white/70 p-4 dark:bg-slate-950/30">
                 <h4 className="text-sm font-semibold text-emerald-950 dark:text-emerald-100">{group.title}</h4>
                 {group.items.length > 0 ? (
                   <ul className="mt-2 space-y-2 text-sm leading-6 text-emerald-900 dark:text-emerald-100">
@@ -652,7 +652,7 @@ function AiSummaryReport({
       {mainSections.map((section, index) => (
         <article
           key={`${section.title}-${index}`}
-          className={`rounded-xl border border-ink-950/10 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-slate-950/50 ${
+          className={`hub-card rounded-xl border border-ink-950/10 p-5 shadow-sm dark:border-white/10 ${
             index === 0 ? "md:col-span-2" : ""
           }`}
         >
@@ -700,7 +700,7 @@ function CompletedByCategorySection({
       ) : (
         <div className="space-y-4">
           {groups.map((group) => (
-            <div key={group.label} className="rounded-xl border border-ink-950/10 bg-white p-4 dark:border-white/10 dark:bg-slate-950/50">
+            <div key={group.label} className="hub-card rounded-xl border border-ink-950/10 p-4 dark:border-white/10">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <h3 className="text-sm font-semibold text-ink-950 dark:text-slate-100">{group.label}</h3>
                 <TextBadge tone="success">{group.tasks.length} concluída(s)</TextBadge>
@@ -747,7 +747,7 @@ function PrioritiesSection({
             const task = taskByGoogleId.get(event.google_task_id);
             const previousList = extractPreviousListLabel(event.previous_value, listByGoogleId);
             return (
-              <div key={event.id} className="rounded-lg border border-ink-950/10 bg-white p-4 dark:border-white/10 dark:bg-slate-950/50">
+              <div key={event.id} className="hub-card rounded-lg border border-ink-950/10 p-4 dark:border-white/10">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold text-ink-950 dark:text-slate-100">{task?.title}</p>
@@ -852,7 +852,7 @@ function TaskReviewCard({
   const taskContext = resolveRoutineTaskContext(task, new Map(taskLists.map((list) => [list.google_task_list_id, list])), categoryById);
 
   return (
-    <div className="rounded-lg border border-ink-950/10 bg-white p-4 dark:border-white/10 dark:bg-slate-950/50">
+    <div className="hub-card rounded-lg border border-ink-950/10 p-4 dark:border-white/10">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-sm font-semibold text-ink-950 dark:text-slate-100">{task.title}</p>
@@ -916,7 +916,7 @@ function MonthSection({
               className={`rounded-lg border p-4 text-left transition ${
                 active
                   ? "border-emerald-500 bg-emerald-50 text-emerald-950 dark:border-emerald-400 dark:bg-emerald-500/10 dark:text-emerald-100"
-                  : "border-ink-950/10 bg-white text-ink-950 hover:border-ink-950/30 dark:border-white/10 dark:bg-slate-950/50 dark:text-slate-100 dark:hover:border-white/30"
+                  : "hub-card border-ink-950/10 bg-white text-ink-950 hover:border-ink-950/30 dark:border-white/10 dark:text-slate-100 dark:hover:border-white/30"
               }`}
             >
               <p className="text-sm font-semibold">{week.label}</p>
@@ -949,7 +949,7 @@ function TechnicalSection({
 }) {
   return (
     <SectionCard title="Dados técnicos" description="Informações de sincronização, eventos e IDs ficam recolhidas para não poluir a revisão.">
-      <details className="rounded-lg border border-ink-950/10 bg-white p-4 dark:border-white/10 dark:bg-slate-950/50">
+      <details className="hub-card rounded-lg border border-ink-950/10 p-4 dark:border-white/10">
         <summary className="cursor-pointer text-sm font-semibold text-ink-950 dark:text-slate-100">Abrir dados técnicos</summary>
         <div className="mt-4 space-y-4">
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -999,7 +999,7 @@ function TechnicalEventsList({ events, taskByGoogleId }: { events: RoutineTaskEv
           {events.slice(0, 40).map((event) => {
             const task = taskByGoogleId.get(event.google_task_id);
             return (
-              <div key={event.id} className="rounded-lg border border-ink-950/10 bg-white p-4 dark:border-white/10 dark:bg-slate-950/50">
+              <div key={event.id} className="hub-card rounded-lg border border-ink-950/10 p-4 dark:border-white/10">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold text-ink-950 dark:text-slate-100">{event.event_type}</p>
@@ -1025,7 +1025,7 @@ function CountSection({ title, rows }: { title: string; rows: Array<{ label: str
       ) : (
         <div className="space-y-2">
           {rows.map((row) => (
-            <div key={row.label} className="flex items-center justify-between rounded-md border border-ink-950/10 bg-white px-3 py-2 text-sm dark:border-white/10 dark:bg-slate-950/50">
+            <div key={row.label} className="hub-card flex items-center justify-between rounded-md border border-ink-950/10 px-3 py-2 text-sm dark:border-white/10">
               <span className="font-medium text-ink-950 dark:text-slate-100">{row.label}</span>
               <span className="text-ink-600 dark:text-slate-300">{row.count}</span>
             </div>

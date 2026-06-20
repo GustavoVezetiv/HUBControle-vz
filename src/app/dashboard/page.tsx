@@ -307,7 +307,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
               <MonthSummaryLine key={row.label} row={row} />
             ))}
           </div>
-          <div className="mt-4 rounded-lg border border-ink-950/10 bg-slate-50 p-4 text-sm leading-6 text-ink-600 dark:border-white/10 dark:bg-slate-900/50 dark:text-slate-300">
+          <div className="hub-card mt-4 rounded-lg border border-ink-950/10 bg-slate-50 p-4 text-sm leading-6 text-ink-600 dark:border-white/10 dark:text-slate-300">
             Reembolsos e dinheiro de terceiros ajudam no caixa projetado, mas continuam separados de renda livre.
           </div>
         </SectionCard>
@@ -335,7 +335,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                 </thead>
                 <tbody className="divide-y divide-ink-950/10 dark:divide-white/10">
                   {visibleFlowRows.map((row) => (
-                    <tr key={`${row.type}-${row.description}-${row.date}`} className="bg-white dark:bg-transparent">
+                    <tr key={`${row.type}-${row.description}-${row.date}`}>
                       <td className="px-4 py-3 text-ink-600 dark:text-slate-300">{formatDate(row.date)}</td>
                       <td className="px-4 py-3 text-ink-600 dark:text-slate-300">{row.type}</td>
                       <td className="px-4 py-3 font-medium text-ink-950 dark:text-slate-100">{row.description}</td>

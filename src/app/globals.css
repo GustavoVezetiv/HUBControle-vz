@@ -556,6 +556,17 @@ select {
   color: #121417;
 }
 
+:root:not(.dark) .hub-shell .hub-kanban-column {
+  background: #edf2f7 !important;
+  border-color: rgba(15, 23, 42, 0.12) !important;
+}
+
+:root:not(.dark) .hub-shell .hub-kanban-empty {
+  background: rgba(255, 255, 255, 0.88) !important;
+  border-color: rgba(15, 23, 42, 0.12) !important;
+  color: #4b5563 !important;
+}
+
 :root.dark .hub-shell .hub-card,
 :root.dark .hub-modal {
   background: var(--hub-card-bg) !important;
@@ -582,6 +593,12 @@ select {
   border-color: rgba(15, 23, 42, 0.16) !important;
   color: #121417 !important;
   color-scheme: light;
+}
+
+:root:not(.dark) [role="listbox"] {
+  background-color: #ffffff !important;
+  border-color: rgba(15, 23, 42, 0.14) !important;
+  color: #121417 !important;
 }
 
 :root:not(.dark) .hub-input::placeholder,
@@ -644,6 +661,12 @@ select {
   background-color: var(--hub-subtle-surface) !important;
 }
 
+:root:not(.dark) .hub-shell .bg-slate-900\/50,
+:root:not(.dark) .hub-shell .bg-slate-900\/60,
+:root:not(.dark) .hub-shell .bg-slate-900\/70 {
+  background-color: var(--hub-subtle-surface) !important;
+}
+
 :root:not(.dark) .hub-shell .bg-white,
 :root:not(.dark) .hub-shell .bg-white\/70,
 :root:not(.dark) .hub-shell .bg-white\/80,
@@ -676,6 +699,30 @@ select {
 :root:not(.dark) .hub-shell .text-ink-500,
 :root:not(.dark) .hub-shell .text-slate-400 {
   color: #6b7280 !important;
+}
+
+:root:not(.dark) .hub-shell .hub-status-badge {
+  color: inherit;
+}
+
+:root:not(.dark) .hub-shell .hub-status-badge.bg-slate-100 {
+  background-color: #e5e7eb !important;
+  color: #374151 !important;
+}
+
+:root:not(.dark) .hub-shell .hub-status-badge.bg-mint-100 {
+  background-color: #dcfce7 !important;
+  color: #166534 !important;
+}
+
+:root:not(.dark) .hub-shell .hub-status-badge.bg-danger-100 {
+  background-color: #fee2e2 !important;
+  color: #b91c1c !important;
+}
+
+:root:not(.dark) .hub-shell .hub-status-badge.bg-sky-100 {
+  background-color: #e0f2fe !important;
+  color: #075985 !important;
 }
 
 :root:not(.dark) .hub-shell .dark\:bg-slate-950\/50,
