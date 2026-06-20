@@ -97,11 +97,11 @@ export function DashboardViewPreferences({ initialPeriod }: { initialPeriod: Per
   }
 
   function handleRestore() {
-      void withUserId((userId) => {
-        clearViewPreference("dashboard", userId);
-        setFeedback("Visualização padrão do dashboard restaurada.");
+    void withUserId((userId) => {
+      clearViewPreference("dashboard", userId);
+      setFeedback("Visualização padrão do dashboard restaurada.");
       router.replace(`${pathname}?${buildDashboardQuery(defaultDashboardPreference.period, defaultDashboardPreference.mode).toString()}`, { scroll: false });
-      });
+    });
   }
 
   function handleClearFilters() {
@@ -119,21 +119,21 @@ export function DashboardViewPreferences({ initialPeriod }: { initialPeriod: Per
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
-          className={`rounded-full border px-3 py-1.5 text-sm font-semibold transition ${initialMode === "simple" ? "border-mint-500 bg-mint-50 text-mint-700 dark:bg-mint-500/15 dark:text-mint-200" : "border-ink-950/10 bg-white text-ink-700 dark:border-white/10 dark:bg-slate-950/60 dark:text-slate-200"}`}
+          className={`hub-filter-chip rounded-full px-3 py-1.5 text-sm font-semibold transition ${initialMode === "simple" ? "hub-filter-chip-active" : ""}`}
           onClick={() => handleModeChange("simple")}
         >
           Resumo simples
         </button>
         <button
           type="button"
-          className={`rounded-full border px-3 py-1.5 text-sm font-semibold transition ${initialMode === "full" ? "border-mint-500 bg-mint-50 text-mint-700 dark:bg-mint-500/15 dark:text-mint-200" : "border-ink-950/10 bg-white text-ink-700 dark:border-white/10 dark:bg-slate-950/60 dark:text-slate-200"}`}
+          className={`hub-filter-chip rounded-full px-3 py-1.5 text-sm font-semibold transition ${initialMode === "full" ? "hub-filter-chip-active" : ""}`}
           onClick={() => handleModeChange("full")}
         >
           Visão completa
         </button>
       </div>
       <ViewPreferenceActions onSave={handleSave} onRestore={handleRestore} onClearFilters={handleClearFilters} />
-      {feedback ? <p className="text-sm text-ink-600">{feedback}</p> : null}
+      {feedback ? <p className="text-sm text-ink-600 dark:text-slate-300">{feedback}</p> : null}
     </div>
   );
 }

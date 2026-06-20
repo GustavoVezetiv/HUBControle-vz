@@ -277,6 +277,24 @@ select {
   color: var(--hub-nav-badge-active-text);
 }
 
+.hub-filter-chip {
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: rgba(255, 255, 255, 0.92);
+  color: #374151;
+}
+
+.hub-filter-chip:hover {
+  border-color: rgba(24, 185, 143, 0.36);
+  background: rgba(236, 253, 245, 0.88);
+  color: #121417;
+}
+
+.hub-filter-chip-active {
+  border-color: rgba(24, 185, 143, 0.44);
+  background: #ecfdf5;
+  color: #121417;
+}
+
 .hub-kanban-column {
   background: var(--hub-subtle-surface-strong);
   border-color: var(--hub-card-border);
@@ -350,6 +368,24 @@ select {
 
 :root.dark .hub-shell[data-card-effect="strong_glow"] {
   --hub-card-shadow: 0 22px 56px rgba(45, 212, 191, 0.22), 0 10px 28px rgba(0, 0, 0, 0.34);
+}
+
+:root.dark .hub-filter-chip {
+  border-color: rgba(148, 163, 184, 0.24);
+  background: rgba(15, 23, 42, 0.9);
+  color: #e2e8f0;
+}
+
+:root.dark .hub-filter-chip:hover {
+  border-color: rgba(45, 212, 191, 0.4);
+  background: rgba(30, 41, 59, 0.9);
+  color: #f8fafc;
+}
+
+:root.dark .hub-filter-chip-active {
+  border-color: rgba(45, 212, 191, 0.42);
+  background: rgba(236, 253, 245, 0.95);
+  color: #0f172a;
 }
 
 .hub-shell[data-visual-style="glass"] .hub-card {

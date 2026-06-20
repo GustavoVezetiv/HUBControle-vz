@@ -272,8 +272,8 @@ export function WeeklyReviewPage() {
                 onClick={() => setActiveTab(tab.id)}
                 className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
                   activeTab === tab.id
-                    ? "border-mint-500 bg-mint-50 text-ink-950 dark:bg-slate-100 dark:text-slate-950"
-                    : "text-ink-700 hover:bg-ink-950/5 dark:text-slate-200 dark:hover:bg-white/10"
+                    ? "hub-filter-chip hub-filter-chip-active"
+                    : "hub-filter-chip"
                 }`}
               >
                 {tab.label}
