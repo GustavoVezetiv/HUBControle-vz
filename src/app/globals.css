@@ -250,6 +250,24 @@ select {
   text-transform: uppercase;
 }
 
+.hub-nav-group {
+  border: 1px solid transparent;
+  color: rgb(var(--hub-ink-600));
+}
+
+.hub-nav-group:hover {
+  background: rgba(24, 185, 143, 0.08);
+  color: var(--hub-nav-text-strong);
+}
+
+.hub-nav-group-active {
+  color: var(--hub-nav-text-strong);
+}
+
+.hub-nav-group-icon {
+  color: inherit;
+}
+
 .hub-nav-item {
   border: 1px solid transparent;
   background: transparent;
@@ -368,6 +386,14 @@ select {
 
 :root.dark .hub-shell[data-card-effect="strong_glow"] {
   --hub-card-shadow: 0 22px 56px rgba(45, 212, 191, 0.22), 0 10px 28px rgba(0, 0, 0, 0.34);
+}
+
+:root.dark .hub-nav-group {
+  color: #cbd5e1;
+}
+
+:root.dark .hub-nav-group:hover {
+  color: #f8fafc;
 }
 
 :root.dark .hub-filter-chip {
