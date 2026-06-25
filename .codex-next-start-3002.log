@@ -1,0 +1,50 @@
+
+> financeiro-vz@0.1.0 start
+> next start -p 3002
+
+   Ôû▓ Next.js 15.5.18
+   - Local:        http://localhost:3002
+   - Network:      http://192.168.3.117:3002
+
+ Ô£ô Starting...
+ Ô£ô Ready in 707ms
+AuthApiError: Refresh token is not valid
+    at dT (C:\www\financeiro-vz\.next\server\src\middleware.js:36:42345)
+    at async dV (C:\www\financeiro-vz\.next\server\src\middleware.js:36:43319)
+    at async dU (C:\www\financeiro-vz\.next\server\src\middleware.js:36:42729)
+    at async c (C:\www\financeiro-vz\.next\server\src\middleware.js:49:25084)
+    at async (C:\www\financeiro-vz\.next\server\src\middleware.js:49:25347) {
+  __isAuthError: true,
+  status: 400,
+  code: 'validation_failed'
+}
+AuthApiError: Refresh token is not valid
+    at dT (C:\www\financeiro-vz\.next\server\src\middleware.js:36:42345)
+    at async dV (C:\www\financeiro-vz\.next\server\src\middleware.js:36:43319)
+    at async dU (C:\www\financeiro-vz\.next\server\src\middleware.js:36:42729)
+    at async c (C:\www\financeiro-vz\.next\server\src\middleware.js:49:25084)
+    at async (C:\www\financeiro-vz\.next\server\src\middleware.js:49:25347) {
+  __isAuthError: true,
+  status: 400,
+  code: 'validation_failed'
+}
+AuthApiError: Refresh token is not valid
+    at dT (C:\www\financeiro-vz\.next\server\src\middleware.js:36:42345)
+    at async dV (C:\www\financeiro-vz\.next\server\src\middleware.js:36:43319)
+    at async dU (C:\www\financeiro-vz\.next\server\src\middleware.js:36:42729)
+    at async c (C:\www\financeiro-vz\.next\server\src\middleware.js:49:25084)
+    at async (C:\www\financeiro-vz\.next\server\src\middleware.js:49:25347) {
+  __isAuthError: true,
+  status: 400,
+  code: 'validation_failed'
+}
+AuthApiError: Refresh token is not valid
+    at dT (C:\www\financeiro-vz\.next\server\src\middleware.js:36:42345)
+    at async dV (C:\www\financeiro-vz\.next\server\src\middleware.js:36:43319)
+    at async dU (C:\www\financeiro-vz\.next\server\src\middleware.js:36:42729)
+    at async c (C:\www\financeiro-vz\.next\server\src\middleware.js:49:25084)
+    at async (C:\www\financeiro-vz\.next\server\src\middleware.js:49:25347) {
+  __isAuthError: true,
+  status: 400,
+  code: 'validation_failed'
+}

@@ -1,0 +1,95 @@
+
+> financeiro-vz@0.1.0 dev
+> next dev --port 3000
+
+   ▲ Next.js 15.5.18
+   - Local:        http://localhost:3000
+   - Network:      http://192.168.3.117:3000
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 2.1s
+ ○ Compiling /middleware ...
+ ✓ Compiled /middleware in 829ms (170 modules)
+ ○ Compiling /login ...
+ ✓ Compiled /login in 4s (691 modules)
+ GET /login 200 in 64ms
+ ○ Compiling /dashboard ...
+ ✓ Compiled /dashboard in 1506ms (917 modules)
+ GET /dashboard 307 in 1951ms
+ GET /login 200 in 61ms
+ GET /login 200 in 121ms
+ GET /dashboard 307 in 82ms
+ ○ Compiling /dashboard/accounts ...
+ ✓ Compiled /dashboard/accounts in 914ms (945 modules)
+ GET /dashboard/accounts 307 in 1202ms
+ GET /login 200 in 60ms
+ ✓ Compiled /dashboard/income in 442ms (945 modules)
+ GET /dashboard/income 307 in 622ms
+ ✓ Compiled /dashboard/people in 301ms (957 modules)
+ GET /dashboard/people 307 in 479ms
+ ✓ Compiled /dashboard/categories in 460ms (969 modules)
+ GET /dashboard/categories 307 in 619ms
+ ✓ Compiled /dashboard/cards in 331ms (981 modules)
+ GET /dashboard/cards 307 in 473ms
+ ✓ Compiled /dashboard/invoices in 411ms (995 modules)
+ GET /dashboard/invoices 307 in 555ms
+ ○ Compiling /dashboard/reimbursements ...
+ ✓ Compiled /dashboard/reimbursements in 2.3s (1485 modules)
+ GET /dashboard/reimbursements 307 in 2491ms
+ ○ Compiling /dashboard/installments ...
+ ✓ Compiled /dashboard/installments in 557ms (1499 modules)
+ GET /dashboard/installments 307 in 857ms
+ ○ Compiling /dashboard/cash-flow ...
+ ✓ Compiled /dashboard/cash-flow in 832ms (1505 modules)
+ GET /dashboard/cash-flow 307 in 1547ms
+ ✓ Compiled /dashboard/payment-plans in 469ms (1517 modules)
+ GET /dashboard/payment-plans 307 in 619ms
+ ○ Compiling /dashboard/weekly-review ...
+ ✓ Compiled /dashboard/weekly-review in 559ms (1529 modules)
+ GET /dashboard/weekly-review 307 in 706ms
+ ○ Compiling /dashboard/purchases ...
+ ✓ Compiled /dashboard/purchases in 582ms (1541 modules)
+ GET /dashboard/purchases 307 in 748ms
+ ○ Compiling /dashboard/goals ...
+ ✓ Compiled /dashboard/goals in 688ms (1551 modules)
+ GET /dashboard/goals 307 in 887ms
+ ○ Compiling /dashboard/places ...
+ ✓ Compiled /dashboard/places in 615ms (1563 modules)
+ GET /dashboard/places 307 in 765ms
+ ○ Compiling /dashboard/diagnostics ...
+ ✓ Compiled /dashboard/diagnostics in 661ms (1573 modules)
+ GET /dashboard/diagnostics 307 in 877ms
+ ○ Compiling /dashboard/history ...
+ ✓ Compiled /dashboard/history in 643ms (1581 modules)
+ GET /dashboard/history 307 in 799ms
+ ○ Compiling /dashboard/archived ...
+ ✓ Compiled /dashboard/archived in 667ms (1589 modules)
+ GET /dashboard/archived 307 in 920ms
+ ○ Compiling /dashboard/imports ...
+ ✓ Compiled /dashboard/imports in 1417ms (1609 modules)
+ GET /dashboard/imports 307 in 1740ms
+ ○ Compiling /dashboard/notes ...
+ ✓ Compiled /dashboard/notes in 4.7s (1621 modules)
+ GET /dashboard/notes 307 in 4929ms
+ ○ Compiling /dashboard/settings ...
+ ✓ Compiled /dashboard/settings in 1194ms (1641 modules)
+ GET /dashboard/settings 307 in 1378ms
+ ✓ Compiled in 3.1s (1655 modules)
+ GET /login 200 in 74ms
+ ✓ Compiled in 921ms (1024 modules)
+ GET /login 200 in 246ms
+ ✓ Compiled in 1514ms (647 modules)
+ GET /login 200 in 92ms
+ ✓ Compiled in 1670ms (647 modules)
+ GET /login 200 in 59ms
+ ✓ Compiled in 343ms (647 modules)
+ GET /login 200 in 46ms
+ ✓ Compiled in 287ms (647 modules)
+ GET /login 200 in 66ms
+ ✓ Compiled in 282ms (647 modules)
+ GET /login 200 in 55ms
+ ✓ Compiled in 275ms (647 modules)
+ GET /login 200 in 47ms
+ ✓ Compiled in 1428ms (647 modules)
+ GET /login 200 in 49ms
