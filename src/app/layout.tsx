@@ -48,6 +48,7 @@ export default function RootLayout({
             `,
           }}
         />
+        <script defer src="https://ecossistema.vezetiv.dev/components/vezetiv-signature/vezetiv-signature.js"></script>
       </head>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         {children}
