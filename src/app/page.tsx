@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { StatusBadge } from "@/components/ui/status-badge";
+import { VezetivSignatureWrapper } from "@/components/vezetiv-signature-wrapper";
 
 export default function HomePage() {
   return (
@@ -35,6 +36,8 @@ export default function HomePage() {
           Ver tela de login
         </Link>
       </div>
+
+      <VezetivSignatureWrapper />
     </main>
   );
 }

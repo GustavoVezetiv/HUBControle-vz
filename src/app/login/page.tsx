@@ -1,6 +1,7 @@
 import { AuthForm } from "@/components/auth/auth-form";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { VezetivSignatureWrapper } from "@/components/vezetiv-signature-wrapper";
 
 export const metadata = {
   title: "Login",
@@ -24,6 +25,8 @@ export default function LoginPage() {
         </p>
 
         <AuthForm isConfigured={supabaseConfigured} />
+
+        <VezetivSignatureWrapper />
       </section>
     </main>
   );
