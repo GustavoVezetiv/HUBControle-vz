@@ -103,6 +103,8 @@ export type AccountPayable = UserOwnedRow & ArchiveFields & {
   delay_risk: RiskLevel;
   source_type: string;
   source_id: string | null;
+  linked_module: string | null;
+  linked_record_id: string | null;
   installment_id: string | null;
   installment_number: number | null;
   is_generated: boolean;
@@ -132,6 +134,15 @@ export type IncomeSource = UserOwnedRow & ArchiveFields & {
   status: string;
   received_at: string | null;
   received_date: string | null;
+  linked_payment_type: string | null;
+  linked_payment_id: string | null;
+  linked_module: string | null;
+  linked_record_id: string | null;
+  is_generated: boolean;
+  linked_credit_card_invoice_id: string | null;
+  linked_account_payable_id: string | null;
+  linked_installment_id: string | null;
+  linked_reimbursement_id: string | null;
   confidence: string;
   notes: string | null;
 };

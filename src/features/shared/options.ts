@@ -55,6 +55,11 @@ export const paymentMethodOptions: SelectOption[] = [
 export const incomeTypeOptions: SelectOption[] = [
   { value: "real_income", label: "Renda real" },
   { value: "reimbursement", label: "Reembolso" },
+  { value: "reimbursement_received", label: "Reembolso recebido" },
+  { value: "personal_contribution", label: "Aporte pessoal" },
+  { value: "account_transfer", label: "Transferência entre contas" },
+  { value: "available_cash", label: "Dinheiro já disponível" },
+  { value: "loan_received", label: "Empréstimo recebido" },
   { value: "third_party_money", label: "Dinheiro de terceiros" },
   { value: "freelance", label: "Freelance" },
   { value: "salary", label: "Salário" },

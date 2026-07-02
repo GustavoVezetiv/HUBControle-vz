@@ -5,6 +5,7 @@ import type {
   ReimbursementRow,
 } from "@/features/reimbursements/types";
 import { safeLogAction, safeLogCreate, safeLogFieldDiffs } from "@/features/audit/logger";
+import { logFinancialLinkCreated, logFinancialLinkUpdated } from "@/features/linked-entries/queries";
 import type { AppSupabaseClient } from "@/features/shared/types";
 import { archiveRecord, restoreArchivedRecord } from "@/features/shared/archive";
 import { findOrCreateInvoiceForTransactionDate } from "@/features/invoices/auto-invoices";
@@ -34,7 +35,7 @@ export async function listReimbursementSupportData(client: AppSupabaseClient) {
       .select("id,credit_card_id,invoice_id,category_id,description,amount,transaction_date,reimbursement_id,is_reimbursable")
       .is("archived_at", null)
       .order("transaction_date", { ascending: false }),
-    client.from("accounts_payable").select("id,title,amount").order("due_date", { ascending: false }),
+    client.from("accounts_payable").select("id,title,amount,due_date,status,reimbursement_id").order("due_date", { ascending: false }),
     client.from("income_sources").select("id,name,amount").order("expected_date", { ascending: false }),
     client
       .from("categories")
@@ -482,6 +483,14 @@ export async function syncReimbursementFinancialLink(
     return linkExistingTransaction(client, userId, reimbursement, currentTransaction.data, values);
   }
 
+  if (mode === "create_account") {
+    return createFinancialAccount(client, userId, reimbursement, currentTransaction.data, values);
+  }
+
+  if (mode === "link_account") {
+    return linkExistingAccount(client, userId, reimbursement, currentTransaction.data, values);
+  }
+
     return { error: null, invoiceId: null, transactionId: null };
   }
 
@@ -705,6 +714,170 @@ async function linkExistingTransaction(
   }
 
   return { error: null, invoiceId: values.financial_link_invoice_id, transactionId: selectedTransaction.id };
+}
+
+async function linkExistingAccount(
+  client: AppSupabaseClient,
+  userId: string,
+  reimbursement: ReimbursementRow,
+  currentTransaction: CreditCardTransaction | null,
+  values: ReimbursementFormValues,
+): Promise<FinancialLinkSyncResult> {
+  if (!values.financial_link_account_id) {
+    return { error: { message: "Selecione a conta existente para concluir o vínculo." }, invoiceId: null, transactionId: null };
+  }
+
+  const accountResult = await client
+    .from("accounts_payable")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("id", values.financial_link_account_id)
+    .is("archived_at", null)
+    .single();
+
+  if (accountResult.error || !accountResult.data) {
+    console.error("Erro técnico ao carregar conta para vínculo do reembolso:", accountResult.error);
+    return { error: { message: "A conta selecionada não foi encontrada ou está arquivada." }, invoiceId: null, transactionId: null };
+  }
+
+  if (accountResult.data.reimbursement_id && accountResult.data.reimbursement_id !== reimbursement.id) {
+    return { error: { message: "Esta conta já está vinculada a outro reembolso." }, invoiceId: null, transactionId: null };
+  }
+
+  if (currentTransaction) {
+    const detachCurrent = await detachTransactionFromReimbursement(client, userId, currentTransaction.id);
+    if (detachCurrent.error) return detachCurrent;
+    if (currentTransaction.invoice_id) await recalculateInvoiceTotal(client, userId, currentTransaction.invoice_id);
+  }
+
+  const updateAccount = await client
+    .from("accounts_payable")
+    .update({
+      reimbursement_id: reimbursement.id,
+      source_type: "reimbursement",
+      source_id: reimbursement.id,
+      linked_module: "reimbursements",
+      linked_record_id: reimbursement.id,
+    })
+    .eq("user_id", userId)
+    .eq("id", accountResult.data.id)
+    .select("id")
+    .single();
+
+  if (updateAccount.error) {
+    console.error("Erro técnico ao preparar conta vinculada ao reembolso:", updateAccount.error);
+    return { error: { message: "Não foi possível preparar a conta selecionada para este reembolso." }, invoiceId: null, transactionId: null };
+  }
+
+  const updateReimbursement = await client
+    .from("reimbursements")
+    .update({
+      account_payable_id: accountResult.data.id,
+      source_type: "account_payable",
+      source_id: accountResult.data.id,
+      credit_card_transaction_id: null,
+      credit_card_invoice_id: null,
+      income_source_id: null,
+    })
+    .eq("user_id", userId)
+    .eq("id", reimbursement.id);
+
+  if (updateReimbursement.error) {
+    console.error("Erro técnico ao vincular conta existente ao reembolso:", updateReimbursement.error);
+    return { error: { message: "A conta foi preparada, mas não foi possível vincular ao reembolso." }, invoiceId: null, transactionId: null };
+  }
+
+  await logFinancialLinkUpdated(client, userId, "accounts_payable", accountResult.data.id, "reimbursements", reimbursement.id, {
+    source_type: "reimbursement",
+    reimbursement_id: reimbursement.id,
+  });
+
+  return { error: null, invoiceId: null, transactionId: null };
+}
+
+async function createFinancialAccount(
+  client: AppSupabaseClient,
+  userId: string,
+  reimbursement: ReimbursementRow,
+  currentTransaction: CreditCardTransaction | null,
+  values: ReimbursementFormValues,
+): Promise<FinancialLinkSyncResult> {
+  if (reimbursement.account_payable_id) {
+    return { error: { message: "Este reembolso já possui conta vinculada. Edite ou remova o vínculo atual antes de criar outra." }, invoiceId: null, transactionId: null };
+  }
+
+  if (!values.financial_link_new_description.trim() || Number(values.financial_link_new_amount || 0) < 0 || !values.financial_link_new_date) {
+    return { error: { message: "Informe descrição, valor e data válidos para criar a conta." }, invoiceId: null, transactionId: null };
+  }
+
+  if (currentTransaction) {
+    const detachCurrent = await detachTransactionFromReimbursement(client, userId, currentTransaction.id);
+    if (detachCurrent.error) return detachCurrent;
+    if (currentTransaction.invoice_id) await recalculateInvoiceTotal(client, userId, currentTransaction.invoice_id);
+  }
+
+  const status = values.financial_link_new_status === "paid" ? "paid" : "pending";
+  const insertResult = await client
+    .from("accounts_payable")
+    .insert({
+      user_id: userId,
+      category_id: values.financial_link_new_category_id || reimbursement.category_id || null,
+      person_id: reimbursement.person_id,
+      title: values.financial_link_new_description.trim(),
+      description: "Conta gerada a partir de reembolso.",
+      amount: Number(values.financial_link_new_amount || 0),
+      due_date: values.financial_link_new_date,
+      status,
+      priority: "medium",
+      risk_level: "medium",
+      paid_at: status === "paid" ? `${values.financial_link_new_date}T00:00:00.000Z` : null,
+      payment_method_planned: values.financial_link_new_payment_method || "pix",
+      can_delay: true,
+      delay_risk: "medium",
+      source_type: "reimbursement",
+      source_id: reimbursement.id,
+      linked_module: "reimbursements",
+      linked_record_id: reimbursement.id,
+      reimbursement_id: reimbursement.id,
+      is_generated: true,
+      notes: "Conta criada automaticamente pela origem financeira do reembolso.",
+    })
+    .select("*")
+    .single();
+
+  if (insertResult.error) {
+    console.error("Erro técnico ao criar conta vinculada ao reembolso:", insertResult.error);
+    return { error: { message: "Não foi possível criar a conta vinculada ao reembolso." }, invoiceId: null, transactionId: null };
+  }
+
+  await safeLogCreate(client, userId, "accounts_payable", insertResult.data.id, insertResult.data, {
+    source_type: "reimbursement",
+    reimbursement_id: reimbursement.id,
+  });
+  await logFinancialLinkCreated(client, userId, "accounts_payable", insertResult.data.id, "reimbursements", reimbursement.id, {
+    source_type: "reimbursement",
+    reimbursement_id: reimbursement.id,
+  });
+
+  const updateReimbursement = await client
+    .from("reimbursements")
+    .update({
+      account_payable_id: insertResult.data.id,
+      source_type: "account_payable",
+      source_id: insertResult.data.id,
+      credit_card_transaction_id: null,
+      credit_card_invoice_id: null,
+      income_source_id: null,
+    })
+    .eq("user_id", userId)
+    .eq("id", reimbursement.id);
+
+  if (updateReimbursement.error) {
+    console.error("Erro técnico ao vincular nova conta ao reembolso:", updateReimbursement.error);
+    return { error: { message: "A conta foi criada, mas não foi possível vincular ao reembolso." }, invoiceId: null, transactionId: null };
+  }
+
+  return { error: null, invoiceId: null, transactionId: null };
 }
 
 async function createFinancialTransaction(
@@ -951,10 +1124,18 @@ function toPayload(
   current?: ReimbursementRow,
 ): Partial<ReimbursementRow> {
   const linkedTransactionId =
-    values.financial_link_mode === "create_invoice_transaction" || values.financial_link_mode === "remove_current"
+    values.financial_link_mode === "create_invoice_transaction" ||
+    values.financial_link_mode === "remove_current" ||
+    values.financial_link_mode === "create_account" ||
+    values.financial_link_mode === "link_account"
       ? null
       : values.credit_card_transaction_id || null;
-  const linkedAccountId = values.account_payable_id || null;
+  const linkedAccountId =
+    values.financial_link_mode === "link_account"
+      ? values.financial_link_account_id || null
+      : values.financial_link_mode === "create_account" || values.financial_link_mode === "link_existing" || values.financial_link_mode === "create_invoice_transaction"
+        ? null
+        : values.account_payable_id || null;
   const linkedIncomeId = values.income_source_id || null;
   const sourcePayload = linkedTransactionId
     ? { source_type: "credit_card_transaction", source_id: linkedTransactionId }
