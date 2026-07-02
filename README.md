@@ -81,6 +81,7 @@ Implemented in the foundation phase:
 - Monthly cash-flow view with real income separated from reimbursements and third-party money
 - Reimbursement visibility by responsible person and linked source
 - Total reimbursement debt balance by person, with late rows highlighted by expected date
+- Linked cash-entry flow for invoice payments, installment payments and reimbursement receipts
 - Controlled monthly recurring income generation
 - CRUD for planned purchases and wishes
 - CRUD for roles e lugares
@@ -207,6 +208,31 @@ It also creates:
 - `create_default_categories_for_current_user()` for optional per-user default categories after login.
 
 The default category helper is user safe because it uses `auth.uid()` and does not create global shared data.
+
+### Linked Payment Entries
+
+The migration below adds traceable links between cash entries and financial actions:
+
+```bash
+supabase/migrations/202607020001_linked_payment_entries.sql
+```
+
+Run it before testing linked entries. It adds link fields to `income_sources`, generic
+`linked_module`/`linked_record_id` references for generated financial records, and allows
+`accounts_payable.source_type = invoice_payment`.
+
+Behavior:
+
+- Invoice payments create or update a linked account payable for the invoice payment.
+- Installment payments mark the generated installment account as paid, or create a linked generated account if missing.
+- Installments outside credit cards can generate monthly accounts in `accounts_payable`; credit-card installments are controlled by invoices and do not create standalone accounts.
+- Paying an installment from the Installments screen asks for installment number, payment date, payment method, paid amount and notes, then keeps the generated account synchronized.
+- Reimbursements can create or link the original expense as a credit-card transaction or account payable, depending on how the user paid the expense.
+- Reimbursement receipts create an `income_sources` entry with `inflow_kind = reimbursement`.
+- Generated payment records keep `source_type`, `source_id`, `linked_module`, `linked_record_id` and `is_generated` where supported.
+- Audit logs register linked entries, payment registration, financial link creation/update and payment continuation without sufficient entry.
+- Only entries with type `real_income` count as free income. Reimbursements, personal contributions, transfers, available cash, loans and other linked entries do not inflate free-income reports.
+- If the period has no sufficient registered entry/balance, the UI warns and lets the user register a linked entry, continue anyway, or cancel.
 
 An incremental CRUD migration also lives at:
 

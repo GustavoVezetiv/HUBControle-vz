@@ -14,7 +14,7 @@ export type ReimbursementTransaction = Pick<
   | "reimbursement_id"
   | "is_reimbursable"
 >;
-export type ReimbursementAccount = Pick<AccountPayable, "id" | "title" | "amount">;
+export type ReimbursementAccount = Pick<AccountPayable, "id" | "title" | "amount" | "due_date" | "status" | "reimbursement_id">;
 export type ReimbursementIncome = Pick<IncomeSource, "id" | "name" | "amount">;
 export type ReimbursementCategory = Pick<Category, "id" | "name" | "type" | "color" | "icon" | "scopes">;
 export type ReimbursementCard = Pick<CreditCard, "id" | "name" | "issuer">;
@@ -23,6 +23,8 @@ export type ReimbursementInvoice = Pick<CreditCardInvoice, "id" | "credit_card_i
 export type ReimbursementFinancialLinkMode =
   | "none"
   | "keep_current"
+  | "link_account"
+  | "create_account"
   | "link_existing"
   | "create_invoice_transaction"
   | "remove_current";
@@ -75,11 +77,14 @@ export type ReimbursementFormValues = {
   financial_link_card_id: string;
   financial_link_invoice_id: string;
   financial_link_transaction_id: string;
+  financial_link_account_id: string;
   financial_link_allow_reuse: boolean;
   financial_link_new_description: string;
   financial_link_new_amount: string;
   financial_link_new_date: string;
   financial_link_new_category_id: string;
+  financial_link_new_status: string;
+  financial_link_new_payment_method: string;
   financial_link_remove_mode: ReimbursementFinancialRemoveMode;
 };
 
@@ -106,11 +111,14 @@ export const emptyReimbursementForm: ReimbursementFormValues = {
   financial_link_card_id: "",
   financial_link_invoice_id: "",
   financial_link_transaction_id: "",
+  financial_link_account_id: "",
   financial_link_allow_reuse: false,
   financial_link_new_description: "",
   financial_link_new_amount: "0",
   financial_link_new_date: "",
   financial_link_new_category_id: "",
+  financial_link_new_status: "paid",
+  financial_link_new_payment_method: "pix",
   financial_link_remove_mode: "keep_transaction",
 };
 
@@ -138,11 +146,14 @@ export function reimbursementToFormValues(reimbursement: ReimbursementRow): Reim
     financial_link_card_id: "",
     financial_link_invoice_id: reimbursement.credit_card_invoice_id ?? "",
     financial_link_transaction_id: reimbursement.credit_card_transaction_id ?? "",
+    financial_link_account_id: reimbursement.account_payable_id ?? "",
     financial_link_allow_reuse: false,
     financial_link_new_description: reimbursement.description ?? "",
     financial_link_new_amount: String(reimbursement.expected_amount),
     financial_link_new_date: reimbursement.expected_date ?? "",
     financial_link_new_category_id: reimbursement.category_id ?? "",
+    financial_link_new_status: "paid",
+    financial_link_new_payment_method: "pix",
     financial_link_remove_mode: "keep_transaction",
   };
 }

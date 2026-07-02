@@ -49,16 +49,25 @@ import {
 } from "@/features/reimbursements/types";
 import { ActionButton, BulkActionsBar, CategoryBadge, CategorySelect, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, RowSelectionHint, shouldToggleRowSelection, TextBadge, TitleButton, ViewPreferenceActions } from "@/features/shared/crud-ui";
 import { formatCurrency, formatDate } from "@/features/shared/format";
-import { invoiceStatusOptions, optionLabel, reimbursementStatusOptions } from "@/features/shared/options";
+import { accountStatusOptions, invoiceStatusOptions, optionLabel, paymentMethodOptions, reimbursementStatusOptions } from "@/features/shared/options";
 import { PeriodFilter } from "@/features/shared/period-filter";
 import { isAnyDateInPeriod, parsePeriodSearchParams, type PeriodValue } from "@/features/shared/period";
 import { getQuickTableEditPreference } from "@/features/shared/quick-edit";
 import type { FeedbackState } from "@/features/shared/types";
 import { clearViewPreference, loadViewPreference, preferenceRecord, preferenceString, preferenceText, saveViewPreference } from "@/features/shared/view-preferences";
+import { createLinkedEntry } from "@/features/linked-entries/queries";
+import type { LinkedEntryContext } from "@/features/linked-entries/types";
 import { createClient } from "@/lib/supabase/client";
 
 type ModalState = { mode: "create"; reimbursement: null } | { mode: "edit"; reimbursement: ReimbursementRow } | null;
 type LinkModalState = { reimbursement: ReimbursementRow } | null;
+type ReceiveModalState = { reimbursement: ReimbursementRow; context: LinkedEntryContext } | null;
+type ReimbursementReceiptValues = {
+  amount: string;
+  date: string;
+  method: string;
+  notes: string;
+};
 type RenegotiationModalState = { reimbursements: ReimbursementRow[]; person: ReimbursementPerson | null } | null;
 type ReimbursementsViewPreference = {
   search?: string;
@@ -71,6 +80,8 @@ type ReimbursementsViewPreference = {
 };
 
 const reimbursementSummaryViews = ["open_period", "late", "all_debt", "all_history", "hide_settled"] as const;
+const ECOSYSTEM_LABEL = "ecossistema.vezetiv.dev";
+const ECOSYSTEM_URL = "https://github.com/GustavoVezetiv/Ecossitema.vezetiv.dev";
 const reimbursementsDefaultViewPreference: Required<ReimbursementsViewPreference> = {
   search: "",
   personFilter: "all",
@@ -105,6 +116,7 @@ export function ReimbursementsCrud() {
   const [linkingId, setLinkingId] = useState<string | null>(null);
   const [modal, setModal] = useState<ModalState>(null);
   const [linkModal, setLinkModal] = useState<LinkModalState>(null);
+  const [receiveModal, setReceiveModal] = useState<ReceiveModalState>(null);
   const [renegotiationModal, setRenegotiationModal] = useState<RenegotiationModalState>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
@@ -420,6 +432,67 @@ export function ReimbursementsCrud() {
       setFeedback({ type: "error", message: "Não foi possível gerar o lançamento vinculado." });
     } finally {
       setLinkingId(null);
+    }
+  }
+
+  async function handleReceiveReimbursement(values: ReimbursementReceiptValues) {
+    if (!userId || !receiveModal) {
+      setFeedback({ type: "error", message: "Sessão não encontrada." });
+      return;
+    }
+
+    const amount = Number(values.amount || 0);
+    if (amount <= 0 || !values.date) {
+      setFeedback({ type: "error", message: "Valor e data do recebimento são obrigatórios." });
+      return;
+    }
+
+    setSaving(true);
+    setFeedback(null);
+    try {
+      const client = createClient();
+      const entry = await createLinkedEntry(client, userId, receiveModal.context, {
+        title: receiveModal.context.title,
+        amount: values.amount,
+        date: values.date,
+        type: "reimbursement_received",
+        person_id: receiveModal.reimbursement.person_id,
+        notes: [
+          "Entrada vinculada ao recebimento de reembolso. Não é renda livre.",
+          `Forma de recebimento: ${optionLabel(paymentMethodOptions, values.method)}`,
+          values.notes.trim() || null,
+        ].filter(Boolean).join("\n"),
+      });
+
+      if (entry.error || !entry.data) {
+        setFeedback({ type: "error", message: entry.error?.message ?? "Não foi possível registrar a entrada de reembolso." });
+        return;
+      }
+
+      const nextReceivedAmount = Number(receiveModal.reimbursement.received_amount || 0) + amount;
+      const expectedAmount = Number(receiveModal.reimbursement.expected_amount || 0);
+      const result = await updateReimbursement(client, receiveModal.reimbursement.id, {
+        ...reimbursementToFormValues(receiveModal.reimbursement),
+        received_amount: String(nextReceivedAmount),
+        received_date: values.date,
+        status: nextReceivedAmount >= expectedAmount ? "received" : "partial",
+        income_source_id: entry.data.id,
+      });
+
+      if (result.error) {
+        console.error("Erro técnico ao vincular entrada ao reembolso:", result.error);
+        setFeedback({ type: "error", message: "Entrada criada, mas não foi possível atualizar o reembolso." });
+        return;
+      }
+
+      setFeedback({ type: "success", message: "Recebimento de reembolso registrado como entrada vinculada." });
+      setReceiveModal(null);
+      await loadData();
+    } catch (error) {
+      console.error("Erro técnico ao registrar recebimento de reembolso:", error);
+      setFeedback({ type: "error", message: "Não foi possível registrar o recebimento do reembolso." });
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -1014,6 +1087,13 @@ export function ReimbursementsCrud() {
                         >
                           {linkingId === reimbursement.id ? "Gerando..." : "Gerar lançamento vinculado"}
                         </ActionButton>
+                        <ActionButton
+                          variant="secondary"
+                          disabled={saving || getOpenAmount(reimbursement) <= 0}
+                          onClick={() => setReceiveModal({ reimbursement, context: buildReimbursementReceiptContext(reimbursement) })}
+                        >
+                          Registrar recebimento
+                        </ActionButton>
                         <ActionButton variant="secondary" onClick={() => setModal({ mode: "edit", reimbursement })}>Editar</ActionButton>
                         <ActionButton variant="danger" onClick={() => void handleDelete(reimbursement)}>Arquivar</ActionButton>
                       </div>
@@ -1052,6 +1132,14 @@ export function ReimbursementsCrud() {
           reimbursement={linkModal.reimbursement}
           onClose={() => setLinkModal(null)}
           onSubmit={(values) => void handleGenerateLinked(values)}
+        />
+      ) : null}
+      {receiveModal ? (
+        <ReimbursementReceiptModal
+          modal={receiveModal}
+          saving={saving}
+          onClose={() => setReceiveModal(null)}
+          onSubmit={(values) => void handleReceiveReimbursement(values)}
         />
       ) : null}
       {renegotiationModal ? (
@@ -1167,6 +1255,22 @@ function ReimbursementModal({
     }));
   }, [currentCard?.id, currentTransaction, modal]);
 
+  function setFinancialLinkMode(mode: ReimbursementFinancialLinkMode) {
+    setValues((current) => ({
+      ...current,
+      financial_link_mode: mode,
+      financial_link_new_description: current.financial_link_new_description || current.description || "",
+      financial_link_new_amount:
+        current.financial_link_new_amount && current.financial_link_new_amount !== "0"
+          ? current.financial_link_new_amount
+          : current.expected_amount,
+      financial_link_new_date: current.financial_link_new_date || current.expected_date || "",
+      financial_link_new_category_id: current.financial_link_new_category_id || current.category_id,
+      financial_link_new_status: current.financial_link_new_status || "paid",
+      financial_link_new_payment_method: current.financial_link_new_payment_method || "pix",
+    }));
+  }
+
   return (
     <Modal
       title={modal?.mode === "edit" ? "Editar reembolso" : "Novo reembolso"}
@@ -1197,11 +1301,18 @@ function ReimbursementModal({
                   ? values.financial_link_invoice_id
                   : "",
             account_payable_id:
-              values.financial_link_mode === "link_existing" || values.financial_link_mode === "create_invoice_transaction"
+              values.financial_link_mode === "link_existing" ||
+              values.financial_link_mode === "create_invoice_transaction" ||
+              values.financial_link_mode === "create_account"
                 ? ""
-                : values.account_payable_id,
+                : values.financial_link_mode === "link_account"
+                  ? values.financial_link_account_id
+                  : values.account_payable_id,
             income_source_id:
-              values.financial_link_mode === "link_existing" || values.financial_link_mode === "create_invoice_transaction"
+              values.financial_link_mode === "link_existing" ||
+              values.financial_link_mode === "create_invoice_transaction" ||
+              values.financial_link_mode === "create_account" ||
+              values.financial_link_mode === "link_account"
                 ? ""
                 : values.income_source_id,
           };
@@ -1323,21 +1434,18 @@ function ReimbursementModal({
           ) : null}
 
           <div className="mt-4 grid gap-4 md:grid-cols-2">
-            <FieldShell label="Modo de vínculo">
+            <FieldShell label="Como você pagou essa despesa?">
               <select
                 className={inputClassName}
                 value={values.financial_link_mode}
-                onChange={(event) =>
-                  setValues({
-                    ...values,
-                    financial_link_mode: event.target.value as ReimbursementFinancialLinkMode,
-                  })
-                }
+                onChange={(event) => setFinancialLinkMode(event.target.value as ReimbursementFinancialLinkMode)}
               >
-                {currentTransaction ? <option value="keep_current">Manter vínculo atual</option> : null}
-                <option value="none">Sem vínculo</option>
-                <option value="link_existing">Vincular a lançamento existente</option>
-                <option value="create_invoice_transaction">Criar lançamento em fatura</option>
+                {currentTransaction ? <option value="keep_current">Manter vínculo atual no cartão</option> : null}
+                <option value="none">Ainda não vincular</option>
+                <option value="create_invoice_transaction">Cartão - criar lançamento/fatura</option>
+                <option value="create_account">Pix/dinheiro/conta - criar conta</option>
+                <option value="link_existing">Já existe lançamento no cartão</option>
+                <option value="link_account">Já existe conta</option>
                 {currentTransaction ? <option value="remove_current">Remover vínculo atual</option> : null}
               </select>
             </FieldShell>
@@ -1489,6 +1597,93 @@ function ReimbursementModal({
             </div>
           ) : null}
 
+          {values.financial_link_mode === "link_account" ? (
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <div className="md:col-span-2">
+                <FieldShell label="Conta existente">
+                  <select
+                    className={inputClassName}
+                    value={values.financial_link_account_id}
+                    onChange={(event) => setValues({ ...values, financial_link_account_id: event.target.value })}
+                  >
+                    <option value="">Selecione</option>
+                    {accounts.map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.title} · {formatDate(account.due_date)} · {formatCurrency(Number(account.amount))} · {optionLabel(accountStatusOptions, account.status)}
+                      </option>
+                    ))}
+                  </select>
+                </FieldShell>
+              </div>
+              <div className="rounded-md border border-mint-500/35 bg-mint-50 px-3 py-2 text-sm font-medium text-ink-800 shadow-sm dark:border-mint-400/35 dark:bg-mint-950/30 dark:text-slate-100 md:col-span-2">
+                O sistema vincula a conta existente sem duplicar despesa.
+              </div>
+            </div>
+          ) : null}
+
+          {values.financial_link_mode === "create_account" ? (
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <FieldShell label="Descrição da conta">
+                <input
+                  className={inputClassName}
+                  value={values.financial_link_new_description}
+                  onChange={(event) => setValues({ ...values, financial_link_new_description: event.target.value })}
+                />
+              </FieldShell>
+              <FieldShell label="Valor da conta">
+                <input
+                  min="0"
+                  step="0.01"
+                  type="number"
+                  className={inputClassName}
+                  value={values.financial_link_new_amount}
+                  onChange={(event) => setValues({ ...values, financial_link_new_amount: event.target.value })}
+                />
+              </FieldShell>
+              <FieldShell label="Data da despesa">
+                <input
+                  type="date"
+                  className={inputClassName}
+                  value={values.financial_link_new_date}
+                  onChange={(event) => setValues({ ...values, financial_link_new_date: event.target.value })}
+                />
+              </FieldShell>
+              <FieldShell label="Status da conta">
+                <select
+                  className={inputClassName}
+                  value={values.financial_link_new_status}
+                  onChange={(event) => setValues({ ...values, financial_link_new_status: event.target.value })}
+                >
+                  <option value="paid">Pago</option>
+                  <option value="pending">Pendente</option>
+                </select>
+              </FieldShell>
+              <FieldShell label="Forma de pagamento">
+                <select
+                  className={inputClassName}
+                  value={values.financial_link_new_payment_method}
+                  onChange={(event) => setValues({ ...values, financial_link_new_payment_method: event.target.value })}
+                >
+                  {paymentMethodOptions
+                    .filter((option) => option.value !== "credit_card")
+                    .map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                </select>
+              </FieldShell>
+              <FieldShell label="Categoria da conta">
+                <CategorySelect
+                  categories={scopedCategories}
+                  value={values.financial_link_new_category_id}
+                  onChange={(category_id) => setValues({ ...values, financial_link_new_category_id: category_id })}
+                />
+              </FieldShell>
+              <p className="rounded-md border border-mint-500/35 bg-mint-50 px-3 py-2 text-sm font-medium text-ink-800 shadow-sm dark:border-mint-400/35 dark:bg-mint-950/30 dark:text-slate-100 md:col-span-2">
+                Esta conta representa a despesa original paga fora do cartão. O recebimento futuro continuará sendo reembolso, não renda livre.
+              </p>
+            </div>
+          ) : null}
+
           {values.financial_link_mode === "remove_current" ? (
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <FieldShell label="Ao remover vínculo">
@@ -1542,6 +1737,119 @@ function ReimbursementModal({
             <AuditRecordHistory userId={userId} module="reimbursements" recordId={modal.reimbursement.id} title="Histórico do reembolso" />
           </div>
         ) : null}
+      </form>
+    </Modal>
+  );
+}
+
+function ReimbursementReceiptModal({
+  modal,
+  saving,
+  onClose,
+  onSubmit,
+}: {
+  modal: NonNullable<ReceiveModalState>;
+  saving: boolean;
+  onClose: () => void;
+  onSubmit: (values: ReimbursementReceiptValues) => void;
+}) {
+  const openAmount = getOpenAmount(modal.reimbursement);
+  const receiptMethodOptions = paymentMethodOptions.filter((option) => option.value !== "credit_card");
+  const [values, setValues] = useState<ReimbursementReceiptValues>({
+    amount: String(openAmount > 0 ? openAmount : modal.reimbursement.expected_amount),
+    date: modal.reimbursement.received_date ?? new Date().toISOString().slice(0, 10),
+    method: "pix",
+    notes: "",
+  });
+
+  return (
+    <Modal
+      title="Registrar recebimento"
+      onClose={onClose}
+      headerAction={
+        <ActionButton type="submit" form="reimbursement-receipt-form" disabled={saving}>
+          {saving ? "Registrando..." : "Registrar recebimento"}
+        </ActionButton>
+      }
+    >
+      <form
+        id="reimbursement-receipt-form"
+        className="grid gap-4 md:grid-cols-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit(values);
+        }}
+      >
+        <div className="rounded-md border border-mint-500/35 bg-mint-50 px-3 py-2 text-sm font-medium text-ink-800 shadow-sm dark:border-mint-400/35 dark:bg-mint-950/30 dark:text-slate-100 md:col-span-2">
+          Este recebimento será registrado como <strong>reembolso recebido</strong>. Ele ajuda o caixa, mas não entra como renda livre.
+        </div>
+
+        <FieldShell label="Valor recebido">
+          <input
+            required
+            min="0"
+            step="0.01"
+            type="number"
+            className={inputClassName}
+            value={values.amount}
+            onChange={(event) => setValues({ ...values, amount: event.target.value })}
+          />
+        </FieldShell>
+
+        <FieldShell label="Data recebida">
+          <input
+            required
+            type="date"
+            className={inputClassName}
+            value={values.date}
+            onChange={(event) => setValues({ ...values, date: event.target.value })}
+          />
+        </FieldShell>
+
+        <FieldShell label="Forma de recebimento">
+          <select
+            className={inputClassName}
+            value={values.method}
+            onChange={(event) => setValues({ ...values, method: event.target.value })}
+          >
+            {receiptMethodOptions.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </FieldShell>
+
+        <div className="flex items-end gap-2">
+          <ActionButton
+            type="button"
+            variant="secondary"
+            onClick={() => setValues({ ...values, amount: String(openAmount > 0 ? openAmount : modal.reimbursement.expected_amount) })}
+          >
+            Receber total
+          </ActionButton>
+        </div>
+
+        <div className="md:col-span-2">
+          <FieldShell label="Observação">
+            <textarea
+              rows={3}
+              className={inputClassName}
+              value={values.notes}
+              onChange={(event) => setValues({ ...values, notes: event.target.value })}
+            />
+          </FieldShell>
+        </div>
+
+        <div className="rounded-md border border-ink-950/10 bg-slate-50 px-3 py-2 text-sm text-ink-700 dark:border-white/10 dark:bg-slate-900/60 dark:text-slate-200 md:col-span-2">
+          <p className="font-semibold text-ink-950 dark:text-slate-100">{modal.context.title}</p>
+          <p className="mt-1">
+            Em aberto: {formatCurrency(openAmount)}
+          </p>
+        </div>
+
+        <div className="flex justify-end gap-2 md:col-span-2">
+          <ActionButton type="button" variant="secondary" onClick={onClose}>Cancelar</ActionButton>
+          <ActionButton type="submit" disabled={saving}>{saving ? "Registrando..." : "Registrar recebimento"}</ActionButton>
+        </div>
       </form>
     </Modal>
   );
@@ -2033,8 +2341,11 @@ function ReimbursementReportModal({
             </>
           )}
 
-          <footer className="report-footer mt-8 border-t border-ink-950/10 pt-4 text-xs leading-5 text-ink-600">
-            Hub VZ · Relatório de apoio · Reembolsos não são renda livre.
+          <footer className="report-footer mt-8 flex flex-wrap items-center justify-between gap-2 border-t border-ink-950/10 pt-4 text-xs leading-5 text-ink-600">
+            <span>Hub VZ · Relatório de apoio · Reembolsos não são renda livre.</span>
+            <a className="font-semibold text-mint-600 underline" href={ECOSYSTEM_URL} target="_blank" rel="noreferrer">
+              {ECOSYSTEM_LABEL}
+            </a>
           </footer>
         </article>
       </div>
@@ -2103,11 +2414,19 @@ function buildReimbursementPdfDocument({
   const marginBottom = 10;
   const contentWidth = pageWidth - marginX * 2;
   const footerText = "Hub VZ · Relatório de apoio · Reembolsos não são renda livre.";
+  const pdfWithLink = doc as jsPDF & {
+    textWithLink?: (text: string, x: number, y: number, options: { url: string; align?: "left" | "center" | "right" }) => void;
+  };
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
   doc.setTextColor(8, 127, 116);
   doc.text("Hub VZ", marginX, marginTop);
+  if (pdfWithLink.textWithLink) {
+    pdfWithLink.textWithLink(ECOSYSTEM_LABEL, pageWidth - marginX, marginTop, { align: "right", url: ECOSYSTEM_URL });
+  } else {
+    doc.text(ECOSYSTEM_LABEL, pageWidth - marginX, marginTop, { align: "right" });
+  }
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(20);
@@ -2314,7 +2633,12 @@ function buildReimbursementPdfDocument({
           doc.setFont("helvetica", "normal");
           doc.setFontSize(8);
           doc.setTextColor(100, 116, 139);
-          doc.text(footerText, pageWidth / 2, pageHeight - 5, { align: "center" });
+          doc.text(footerText, marginX, pageHeight - 5);
+          if (pdfWithLink.textWithLink) {
+            pdfWithLink.textWithLink(ECOSYSTEM_LABEL, pageWidth - marginX, pageHeight - 5, { align: "right", url: ECOSYSTEM_URL });
+          } else {
+            doc.text(ECOSYSTEM_LABEL, pageWidth - marginX, pageHeight - 5, { align: "right" });
+          }
         },
       });
 
@@ -2774,6 +3098,24 @@ function getPersonGroupStatusLabel(rows: ReimbursementRow[]) {
 function getOpenAmount(reimbursement: ReimbursementRow) {
   if (["received", "cancelled", "forgiven", "renegotiated"].includes(reimbursement.status)) return 0;
   return Math.max(Number(reimbursement.expected_amount) - Number(reimbursement.received_amount), 0);
+}
+
+function buildReimbursementReceiptContext(reimbursement: ReimbursementRow): LinkedEntryContext {
+  const openAmount = getOpenAmount(reimbursement);
+  const date = reimbursement.received_date || new Date().toISOString().slice(0, 10);
+  return {
+    paymentType: "reimbursement_receipt",
+    paymentId: reimbursement.id,
+    title: `Recebimento - ${reimbursement.description ?? "Reembolso"}`,
+    amount: openAmount,
+    date,
+    defaultType: "reimbursement_received",
+    personId: reimbursement.person_id,
+    notes: "Entrada vinculada ao recebimento de reembolso. Não é renda livre.",
+    reimbursementId: reimbursement.id,
+    creditCardInvoiceId: reimbursement.credit_card_invoice_id,
+    accountPayableId: reimbursement.account_payable_id,
+  };
 }
 
 function isLateReimbursement(reimbursement: ReimbursementRow) {

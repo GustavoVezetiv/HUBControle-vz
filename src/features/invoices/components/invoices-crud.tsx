@@ -16,8 +16,11 @@ import { getPeriodValue, isAnyDateInPeriod, parsePeriodSearchParams, type Period
 import type { FeedbackState } from "@/features/shared/types";
 import { clearViewPreference, loadViewPreference, preferenceRecord, preferenceText, saveViewPreference } from "@/features/shared/view-preferences";
 import { calculateInvoiceCycleForReferenceMonth, generateFutureInvoicesForCard } from "@/features/invoices/auto-invoices";
-import { archiveInvoice, createInvoice, listInvoiceCards, listInvoices, updateInvoice } from "@/features/invoices/queries";
+import { archiveInvoice, createInvoice, listInvoiceCards, listInvoices, registerInvoicePayment, updateInvoice } from "@/features/invoices/queries";
 import { emptyInvoiceForm, invoiceToFormValues, type InvoiceCard, type InvoiceFormValues, type InvoiceRow } from "@/features/invoices/types";
+import { InsufficientCashModal, LinkedEntryModal } from "@/features/linked-entries/components";
+import { checkCashAvailabilityForPayment, createLinkedEntry, logPaymentContinuedWithoutSufficientEntry } from "@/features/linked-entries/queries";
+import type { CashAvailability, LinkedEntryContext, LinkedEntryFormValues } from "@/features/linked-entries/types";
 import type { InvoicePaymentStatus } from "@/lib/supabase/types";
 import { createClient } from "@/lib/supabase/client";
 
@@ -31,6 +34,13 @@ type InvoicesViewPreference = {
   cardFilter?: string;
   statusFilter?: string;
   period?: PeriodValue;
+};
+type PendingInvoicePayment = {
+  invoice: InvoiceRow;
+  amount: number;
+  paymentDate: string;
+  availability: CashAvailability | null;
+  context: LinkedEntryContext;
 };
 
 const invoicesDefaultViewPreference: Required<InvoicesViewPreference> = {
@@ -54,6 +64,8 @@ export function InvoicesCrud() {
   const [generatingInvoices, setGeneratingInvoices] = useState(false);
   const [generateModalOpen, setGenerateModalOpen] = useState(false);
   const [modal, setModal] = useState<ModalState>(null);
+  const [pendingPayment, setPendingPayment] = useState<PendingInvoicePayment | null>(null);
+  const [linkedEntryContext, setLinkedEntryContext] = useState<LinkedEntryContext | null>(null);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [collapsedMonths, setCollapsedMonths] = useState<Set<string>>(new Set());
 
@@ -244,38 +256,115 @@ export function InvoicesCrud() {
     setStatusFilter("all");
   }
 
-  async function handlePayment(invoice: InvoiceRow, paymentAmount: string) {
+  async function handlePayment(invoice: InvoiceRow, paymentAmount: string, paymentDate: string) {
     const amount = Number(paymentAmount);
     if (Number.isNaN(amount) || amount <= 0) {
       setFeedback({ type: "error", message: "Informe um valor de pagamento maior que zero." });
       return;
     }
-
-    const nextPaidAmount = Number(invoice.paid_amount) + amount;
-    const total = Number(invoice.total_amount);
-    const values = invoiceToFormValues(invoice);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(paymentDate)) {
+      setFeedback({ type: "error", message: "Informe uma data de pagamento válida." });
+      return;
+    }
+    if (!userId) {
+      setFeedback({ type: "error", message: "Sessão não encontrada." });
+      return;
+    }
 
     setSaving(true);
     setFeedback(null);
     try {
-      const result = await updateInvoice(createClient(), invoice.id, {
-        ...values,
-        paid_amount: String(nextPaidAmount),
-        status: nextPaidAmount >= total ? "paid" : "partial",
-      });
-
-      if (result.error) {
-        console.error("Erro técnico ao registrar pagamento da fatura:", result.error);
-        setFeedback({ type: "error", message: "Não foi possível registrar o pagamento." });
+      const client = createClient();
+      const availability = await checkCashAvailabilityForPayment(client, userId, amount, paymentDate);
+      if (availability.error) {
+        setFeedback({ type: "error", message: availability.error.message });
         return;
       }
 
-      setFeedback({ type: "success", message: "Pagamento registrado." });
-      setModal(null);
-      await loadData();
+      const context = buildInvoicePaymentContext(invoice, amount, paymentDate);
+      if (!availability.data?.hasEnough) {
+        setPendingPayment({ invoice, amount, paymentDate, availability: availability.data, context });
+        return;
+      }
+
+      await executeInvoicePayment(invoice, amount, paymentDate, null);
     } catch (error) {
       console.error("Erro técnico ao registrar pagamento da fatura:", error);
       setFeedback({ type: "error", message: "Não foi possível registrar o pagamento." });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function executeInvoicePayment(
+    invoice: InvoiceRow,
+    amount: number,
+    paymentDate: string,
+    linkedIncomeSourceId: string | null,
+  ) {
+    if (!userId) return;
+
+    const result = await registerInvoicePayment(createClient(), userId, invoice, amount, paymentDate, linkedIncomeSourceId);
+    if (result.error) {
+      console.error("Erro técnico ao registrar pagamento da fatura:", result.error);
+      setFeedback({ type: "error", message: result.error.message });
+      return;
+    }
+
+    setFeedback({ type: "success", message: "Pagamento registrado." });
+    setModal(null);
+    setPendingPayment(null);
+    setLinkedEntryContext(null);
+    await loadData();
+  }
+
+  async function handleContinuePaymentWithoutEntry() {
+    if (!pendingPayment || !userId) return;
+    setSaving(true);
+    setFeedback(null);
+    try {
+      const client = createClient();
+      await logPaymentContinuedWithoutSufficientEntry(client, userId, pendingPayment.context, pendingPayment.availability);
+      const result = await registerInvoicePayment(client, userId, pendingPayment.invoice, pendingPayment.amount, pendingPayment.paymentDate, null);
+      if (result.error) {
+        setFeedback({ type: "error", message: result.error.message });
+        return;
+      }
+      setFeedback({ type: "success", message: "Pagamento registrado sem entrada suficiente vinculada." });
+      setModal(null);
+      setPendingPayment(null);
+      await loadData();
+    } catch (error) {
+      console.error("Erro técnico ao continuar pagamento sem entrada suficiente:", error);
+      setFeedback({ type: "error", message: "Não foi possível registrar o pagamento." });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSubmitLinkedEntry(values: LinkedEntryFormValues) {
+    const context = linkedEntryContext ?? pendingPayment?.context;
+    if (!context || !pendingPayment || !userId) return;
+
+    if (Number(values.amount) <= 0 || !values.date || !values.title.trim()) {
+      setFeedback({ type: "error", message: "Título, valor e data da entrada são obrigatórios." });
+      return;
+    }
+
+    setSaving(true);
+    setFeedback(null);
+    try {
+      const client = createClient();
+      const entry = await createLinkedEntry(client, userId, context, values);
+      if (entry.error || !entry.data) {
+        setFeedback({ type: "error", message: entry.error?.message ?? "Não foi possível registrar a entrada vinculada." });
+        return;
+      }
+
+      await executeInvoicePayment(pendingPayment.invoice, pendingPayment.amount, pendingPayment.paymentDate, entry.data.id);
+    } catch (error) {
+      console.error("Erro técnico ao salvar entrada vinculada da fatura:", error);
+      setFeedback({ type: "error", message: "Não foi possível registrar a entrada vinculada." });
     } finally {
       setSaving(false);
     }
@@ -468,7 +557,23 @@ export function InvoicesCrud() {
         )}
       </SectionCard>
       {modal?.mode === "create" || modal?.mode === "edit" ? <InvoiceModal modal={modal} cards={cards} saving={saving} onClose={() => setModal(null)} onSubmit={(values) => void handleSubmit(values)} /> : null}
-      {modal?.mode === "payment" ? <InvoicePaymentModal invoice={modal.invoice} cards={cards} saving={saving} onClose={() => setModal(null)} onSubmit={(amount) => void handlePayment(modal.invoice, amount)} /> : null}
+      {modal?.mode === "payment" ? <InvoicePaymentModal invoice={modal.invoice} cards={cards} saving={saving} onClose={() => setModal(null)} onSubmit={(amount, paymentDate) => void handlePayment(modal.invoice, amount, paymentDate)} /> : null}
+      {pendingPayment && !linkedEntryContext ? (
+        <InsufficientCashModal
+          availability={pendingPayment.availability}
+          onCancel={() => setPendingPayment(null)}
+          onContinue={() => void handleContinuePaymentWithoutEntry()}
+          onRegisterEntry={() => setLinkedEntryContext(pendingPayment.context)}
+        />
+      ) : null}
+      {linkedEntryContext ? (
+        <LinkedEntryModal
+          context={linkedEntryContext}
+          saving={saving}
+          onClose={() => setLinkedEntryContext(null)}
+          onSubmit={(values) => void handleSubmitLinkedEntry(values)}
+        />
+      ) : null}
       {generateModalOpen ? (
         <GenerateFutureInvoicesModal
           cards={cards}
@@ -575,24 +680,39 @@ function GenerateFutureInvoicesModal({
   );
 }
 
-function InvoicePaymentModal({ invoice, cards, saving, onClose, onSubmit }: { invoice: InvoiceRow; cards: InvoiceCard[]; saving: boolean; onClose: () => void; onSubmit: (amount: string) => void }) {
+function InvoicePaymentModal({ invoice, cards, saving, onClose, onSubmit }: { invoice: InvoiceRow; cards: InvoiceCard[]; saving: boolean; onClose: () => void; onSubmit: (amount: string, paymentDate: string) => void }) {
   const pending = Math.max(Number(invoice.total_amount) - Number(invoice.paid_amount), 0);
   const [amount, setAmount] = useState(String(pending));
+  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10));
   const cardName = cards.find((card) => card.id === invoice.credit_card_id)?.name ?? "Cartão";
 
   return (
     <Modal title="Registrar pagamento" description="O pagamento soma ao valor já pago da fatura. Não cria parcelamento nem próxima fatura." onClose={onClose}>
-      <form className="grid gap-4 md:grid-cols-2" onSubmit={(event) => { event.preventDefault(); onSubmit(amount); }}>
+      <form className="grid gap-4 md:grid-cols-2" onSubmit={(event) => { event.preventDefault(); onSubmit(amount, paymentDate); }}>
         <FieldShell label="Cartão"><input className={inputClassName} value={cardName} disabled /></FieldShell>
         <FieldShell label="Mês"><input className={inputClassName} value={invoice.reference_month.slice(0, 7)} disabled /></FieldShell>
         <FieldShell label="Total"><input className={inputClassName} value={formatCurrency(Number(invoice.total_amount))} disabled /></FieldShell>
         <FieldShell label="Pago"><input className={inputClassName} value={formatCurrency(Number(invoice.paid_amount))} disabled /></FieldShell>
         <FieldShell label="Pendente"><input className={inputClassName} value={formatCurrency(pending)} disabled /></FieldShell>
         <FieldShell label="Valor do pagamento"><input required min="0.01" step="0.01" type="number" className={inputClassName} value={amount} onChange={(event) => setAmount(event.target.value)} /></FieldShell>
+        <FieldShell label="Data do pagamento"><input required type="date" className={inputClassName} value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} /></FieldShell>
         <div className="flex justify-end gap-2 md:col-span-2"><ActionButton type="button" variant="secondary" onClick={onClose}>Cancelar</ActionButton><ActionButton type="submit" disabled={saving}>{saving ? "Salvando..." : "Registrar pagamento"}</ActionButton></div>
       </form>
     </Modal>
   );
+}
+
+function buildInvoicePaymentContext(invoice: InvoiceRow, amount: number, paymentDate: string): LinkedEntryContext {
+  return {
+    paymentType: "invoice_payment",
+    paymentId: invoice.id,
+    title: `Entrada para pagamento de fatura ${invoice.reference_month.slice(0, 7)}`,
+    amount,
+    date: paymentDate,
+    defaultType: "available_cash",
+    notes: "Entrada criada para justificar pagamento de fatura.",
+    creditCardInvoiceId: invoice.id,
+  };
 }
 
 function formatMonthLabel(month: string) {

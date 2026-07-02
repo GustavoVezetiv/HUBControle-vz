@@ -1,6 +1,8 @@
 import type { AppSupabaseClient } from "@/features/shared/types";
 import type { InstallmentFormValues, InstallmentRow } from "@/features/installments/types";
 import { createSafeUuid } from "@/lib/uuid";
+import { safeLogAction, safeLogCreate } from "@/features/audit/logger";
+import { logFinancialLinkCreated, logFinancialLinkUpdated } from "@/features/linked-entries/queries";
 
 export type GenerateInstallmentAccountsResult = {
   created: number;
@@ -13,6 +15,16 @@ export type InstallmentGeneratedAccountSummary = {
   generatedCount: number;
   paidCount: number;
   pendingCount: number;
+  nextDueDate: string | null;
+  remainingAmount: number;
+};
+
+export type RegisterInstallmentPaymentValues = {
+  installmentNumber: number;
+  paymentDate: string;
+  paymentMethod: string;
+  paidAmount: number;
+  notes?: string;
 };
 
 export async function listInstallments(client: AppSupabaseClient) {
@@ -78,7 +90,7 @@ export async function listGeneratedAccountsSummaryForInstallments(
 
   const result = await client
     .from("accounts_payable")
-    .select("installment_id,status")
+    .select("installment_id,status,due_date,amount")
     .eq("is_generated", true)
     .in("installment_id", installmentIds);
 
@@ -97,11 +109,19 @@ export async function listGeneratedAccountsSummaryForInstallments(
       generatedCount: 0,
       paidCount: 0,
       pendingCount: 0,
+      nextDueDate: null,
+      remainingAmount: 0,
     };
 
     current.generatedCount += 1;
     if (row.status === "paid") current.paidCount += 1;
-    else current.pendingCount += 1;
+    else {
+      current.pendingCount += 1;
+      current.remainingAmount += Number(row.amount || 0);
+      if (!current.nextDueDate || row.due_date < current.nextDueDate) {
+        current.nextDueDate = row.due_date;
+      }
+    }
 
     summaryMap.set(row.installment_id, current);
   }
@@ -150,6 +170,14 @@ export async function generateInstallmentAccounts(
   userId: string,
   installment: InstallmentRow,
 ): Promise<GenerateInstallmentAccountsResult> {
+  if (isInstallmentControlledByCard(installment)) {
+    return {
+      created: 0,
+      skipped: 0,
+      error: { message: "Este parcelamento é controlado pelas faturas do cartão." },
+    };
+  }
+
   const total = Number(installment.installment_total ?? installment.installment_count);
   const current = Number(installment.current_installment ?? installment.installment_number);
   const startDate = installment.start_date ?? installment.due_month;
@@ -210,13 +238,15 @@ export async function generateInstallmentAccounts(
       due_date: candidate.dueDate,
       status: "pending",
       priority: "medium",
-      risk_level: "medium",
+      risk_level: "medium" as const,
       payment_method_planned: installment.credit_card_id ? "credit_card" : "unknown",
       can_delay: false,
-      delay_risk: "medium",
+      delay_risk: "medium" as const,
       notes: installment.notes,
       source_type: "installment",
       source_id: installment.id,
+      linked_module: "installments",
+      linked_record_id: installment.id,
       installment_id: installment.id,
       installment_number: candidate.installmentNumber,
       is_generated: true,
@@ -238,11 +268,141 @@ export async function generateInstallmentAccounts(
     };
   }
 
+  for (const row of insertResult.data ?? []) {
+    await safeLogAction(client, {
+      user_id: userId,
+      module: "accounts_payable",
+      record_id: row.id,
+      action: "account_generated",
+      field_name: null,
+      old_value: null,
+      new_value: {
+        source_type: "installment",
+        installment_id: installment.id,
+      },
+      metadata: {
+        generated_by: "generate_installment_accounts",
+      },
+    });
+
+    await logFinancialLinkCreated(client, userId, "accounts_payable", row.id, "installments", installment.id, {
+      source_type: "installment",
+      installment_id: installment.id,
+      generated_by: "generate_installment_accounts",
+    });
+  }
+
   return {
     created: insertResult.data?.length ?? rows.length,
     skipped: installmentNumbers.length - rows.length,
     error: null,
   };
+}
+
+export async function registerInstallmentPayment(
+  client: AppSupabaseClient,
+  userId: string,
+  installment: InstallmentRow,
+  values: RegisterInstallmentPaymentValues,
+  linkedIncomeSourceId?: string | null,
+) {
+  if (isInstallmentControlledByCard(installment)) {
+    return { data: null, error: { message: "Este parcelamento é controlado pelas faturas do cartão." } };
+  }
+
+  if (values.paidAmount <= 0 || values.installmentNumber <= 0 || !values.paymentDate) {
+    return { data: null, error: { message: "Informe parcela, data e valor de pagamento válidos." } };
+  }
+
+  const total = Number(installment.installment_total ?? installment.installment_count);
+  if (values.installmentNumber > total) {
+    return { data: null, error: { message: "A parcela informada não existe neste parcelamento." } };
+  }
+
+  const accountResult = await getOrCreateInstallmentAccount(client, userId, installment, values);
+  if (accountResult.error || !accountResult.data) {
+    return { data: null, error: accountResult.error ?? { message: "Não foi possível localizar a parcela." } };
+  }
+
+  if (accountResult.data.status === "paid") {
+    return { data: null, error: { message: "Esta parcela já está paga." } };
+  }
+
+  const previousAccount = accountResult.data;
+  const nextNotes = mergePaymentNotes(previousAccount.notes, values.notes);
+  const updateResult = await client
+    .from("accounts_payable")
+    .update({
+      amount: values.paidAmount,
+      status: "paid",
+      paid_at: `${values.paymentDate}T00:00:00.000Z`,
+      payment_method_planned: values.paymentMethod,
+      notes: nextNotes,
+      linked_module: "installments",
+      linked_record_id: installment.id,
+    })
+    .eq("id", accountResult.data.id)
+    .select("*")
+    .single();
+
+  if (updateResult.error) {
+    console.error("Erro técnico ao registrar pagamento da parcela:", updateResult.error);
+    return { data: null, error: { message: "Não foi possível registrar o pagamento da parcela." } };
+  }
+
+  await logFinancialLinkUpdated(client, userId, "accounts_payable", updateResult.data.id, "installments", installment.id, {
+    source_type: "installment",
+    installment_id: installment.id,
+    installment_number: updateResult.data.installment_number,
+  });
+
+  const paidResult = await client
+    .from("accounts_payable")
+    .select("installment_number,status")
+    .eq("installment_id", installment.id)
+    .eq("is_generated", true);
+
+  if (!paidResult.error) {
+    const paidNumbers = (paidResult.data ?? [])
+      .filter((account) => account.status === "paid" && account.installment_number)
+      .map((account) => Number(account.installment_number));
+    const highestPaid = paidNumbers.length > 0 ? Math.max(...paidNumbers) : 0;
+    await client
+      .from("installments")
+      .update({
+        current_installment: Math.min(Math.max(highestPaid + 1, 1), total),
+        installment_number: Math.min(Math.max(highestPaid + 1, 1), total),
+        status: highestPaid >= total ? "finished" : installment.status,
+      })
+      .eq("id", installment.id);
+  } else {
+    console.error("Erro técnico ao sincronizar progresso do parcelamento:", paidResult.error);
+  }
+
+  await safeLogAction(client, {
+    user_id: userId,
+    module: "installments",
+    record_id: installment.id,
+    action: "payment_registered",
+    field_name: null,
+    old_value: {
+      amount: previousAccount.amount,
+      status: previousAccount.status,
+      paid_at: previousAccount.paid_at,
+    },
+    new_value: {
+      amount: updateResult.data.amount,
+      payment_date: values.paymentDate,
+      payment_method: values.paymentMethod,
+      account_payable_id: updateResult.data.id,
+    },
+    metadata: {
+      linked_income_source_id: linkedIncomeSourceId ?? null,
+      installment_number: updateResult.data.installment_number,
+    },
+  });
+
+  return { data: updateResult.data, error: null };
 }
 
 function toPayload(userId: string | undefined, values: InstallmentFormValues): Partial<InstallmentRow> {
@@ -295,4 +455,107 @@ function buildInstallmentAccountDuplicateKey(
   dueDate: string,
 ) {
   return `${installmentNumber}|${amount.toFixed(2)}|${dueDate}`;
+}
+
+async function getOrCreateInstallmentAccount(
+  client: AppSupabaseClient,
+  userId: string,
+  installment: InstallmentRow,
+  values: RegisterInstallmentPaymentValues,
+) {
+  const installmentNumber = values.installmentNumber;
+  const existingResult = await client
+    .from("accounts_payable")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("installment_id", installment.id)
+    .eq("is_generated", true)
+    .eq("installment_number", installmentNumber)
+    .maybeSingle();
+
+  if (existingResult.error) {
+    console.error("Erro técnico ao buscar conta gerada do parcelamento:", existingResult.error);
+    return { data: null, error: { message: "Não foi possível verificar a conta gerada do parcelamento." } };
+  }
+
+  if (existingResult.data) {
+    return { data: existingResult.data, error: null };
+  }
+
+  const total = Number(installment.installment_total ?? installment.installment_count);
+  const startDate = installment.start_date || installment.due_month || values.paymentDate;
+  const dueDate = addMonths(startDate, installmentNumber - 1);
+  const insertResult = await client
+    .from("accounts_payable")
+    .insert({
+      user_id: userId,
+      category_id: installment.category_id,
+      person_id: installment.person_id,
+      title: installment.description,
+      description: `Parcela ${installmentNumber}/${total} gerada no registro de pagamento.`,
+      amount: values.paidAmount,
+      due_date: dueDate,
+      status: "pending",
+      priority: "medium",
+      risk_level: "medium",
+      payment_method_planned: values.paymentMethod,
+      can_delay: false,
+      delay_risk: "medium",
+      notes: installment.notes,
+      source_type: "installment",
+      source_id: installment.id,
+      linked_module: "installments",
+      linked_record_id: installment.id,
+      installment_id: installment.id,
+      installment_number: installmentNumber,
+      is_generated: true,
+      paid_at: null,
+    })
+    .select("*")
+    .single();
+
+  if (insertResult.error) {
+    console.error("Erro técnico ao criar conta da parcela:", insertResult.error);
+    return { data: null, error: { message: "Não foi possível criar a conta vinculada ao parcelamento." } };
+  }
+
+  await safeLogCreate(client, userId, "accounts_payable", insertResult.data.id, insertResult.data, {
+    source_type: "installment",
+    installment_id: installment.id,
+  });
+
+  await safeLogAction(client, {
+    user_id: userId,
+    module: "accounts_payable",
+    record_id: insertResult.data.id,
+    action: "account_generated",
+    field_name: null,
+    old_value: null,
+    new_value: {
+      source_type: "installment",
+      installment_id: installment.id,
+      installment_number: installmentNumber,
+    },
+    metadata: {
+      generated_by: "register_installment_payment",
+    },
+  });
+
+  await logFinancialLinkCreated(client, userId, "accounts_payable", insertResult.data.id, "installments", installment.id, {
+    source_type: "installment",
+    installment_id: installment.id,
+    installment_number: installmentNumber,
+  });
+
+  return { data: insertResult.data, error: null };
+}
+
+function isInstallmentControlledByCard(installment: InstallmentRow) {
+  return Boolean(installment.credit_card_id || installment.invoice_id || installment.credit_card_transaction_id);
+}
+
+function mergePaymentNotes(currentNotes: string | null, paymentNotes: string | undefined) {
+  const trimmed = paymentNotes?.trim();
+  if (!trimmed) return currentNotes;
+  return [currentNotes, `Pagamento registrado pelo módulo Parcelamentos: ${trimmed}`].filter(Boolean).join("\n");
 }

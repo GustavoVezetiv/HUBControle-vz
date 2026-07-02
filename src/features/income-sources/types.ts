@@ -64,11 +64,17 @@ export function incomeToFormValues(income: IncomeSourceRow): IncomeSourceFormVal
 }
 
 export function inflowKindFromType(type: string): FinancialInflowKind {
-  if (type === "reimbursement") {
+  if (type === "reimbursement" || type === "reimbursement_received") {
     return "reimbursement";
   }
 
-  if (type === "third_party_money") {
+  if (
+    type === "third_party_money" ||
+    type === "personal_contribution" ||
+    type === "account_transfer" ||
+    type === "available_cash" ||
+    type === "loan_received"
+  ) {
     return "third_party_money";
   }
 

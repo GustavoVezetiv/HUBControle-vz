@@ -18,6 +18,8 @@ import {
   unlinkKeptGeneratedAccountsForInstallment,
   listInstallments,
   listInstallmentSupportData,
+  registerInstallmentPayment,
+  type RegisterInstallmentPaymentValues,
   unlinkPaidGeneratedAccountsForInstallment,
   updateInstallment,
 } from "@/features/installments/queries";
@@ -35,12 +37,15 @@ import {
 } from "@/features/installments/types";
 import { ActionButton, CategoryBadge, CategorySelect, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, TextBadge, TitleButton, ViewPreferenceActions } from "@/features/shared/crud-ui";
 import { formatCurrency, formatDate } from "@/features/shared/format";
-import { installmentStatusOptions, optionLabel } from "@/features/shared/options";
+import { installmentStatusOptions, optionLabel, paymentMethodOptions } from "@/features/shared/options";
 import { PeriodFilter } from "@/features/shared/period-filter";
 import { isDateRangeInPeriod, parsePeriodSearchParams, type PeriodValue } from "@/features/shared/period";
 import { getQuickTableEditPreference } from "@/features/shared/quick-edit";
 import type { FeedbackState } from "@/features/shared/types";
 import { clearViewPreference, loadViewPreference, preferenceRecord, preferenceText, saveViewPreference } from "@/features/shared/view-preferences";
+import { InsufficientCashModal, LinkedEntryModal } from "@/features/linked-entries/components";
+import { checkCashAvailabilityForPayment, createLinkedEntry, logPaymentContinuedWithoutSufficientEntry } from "@/features/linked-entries/queries";
+import type { CashAvailability, LinkedEntryContext, LinkedEntryFormValues } from "@/features/linked-entries/types";
 import { createClient } from "@/lib/supabase/client";
 
 type ModalState = { mode: "create"; installment: null } | { mode: "edit"; installment: InstallmentRow } | null;
@@ -50,6 +55,14 @@ type InstallmentsViewPreference = {
   cardFilter?: string;
   period?: PeriodValue;
 };
+type PendingInstallmentPayment = {
+  installment: InstallmentRow;
+  amount: number;
+  values: RegisterInstallmentPaymentValues;
+  availability: CashAvailability | null;
+  context: LinkedEntryContext;
+};
+type PaymentModalState = { installment: InstallmentRow; values: RegisterInstallmentPaymentValues } | null;
 
 const installmentsDefaultViewPreference: Required<InstallmentsViewPreference> = {
   search: "",
@@ -68,7 +81,7 @@ export function InstallmentsCrud() {
   const [transactions, setTransactions] = useState<InstallmentTransaction[]>([]);
   const [categories, setCategories] = useState<InstallmentCategory[]>([]);
   const [people, setPeople] = useState<InstallmentPerson[]>([]);
-  const [generatedSummaryByInstallment, setGeneratedSummaryByInstallment] = useState<Record<string, { generatedCount: number; paidCount: number; pendingCount: number }>>({});
+  const [generatedSummaryByInstallment, setGeneratedSummaryByInstallment] = useState<Record<string, { generatedCount: number; paidCount: number; pendingCount: number; nextDueDate: string | null; remainingAmount: number }>>({});
   const [userId, setUserId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState(searchParams.get("status") ?? "all");
@@ -77,7 +90,11 @@ export function InstallmentsCrud() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [generatingAccountsId, setGeneratingAccountsId] = useState<string | null>(null);
+  const [payingInstallmentId, setPayingInstallmentId] = useState<string | null>(null);
   const [modal, setModal] = useState<ModalState>(null);
+  const [paymentModal, setPaymentModal] = useState<PaymentModalState>(null);
+  const [pendingPayment, setPendingPayment] = useState<PendingInstallmentPayment | null>(null);
+  const [linkedEntryContext, setLinkedEntryContext] = useState<LinkedEntryContext | null>(null);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [allowQuickTableEdit, setAllowQuickTableEdit] = useState(false);
   const scopedCategories = useMemo(
@@ -159,6 +176,8 @@ export function InstallmentsCrud() {
                   generatedCount: summary?.generatedCount ?? 0,
                   paidCount: summary?.paidCount ?? 0,
                   pendingCount: summary?.pendingCount ?? 0,
+                  nextDueDate: summary?.nextDueDate ?? null,
+                  remainingAmount: summary?.remainingAmount ?? 0,
                 },
               ];
             }),
@@ -259,7 +278,7 @@ export function InstallmentsCrud() {
       let generationMessage = "";
       const savedInstallment = result.data as InstallmentRow | null;
 
-      if (savedInstallment && values.generate_accounts) {
+      if (savedInstallment && values.generate_accounts && !isCardControlledInstallment(savedInstallment)) {
         const generation = await generateInstallmentAccounts(client, userId, savedInstallment);
 
         if (generation.error) {
@@ -268,6 +287,8 @@ export function InstallmentsCrud() {
         }
 
         generationMessage = ` ${generation.created} conta(s) mensal(is) gerada(s). ${generation.skipped} duplicada(s) ignorada(s).`;
+      } else if (savedInstallment && values.generate_accounts) {
+        generationMessage = " Contas não foram geradas porque este parcelamento é controlado pelas faturas do cartão.";
       }
 
       setFeedback({
@@ -290,6 +311,11 @@ export function InstallmentsCrud() {
   async function handleGenerateAccounts(item: InstallmentRow) {
     if (!userId) {
       setFeedback({ type: "error", message: "Sessão não encontrada. Entre novamente para gerar contas." });
+      return;
+    }
+
+    if (isCardControlledInstallment(item)) {
+      setFeedback({ type: "error", message: "Este parcelamento é controlado pelas faturas do cartão." });
       return;
     }
 
@@ -318,6 +344,135 @@ export function InstallmentsCrud() {
       setFeedback({ type: "error", message: "Não foi possível gerar as contas mensais do parcelamento." });
     } finally {
       setGeneratingAccountsId(null);
+    }
+  }
+
+  async function handleRegisterPayment(item: InstallmentRow) {
+    if (!userId) {
+      setFeedback({ type: "error", message: "Sessão não encontrada. Entre novamente para registrar o pagamento." });
+      return;
+    }
+
+    if (isCardControlledInstallment(item)) {
+      setFeedback({ type: "error", message: "Este parcelamento é controlado pelas faturas do cartão." });
+      return;
+    }
+
+    setPaymentModal({
+      installment: item,
+      values: {
+        installmentNumber: Number(item.current_installment ?? item.installment_number ?? 1),
+        paymentDate: new Date().toISOString().slice(0, 10),
+        paymentMethod: "pix",
+        paidAmount: Number(item.installment_amount || 0),
+        notes: "",
+      },
+    });
+  }
+
+  async function handleSubmitPayment(values: RegisterInstallmentPaymentValues) {
+    if (!userId || !paymentModal) return;
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(values.paymentDate)) {
+      setFeedback({ type: "error", message: "Informe uma data de pagamento válida no formato AAAA-MM-DD." });
+      return;
+    }
+
+    const amount = Number(values.paidAmount || 0);
+    if (amount <= 0) {
+      setFeedback({ type: "error", message: "A parcela precisa ter valor maior que zero." });
+      return;
+    }
+
+    const total = Number(paymentModal.installment.installment_total ?? paymentModal.installment.installment_count);
+    if (values.installmentNumber <= 0 || values.installmentNumber > total) {
+      setFeedback({ type: "error", message: "Escolha uma parcela válida para este parcelamento." });
+      return;
+    }
+
+    setPayingInstallmentId(paymentModal.installment.id);
+    setFeedback(null);
+    try {
+      const client = createClient();
+      const availability = await checkCashAvailabilityForPayment(client, userId, amount, values.paymentDate);
+      if (availability.error) {
+        setFeedback({ type: "error", message: availability.error.message });
+        return;
+      }
+
+      const context = buildInstallmentPaymentContext(paymentModal.installment, amount, values.paymentDate, values.installmentNumber);
+      if (!availability.data?.hasEnough) {
+        setPendingPayment({ installment: paymentModal.installment, amount, values, availability: availability.data, context });
+        setPaymentModal(null);
+        return;
+      }
+
+      await executeInstallmentPayment(paymentModal.installment, values, null);
+      setPaymentModal(null);
+    } catch (error) {
+      console.error("Erro técnico ao registrar pagamento do parcelamento:", error);
+      setFeedback({ type: "error", message: "Não foi possível registrar o pagamento da parcela." });
+    } finally {
+      setPayingInstallmentId(null);
+    }
+  }
+
+  async function executeInstallmentPayment(item: InstallmentRow, values: RegisterInstallmentPaymentValues, linkedIncomeSourceId: string | null) {
+    if (!userId) return;
+    const result = await registerInstallmentPayment(createClient(), userId, item, values, linkedIncomeSourceId);
+    if (result.error) {
+      setFeedback({ type: "error", message: result.error.message });
+      return;
+    }
+
+    setFeedback({ type: "success", message: "Pagamento da parcela registrado." });
+    setPendingPayment(null);
+    setLinkedEntryContext(null);
+    await loadData();
+  }
+
+  async function handleContinuePaymentWithoutEntry() {
+    if (!pendingPayment || !userId) return;
+    setPayingInstallmentId(pendingPayment.installment.id);
+    setFeedback(null);
+    try {
+      const client = createClient();
+      await logPaymentContinuedWithoutSufficientEntry(client, userId, pendingPayment.context, pendingPayment.availability);
+      const result = await registerInstallmentPayment(client, userId, pendingPayment.installment, pendingPayment.values, null);
+      if (result.error) {
+        setFeedback({ type: "error", message: result.error.message });
+        return;
+      }
+      setFeedback({ type: "success", message: "Pagamento da parcela registrado sem entrada suficiente vinculada." });
+      setPendingPayment(null);
+      await loadData();
+    } catch (error) {
+      console.error("Erro técnico ao continuar pagamento de parcela sem entrada suficiente:", error);
+      setFeedback({ type: "error", message: "Não foi possível registrar o pagamento da parcela." });
+    } finally {
+      setPayingInstallmentId(null);
+    }
+  }
+
+  async function handleSubmitLinkedEntry(values: LinkedEntryFormValues) {
+    const context = linkedEntryContext ?? pendingPayment?.context;
+    if (!context || !pendingPayment || !userId) return;
+
+    setPayingInstallmentId(pendingPayment.installment.id);
+    setFeedback(null);
+    try {
+      const client = createClient();
+      const entry = await createLinkedEntry(client, userId, context, values);
+      if (entry.error || !entry.data) {
+        setFeedback({ type: "error", message: entry.error?.message ?? "Não foi possível registrar a entrada vinculada." });
+        return;
+      }
+      await executeInstallmentPayment(pendingPayment.installment, pendingPayment.values, entry.data.id);
+    } catch (error) {
+      console.error("Erro técnico ao registrar entrada vinculada da parcela:", error);
+      setFeedback({ type: "error", message: "Não foi possível registrar a entrada vinculada." });
+    } finally {
+      setPayingInstallmentId(null);
     }
   }
 
@@ -472,6 +627,8 @@ export function InstallmentsCrud() {
                     generatedCount: 0,
                     paidCount: 0,
                     pendingCount: 0,
+                    nextDueDate: null,
+                    remainingAmount: 0,
                   };
 
                   return (
@@ -514,6 +671,13 @@ export function InstallmentsCrud() {
                         <p>{generatedSummary.generatedCount} gerada(s)</p>
                         <p>{generatedSummary.paidCount} paga(s)</p>
                         <p>{generatedSummary.pendingCount} pendente(s)</p>
+                        <p>Próximo vencimento: {generatedSummary.nextDueDate ? formatDate(generatedSummary.nextDueDate) : "-"}</p>
+                        <p>Restante: {formatCurrency(generatedSummary.remainingAmount)}</p>
+                        {isCardControlledInstallment(item) ? (
+                          <p className="max-w-56 text-amberRisk-600 dark:text-amberRisk-300">
+                            Este parcelamento é controlado pelas faturas do cartão.
+                          </p>
+                        ) : null}
                       </div>
                     </td>
                     <td className="px-4 py-3 text-ink-600">
@@ -536,8 +700,9 @@ export function InstallmentsCrud() {
                         <ActionButton variant="secondary" onClick={() => setModal({ mode: "edit", installment: item })}>Editar</ActionButton>
                         <ActionButton
                           variant="secondary"
-                          disabled={generatingAccountsId === item.id}
+                          disabled={generatingAccountsId === item.id || isCardControlledInstallment(item)}
                           onClick={() => void handleGenerateAccounts(item)}
+                          title={isCardControlledInstallment(item) ? "Este parcelamento é controlado pelas faturas do cartão." : undefined}
                         >
                           {generatingAccountsId === item.id ? "Gerando..." : "Gerar contas"}
                         </ActionButton>
@@ -546,6 +711,14 @@ export function InstallmentsCrud() {
                           onClick={() => router.push(`/dashboard/accounts?installment=${item.id}`)}
                         >
                           Ver contas geradas
+                        </ActionButton>
+                        <ActionButton
+                          variant="secondary"
+                          disabled={payingInstallmentId === item.id || isCardControlledInstallment(item)}
+                          onClick={() => void handleRegisterPayment(item)}
+                          title={isCardControlledInstallment(item) ? "Este parcelamento é controlado pelas faturas do cartão." : undefined}
+                        >
+                          {payingInstallmentId === item.id ? "Pagando..." : "Registrar pagamento"}
                         </ActionButton>
                         <ActionButton variant="danger" onClick={() => void handleDelete(item)}>Excluir</ActionButton>
                       </div>
@@ -569,6 +742,31 @@ export function InstallmentsCrud() {
           transactions={transactions}
           onClose={() => setModal(null)}
           onSubmit={(values) => void handleSubmit(values)}
+        />
+      ) : null}
+      {paymentModal ? (
+        <InstallmentPaymentModal
+          modal={paymentModal}
+          saving={payingInstallmentId === paymentModal.installment.id}
+          onClose={() => setPaymentModal(null)}
+          onSubmit={(values) => void handleSubmitPayment(values)}
+        />
+      ) : null}
+      {pendingPayment && !linkedEntryContext ? (
+        <InsufficientCashModal
+          availability={pendingPayment.availability}
+          onCancel={() => setPendingPayment(null)}
+          onContinue={() => void handleContinuePaymentWithoutEntry()}
+          onRegisterEntry={() => setLinkedEntryContext(pendingPayment.context)}
+        />
+      ) : null}
+      {linkedEntryContext ? (
+        <LinkedEntryModal
+          context={linkedEntryContext}
+          people={people}
+          saving={payingInstallmentId !== null}
+          onClose={() => setLinkedEntryContext(null)}
+          onSubmit={(values) => void handleSubmitLinkedEntry(values)}
         />
       ) : null}
     </div>
@@ -661,13 +859,117 @@ function InstallmentModal({
         <FieldShell label="Pessoa"><select className={inputClassName} value={values.person_id} onChange={(event) => setValues({ ...values, person_id: event.target.value })}><option value="">Sem pessoa</option>{people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></FieldShell>
         <FieldShell label="Status"><select className={inputClassName} value={values.status} onChange={(event) => setValues({ ...values, status: event.target.value })}>{installmentStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></FieldShell>
         <FieldShell label="Gerar parcelas em Contas?">
-          <select className={inputClassName} value={String(values.generate_accounts)} onChange={(event) => setValues({ ...values, generate_accounts: event.target.value === "true" })}>
+          <select
+            className={inputClassName}
+            value={String(values.generate_accounts)}
+            disabled={Boolean(values.credit_card_id || values.invoice_id)}
+            onChange={(event) => setValues({ ...values, generate_accounts: event.target.value === "true" })}
+          >
             <option value="false">Não gerar agora</option>
             <option value="true">Gerar contas mensais</option>
           </select>
+          {values.credit_card_id || values.invoice_id ? (
+            <p className="mt-2 text-xs leading-5 text-amberRisk-600 dark:text-amberRisk-300">
+              Este parcelamento é controlado pelas faturas do cartão.
+            </p>
+          ) : null}
         </FieldShell>
         <div className="md:col-span-2"><FieldShell label="Notas"><textarea rows={3} className={inputClassName} value={values.notes} onChange={(event) => setValues({ ...values, notes: event.target.value })} /></FieldShell></div>
         <div className="flex justify-end gap-2 md:col-span-2"><ActionButton type="button" variant="secondary" onClick={onClose}>Cancelar</ActionButton><ActionButton type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar"}</ActionButton></div>
+      </form>
+    </Modal>
+  );
+}
+
+function InstallmentPaymentModal({
+  modal,
+  saving,
+  onClose,
+  onSubmit,
+}: {
+  modal: NonNullable<PaymentModalState>;
+  saving: boolean;
+  onClose: () => void;
+  onSubmit: (values: RegisterInstallmentPaymentValues) => void;
+}) {
+  const [values, setValues] = useState<RegisterInstallmentPaymentValues>(modal.values);
+  const total = Number(modal.installment.installment_total ?? modal.installment.installment_count);
+  const current = Number(modal.installment.current_installment ?? modal.installment.installment_number ?? 1);
+  const installmentNumbers = Array.from({ length: total }, (_, index) => index + 1);
+
+  return (
+    <Modal title="Registrar pagamento de parcela" onClose={onClose}>
+      <form
+        className="grid gap-4 md:grid-cols-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit(values);
+        }}
+      >
+        <div className="rounded-md border border-ink-950/10 bg-slate-50 p-4 text-sm leading-6 text-ink-700 dark:border-white/10 dark:bg-slate-900 dark:text-slate-200 md:col-span-2">
+          <strong>{modal.installment.description}</strong>
+          <p>
+            Escolha a parcela paga. Se a conta ainda não existir em Contas, o Hub cria uma conta vinculada e já marca como paga.
+          </p>
+        </div>
+        <FieldShell label="Parcela">
+          <select
+            className={inputClassName}
+            value={values.installmentNumber}
+            onChange={(event) => setValues({ ...values, installmentNumber: Number(event.target.value) })}
+          >
+            {installmentNumbers.map((number) => (
+              <option key={number} value={number}>
+                Parcela {number}/{total}{number === current ? " - atual" : ""}
+              </option>
+            ))}
+          </select>
+        </FieldShell>
+        <FieldShell label="Data do pagamento">
+          <input
+            required
+            type="date"
+            className={inputClassName}
+            value={values.paymentDate}
+            onChange={(event) => setValues({ ...values, paymentDate: event.target.value })}
+          />
+        </FieldShell>
+        <FieldShell label="Valor pago">
+          <input
+            required
+            min="0"
+            step="0.01"
+            type="number"
+            className={inputClassName}
+            value={values.paidAmount}
+            onChange={(event) => setValues({ ...values, paidAmount: Number(event.target.value) })}
+          />
+        </FieldShell>
+        <FieldShell label="Forma de pagamento">
+          <select
+            className={inputClassName}
+            value={values.paymentMethod}
+            onChange={(event) => setValues({ ...values, paymentMethod: event.target.value })}
+          >
+            {paymentMethodOptions.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </FieldShell>
+        <div className="md:col-span-2">
+          <FieldShell label="Observação">
+            <textarea
+              rows={3}
+              className={inputClassName}
+              value={values.notes ?? ""}
+              onChange={(event) => setValues({ ...values, notes: event.target.value })}
+            />
+          </FieldShell>
+        </div>
+        <div className="flex justify-end gap-2 md:col-span-2">
+          <ActionButton type="button" variant="secondary" onClick={onClose}>Cancelar</ActionButton>
+          <ActionButton type="submit" disabled={saving}>{saving ? "Registrando..." : "Registrar pagamento"}</ActionButton>
+        </div>
       </form>
     </Modal>
   );
@@ -702,4 +1004,23 @@ function getInstallmentLinkLabel(
   }
 
   return "Fora do cartão";
+}
+
+function buildInstallmentPaymentContext(item: InstallmentRow, amount: number, paymentDate: string, installmentNumber: number): LinkedEntryContext {
+  const total = item.installment_total ?? item.installment_count;
+  return {
+    paymentType: "installment_payment",
+    paymentId: item.id,
+    title: `Entrada para parcela ${installmentNumber}/${total} - ${item.description}`,
+    amount,
+    date: paymentDate,
+    defaultType: "available_cash",
+    personId: item.person_id,
+    notes: "Entrada criada para justificar pagamento de parcela.",
+    installmentId: item.id,
+  };
+}
+
+function isCardControlledInstallment(item: InstallmentRow) {
+  return Boolean(item.credit_card_id || item.invoice_id || item.credit_card_transaction_id);
 }
