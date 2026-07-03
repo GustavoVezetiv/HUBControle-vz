@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -48,7 +49,7 @@ export default function RootLayout({
             `,
           }}
         />
-        <script defer src="https://ecossistema.vezetiv.dev/components/vezetiv-signature/vezetiv-signature.js"></script>
+        <Script src="https://ecossistema.vezetiv.dev/components/vezetiv-signature/vezetiv-signature.js" strategy="beforeInteractive" />
       </head>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         {children}
