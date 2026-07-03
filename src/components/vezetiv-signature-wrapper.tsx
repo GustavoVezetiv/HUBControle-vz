@@ -2,9 +2,15 @@
 
 import { useEffect, useState } from "react";
 
+type VezetivSignatureWrapperProps = {
+  className?: string;
+  size?: "sm" | "md" | "lg";
+};
 
-
-export function VezetivSignatureWrapper() {
+export function VezetivSignatureWrapper({
+  className = "mt-8 flex w-full justify-center",
+  size = "sm",
+}: VezetivSignatureWrapperProps) {
   const [theme, setTheme] = useState<string>("light");
 
   useEffect(() => {
@@ -26,8 +32,8 @@ export function VezetivSignatureWrapper() {
   }, []);
 
   return (
-    <div className="mt-8 flex justify-center w-full">
-      <vezetiv-signature theme={theme} size="sm"></vezetiv-signature>
+    <div className={className}>
+      <vezetiv-signature theme={theme} size={size}></vezetiv-signature>
     </div>
   );
 }
