@@ -313,6 +313,42 @@ VOICE_CAPTURE_MAX_OUTPUT_TOKENS=2500
 VOICE_CAPTURE_THINKING_BUDGET=0
 ```
 
+### Voice Capture End-to-End Test
+
+Run both voice capture migrations before testing with the mobile app:
+
+```bash
+supabase/migrations/202607050001_voice_captures.sql
+supabase/migrations/202607050002_voice_capture_processing.sql
+```
+
+Recommended test flow:
+
+1. Log in to the Hub with the target Supabase user.
+2. Log in to Vozetiv Capture with the same Supabase project/user.
+3. Record a short audio capture in the mobile app.
+4. Send the capture to `POST /api/voice-captures` with `Authorization: Bearer <access_token>`.
+5. Store the returned remote `id` in the mobile app.
+6. Query `GET /api/voice-captures/:id` with the same bearer token to check remote status.
+7. Open `/dashboard/voice-captures` in the Hub and confirm the capture appears.
+8. Click process in the Hub to generate transcription and review suggestions.
+
+Status response for mobile polling:
+
+```json
+{
+  "id": "remote-session-id",
+  "status": "received",
+  "transcriptionStatus": "not_started",
+  "aiExtractionStatus": "not_started",
+  "taskReviewStatus": "not_started",
+  "processingError": null,
+  "suggestionsCount": 0
+}
+```
+
+Google Tasks is intentionally not used in this flow. Suggestions remain in manual review.
+
 ### Linked Payment Entries
 
 The migration below adds traceable links between cash entries and financial actions:

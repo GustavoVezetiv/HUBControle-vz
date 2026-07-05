@@ -1,8 +1,7 @@
-import { createClient as createSupabaseClient, type SupabaseClient, type User } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
-import { getSupabaseConfig } from "@/lib/supabase/config";
-import { createClient as createCookieSupabaseClient } from "@/lib/supabase/server";
+import { getVoiceCaptureAuthenticatedContext, voiceCaptureErrorResponse } from "@/features/voice-captures/api-auth";
 import type { Database } from "@/lib/supabase/types";
 
 export const runtime = "nodejs";
@@ -10,11 +9,6 @@ export const runtime = "nodejs";
 const VOICE_CAPTURE_BUCKET = "voice-captures";
 const VOICE_CAPTURE_SOURCE = "vozetiv-capture-mobile";
 const MAX_AUDIO_BYTES = 50 * 1024 * 1024;
-
-type AuthenticatedContext = {
-  supabase: SupabaseClient<Database>;
-  user: User;
-};
 
 type ParsedVoiceCaptureForm = {
   audio: File;
@@ -31,7 +25,7 @@ type ValidationErrorDetail = {
 };
 
 export async function POST(request: Request) {
-  const auth = await getAuthenticatedContext(request);
+  const auth = await getVoiceCaptureAuthenticatedContext(request);
 
   if ("response" in auth) {
     return auth.response;
@@ -43,13 +37,13 @@ export async function POST(request: Request) {
     formData = await request.formData();
   } catch (error) {
     console.error("[voice-captures] Invalid multipart payload", error);
-    return errorResponse(400, "invalid_form_data", "Envie a captura como multipart/form-data.");
+    return voiceCaptureErrorResponse(400, "invalid_form_data", "Envie a captura como multipart/form-data.");
   }
 
   const parsed = parseVoiceCaptureFormData(formData);
 
   if ("errors" in parsed) {
-    return errorResponse(400, "validation_error", "Dados da captura inválidos.", parsed.errors);
+    return voiceCaptureErrorResponse(400, "validation_error", "Dados da captura inválidos.", parsed.errors);
   }
 
   const existingCapture = await findExistingCapture(auth.supabase, auth.user.id, parsed.localId, parsed.source);
@@ -81,7 +75,7 @@ export async function POST(request: Request) {
 
   if (uploadError) {
     console.error("[voice-captures] Failed to upload audio", uploadError);
-    return errorResponse(500, "audio_upload_failed", "Não foi possível salvar o áudio da captura.");
+    return voiceCaptureErrorResponse(500, "audio_upload_failed", "Não foi possível salvar o áudio da captura.");
   }
 
   const { data: createdSession, error: insertError } = await auth.supabase
@@ -116,7 +110,7 @@ export async function POST(request: Request) {
   if (insertError || !createdSession) {
     console.error("[voice-captures] Failed to create voice capture session", insertError);
     await cleanupUploadedAudio(auth.supabase, audioStoragePath);
-    return errorResponse(
+    return voiceCaptureErrorResponse(
       500,
       "session_create_failed",
       "Não foi possível registrar a sessão da captura no Hub.",
@@ -131,53 +125,6 @@ export async function POST(request: Request) {
     },
     { status: 201 },
   );
-}
-
-async function getAuthenticatedContext(
-  request: Request,
-): Promise<AuthenticatedContext | { response: NextResponse }> {
-  const config = getSupabaseConfig();
-
-  if (!config) {
-    return {
-      response: errorResponse(500, "supabase_not_configured", "Supabase não está configurado."),
-    };
-  }
-
-  const authorization = request.headers.get("authorization");
-  const supabase = authorization?.toLowerCase().startsWith("bearer ")
-    ? createSupabaseClient<Database>(config.url, config.anonKey, {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false,
-        },
-        global: {
-          headers: {
-            Authorization: authorization,
-          },
-        },
-      })
-    : await createCookieSupabaseClient();
-
-  if (!supabase) {
-    return {
-      response: errorResponse(500, "supabase_not_configured", "Supabase não está configurado."),
-    };
-  }
-
-  const { data, error } = await supabase.auth.getUser();
-
-  if (error || !data.user) {
-    if (error) {
-      console.error("[voice-captures] Authentication failed", error);
-    }
-
-    return {
-      response: errorResponse(401, "unauthorized", "Sessão não encontrada ou token inválido."),
-    };
-  }
-
-  return { supabase, user: data.user };
 }
 
 function parseVoiceCaptureFormData(
@@ -258,7 +205,7 @@ async function findExistingCapture(
   if (error) {
     console.error("[voice-captures] Failed to check duplicate capture", error);
     return {
-      response: errorResponse(500, "duplicate_check_failed", "Não foi possível verificar captura existente."),
+      response: voiceCaptureErrorResponse(500, "duplicate_check_failed", "Não foi possível verificar captura existente."),
     };
   }
 
@@ -355,17 +302,4 @@ function extensionFromContentType(contentType: string) {
     default:
       return "webm";
   }
-}
-
-function errorResponse(status: number, code: string, message: string, details?: ValidationErrorDetail[]) {
-  return NextResponse.json(
-    {
-      error: {
-        code,
-        message,
-        ...(details ? { details } : {}),
-      },
-    },
-    { status },
-  );
 }
