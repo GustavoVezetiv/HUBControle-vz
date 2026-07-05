@@ -544,6 +544,59 @@ export type AuditLog = {
   created_at: string;
 };
 
+export type VoiceCaptureStatus =
+  | "received"
+  | "transcription_pending"
+  | "transcribing"
+  | "transcribed"
+  | "failed"
+  | "archived";
+
+export type VoiceProcessingStatus = "not_started" | "pending" | "processing" | "completed" | "failed";
+
+export type VoiceTaskReviewStatus = "not_started" | "pending" | "ready" | "reviewed" | "dismissed";
+
+export type VoiceCaptureSession = UserOwnedRow & {
+  source_app: string;
+  local_capture_id: string;
+  audio_storage_bucket: string;
+  audio_storage_path: string;
+  audio_file_name: string | null;
+  audio_content_type: string | null;
+  audio_size_bytes: number;
+  created_at_mobile: string;
+  duration_seconds: number;
+  target_duration_seconds: number | null;
+  status: VoiceCaptureStatus;
+  transcription_status: VoiceProcessingStatus;
+  transcription_text: string | null;
+  ai_extraction_status: VoiceProcessingStatus;
+  task_review_status: VoiceTaskReviewStatus;
+  ai_summary: string | null;
+  ai_extraction_result: Json;
+  processing_error: string | null;
+  processed_at: string | null;
+  metadata: Json;
+  received_at: string;
+};
+
+export type VoiceCaptureSuggestionType = "task" | "loose_idea" | "reminder" | "uncertainty";
+
+export type VoiceCaptureSuggestionStatus = "pending" | "accepted" | "rejected" | "archived";
+
+export type VoiceCaptureSuggestion = UserOwnedRow & {
+  voice_capture_session_id: string;
+  suggestion_type: VoiceCaptureSuggestionType;
+  title: string;
+  description: string | null;
+  suggested_list_name: string | null;
+  confidence: "alta" | "media" | "baixa";
+  reason: string | null;
+  status: VoiceCaptureSuggestionStatus;
+  raw_data: Json;
+  reviewed_at: string | null;
+};
+
 export type DashboardUser = {
   id: string;
   email: string | null;
@@ -588,6 +641,8 @@ export type Database = {
       routine_ai_summaries: SupabaseTable<RoutineAiSummary>;
       routine_sync_runs: SupabaseTable<RoutineSyncRun>;
       audit_logs: SupabaseTable<AuditLog>;
+      voice_capture_sessions: SupabaseTable<VoiceCaptureSession>;
+      voice_capture_suggestions: SupabaseTable<VoiceCaptureSuggestion>;
     };
     Views: Record<string, never>;
     Functions: {

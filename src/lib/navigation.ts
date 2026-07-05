@@ -11,6 +11,7 @@ export type NavigationIcon =
   | "purchases"
   | "goals"
   | "weekly-review"
+  | "voice-captures"
   | "notes"
   | "places"
   | "categories"
@@ -70,6 +71,7 @@ export const navigationGroups: NavigationGroup[] = [
     label: "Rotina e pessoal",
     items: [
       { label: "Revisão semanal", href: "/dashboard/weekly-review", icon: "weekly-review" },
+      { label: "Capturas de voz", href: "/dashboard/voice-captures", icon: "voice-captures" },
       { label: "Anotações", href: "/dashboard/notes", icon: "notes" },
     ],
   },
