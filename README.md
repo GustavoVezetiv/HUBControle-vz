@@ -82,6 +82,7 @@ Implemented in the foundation phase:
 - Reimbursement visibility by responsible person and linked source
 - Total reimbursement debt balance by person, with late rows highlighted by expected date
 - Linked cash-entry flow for invoice payments, installment payments and reimbursement receipts
+- Bulk reimbursement receipt flow for one payment that pays down several selected titles and transfers only the remaining balance to a new title
 - Voice capture ingestion endpoint for the Vozetiv Capture mobile app
 - Voice capture processing pipeline with transcription, AI organization and manual review queue
 - Controlled monthly recurring income generation
@@ -179,6 +180,14 @@ supabase/migrations/202605160001_initial_auth_schema_rls.sql
 ```
 
 Run it in Supabase SQL Editor or through the Supabase CLI if the project is linked.
+
+Recent reimbursement updates also require running:
+
+```bash
+supabase/migrations/202609020001_reimbursement_bulk_receipt_carryover.sql
+```
+
+This migration adds the `carried_over` reimbursement status used when a selected reimbursement was partially paid through a single bulk payment and its remaining balance was transferred to a new title. This is not treated as renegotiation.
 
 The schema creates:
 

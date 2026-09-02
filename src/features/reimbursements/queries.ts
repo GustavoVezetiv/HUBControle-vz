@@ -1,11 +1,12 @@
 import type {
+  ReimbursementBulkReceiptValues,
   ReimbursementGeneratedLinkValues,
   ReimbursementFormValues,
   ReimbursementRenegotiationValues,
   ReimbursementRow,
 } from "@/features/reimbursements/types";
 import { safeLogAction, safeLogCreate, safeLogFieldDiffs } from "@/features/audit/logger";
-import { logFinancialLinkCreated, logFinancialLinkUpdated } from "@/features/linked-entries/queries";
+import { createLinkedEntry, logFinancialLinkCreated, logFinancialLinkUpdated } from "@/features/linked-entries/queries";
 import type { AppSupabaseClient } from "@/features/shared/types";
 import { archiveRecord, restoreArchivedRecord } from "@/features/shared/archive";
 import { findOrCreateInvoiceForTransactionDate } from "@/features/invoices/auto-invoices";
@@ -222,6 +223,190 @@ export async function renegotiateReimbursements(
   });
 
   return { error: null, created: insertResult.data, count: sourceIds.length };
+}
+
+export async function applyBulkReimbursementReceipt(
+  client: AppSupabaseClient,
+  userId: string,
+  reimbursements: ReimbursementRow[],
+  values: ReimbursementBulkReceiptValues,
+) {
+  if (reimbursements.length === 0) {
+    return { error: { message: "Selecione ao menos um reembolso para aplicar o pagamento." } };
+  }
+
+  const personIds = new Set(reimbursements.map((item) => item.person_id));
+  if (personIds.size > 1) {
+    return { error: { message: "O pagamento único só pode ser aplicado em reembolsos da mesma pessoa." } };
+  }
+
+  const invalid = reimbursements.find((item) => !isEligibleForBulkReceipt(item));
+  if (invalid) {
+    return { error: { message: "Selecione apenas reembolsos em aberto, parciais ou atrasados." } };
+  }
+
+  const amount = Number(values.amount || 0);
+  const receivedDate = values.received_date?.trim();
+  if (!Number.isFinite(amount) || amount <= 0 || !receivedDate) {
+    return { error: { message: "Informe valor recebido e data de recebimento válidos." } };
+  }
+
+  const openTotal = roundCurrency(reimbursements.reduce((sum, item) => sum + getOpenAmount(item), 0));
+  if (openTotal <= 0) {
+    return { error: { message: "Os reembolsos selecionados não possuem saldo em aberto." } };
+  }
+
+  if (amount > openTotal) {
+    return { error: { message: "O valor recebido não pode ser maior que o saldo em aberto selecionado." } };
+  }
+
+  const carryoverAmount = roundCurrency(openTotal - amount);
+  const carryoverExpectedDate = values.carryover_expected_date?.trim();
+  const carryoverDescription = values.description?.trim();
+  if (carryoverAmount > 0 && (!carryoverExpectedDate || !carryoverDescription)) {
+    return { error: { message: "Informe a data e a descrição do novo título com o saldo restante." } };
+  }
+
+  const sorted = [...reimbursements].sort((left, right) => {
+    const leftDate = left.expected_date ?? "9999-12-31";
+    const rightDate = right.expected_date ?? "9999-12-31";
+    if (leftDate !== rightDate) return leftDate.localeCompare(rightDate);
+    return left.created_at.localeCompare(right.created_at);
+  });
+
+  const entry = await createLinkedEntry(client, userId, {
+    paymentType: "reimbursement_receipt",
+    paymentId: sorted[0].id,
+    title: `Pagamento único de reembolso - ${sorted.length} título(s)`,
+    amount,
+    date: receivedDate,
+    defaultType: "reimbursement_received",
+    personId: sorted[0].person_id,
+    reimbursementId: sorted[0].id,
+    notes: "Entrada vinculada a pagamento único de reembolsos.",
+  }, {
+    title: `Pagamento único de reembolso - ${sorted.length} título(s)`,
+    amount: String(amount),
+    date: receivedDate,
+    type: "reimbursement_received",
+    person_id: sorted[0].person_id,
+    notes: buildBulkReceiptEntryNotes(sorted, values.method, values.notes),
+  });
+
+  if (entry.error || !entry.data) {
+    return { error: { message: entry.error?.message ?? "Não foi possível registrar a entrada vinculada do pagamento." } };
+  }
+
+  let remainingPayment = amount;
+  let receivedCount = 0;
+  let carriedOverCount = 0;
+  const sourceIds = sorted.map((item) => item.id);
+
+  for (const reimbursement of sorted) {
+    const openAmount = getOpenAmount(reimbursement);
+    const appliedAmount = roundCurrency(Math.min(openAmount, remainingPayment));
+    remainingPayment = roundCurrency(remainingPayment - appliedAmount);
+    const nextReceivedAmount = roundCurrency(Number(reimbursement.received_amount || 0) + appliedAmount);
+    const expectedAmount = Number(reimbursement.expected_amount || 0);
+    const fullyReceived = nextReceivedAmount >= expectedAmount;
+    const nextStatus = fullyReceived ? "received" : "carried_over";
+
+    if (fullyReceived) receivedCount += 1;
+    else carriedOverCount += 1;
+
+    const updateResult = await client
+      .from("reimbursements")
+      .update({
+        received_amount: nextReceivedAmount,
+        received_date: appliedAmount > 0 ? receivedDate : reimbursement.received_date,
+        received_at: appliedAmount > 0 ? `${receivedDate}T00:00:00.000Z` : reimbursement.received_at,
+        status: nextStatus,
+        income_source_id: entry.data.id,
+        notes: buildBulkReceiptRowNotes(reimbursement.notes, appliedAmount, receivedDate, carryoverAmount > 0),
+      })
+      .eq("user_id", userId)
+      .eq("id", reimbursement.id);
+
+    if (updateResult.error) {
+      console.error("Erro técnico ao aplicar pagamento único em reembolso:", updateResult.error);
+      return { error: { message: "A entrada foi registrada, mas não foi possível atualizar todos os títulos selecionados." } };
+    }
+  }
+
+  let createdCarryover: ReimbursementRow | null = null;
+  if (carryoverAmount > 0) {
+    const primaryCategoryId = sorted.every((item) => item.category_id === sorted[0].category_id)
+      ? sorted[0].category_id
+      : null;
+    const insertResult = await client
+      .from("reimbursements")
+      .insert({
+        user_id: userId,
+        person_id: sorted[0].person_id,
+        category_id: primaryCategoryId,
+        source_type: "reimbursement_carryover",
+        source_id: entry.data.id,
+        credit_card_transaction_id: null,
+        account_payable_id: null,
+        income_source_id: null,
+        credit_card_invoice_id: null,
+        description: carryoverDescription,
+        expected_amount: carryoverAmount,
+        received_amount: 0,
+        status: "expected",
+        expected_date: carryoverExpectedDate,
+        received_at: null,
+        received_date: null,
+        is_recurring: false,
+        recurrence_frequency: null,
+        recurrence_start_date: null,
+        recurrence_end_date: null,
+        recurrence_parent_id: null,
+        recurrence_generated_until: null,
+        renegotiation_source_ids: [],
+        pix_reference: null,
+        notes: buildCarryoverNotes(sorted, amount, receivedDate, values.notes),
+      })
+      .select("*")
+      .single();
+
+    if (insertResult.error) {
+      console.error("Erro técnico ao criar título com saldo restante:", insertResult.error);
+      return { error: { message: "O pagamento foi aplicado, mas não foi possível criar o novo título com o saldo restante." } };
+    }
+
+    createdCarryover = insertResult.data;
+    await safeLogCreate(client, userId, "reimbursements", insertResult.data.id, insertResult.data, {
+      source_type: "reimbursement_carryover",
+      source_ids: sourceIds,
+    });
+  }
+
+  await safeLogAction(client, {
+    user_id: userId,
+    module: "reimbursements",
+    record_id: createdCarryover?.id ?? sorted[0].id,
+    action: "bulk_reimbursement_receipt",
+    field_name: null,
+    old_value: { source_ids: sourceIds, open_total: openTotal },
+    new_value: { received_amount: amount, carryover_amount: carryoverAmount, income_source_id: entry.data.id },
+    metadata: {
+      source_ids: sourceIds,
+      count: sorted.length,
+      received_count: receivedCount,
+      carried_over_count: carriedOverCount,
+      method: values.method,
+    },
+  });
+
+  return {
+    error: null,
+    appliedTotal: amount,
+    carryoverAmount,
+    receivedCount,
+    carriedOverCount,
+    createdCarryover,
+  };
 }
 
 export async function generateLinkedEntryFromReimbursement(
@@ -1171,9 +1356,17 @@ function isEligibleForRenegotiation(reimbursement: ReimbursementRow) {
   return ["expected", "partial", "late"].includes(reimbursement.status) && getOpenAmount(reimbursement) > 0;
 }
 
+function isEligibleForBulkReceipt(reimbursement: ReimbursementRow) {
+  return ["expected", "partial", "late", "overdue"].includes(reimbursement.status) && getOpenAmount(reimbursement) > 0;
+}
+
 function getOpenAmount(reimbursement: ReimbursementRow) {
-  if (["received", "cancelled", "forgiven", "renegotiated"].includes(reimbursement.status)) return 0;
+  if (["received", "cancelled", "forgiven", "renegotiated", "carried_over"].includes(reimbursement.status)) return 0;
   return Math.max(Number(reimbursement.expected_amount || 0) - Number(reimbursement.received_amount || 0), 0);
+}
+
+function roundCurrency(value: number) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
 function buildRenegotiationNotes(reimbursements: ReimbursementRow[], notes: string) {
@@ -1185,6 +1378,55 @@ function buildRenegotiationNotes(reimbursements: ReimbursementRow[], notes: stri
   return [
     notes.trim() || null,
     "Renegociação originada dos títulos:",
+    ...lines,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function buildBulkReceiptEntryNotes(reimbursements: ReimbursementRow[], method: string, notes: string) {
+  const lines = reimbursements.map((item) => {
+    const label = item.description?.trim() || "Sem descrição";
+    return `- ${label} (${item.expected_date ?? "sem data"}) · em aberto ${getOpenAmount(item).toFixed(2)}`;
+  });
+
+  return [
+    "Entrada vinculada a pagamento único de reembolsos. Não é renda livre.",
+    `Forma de recebimento: ${method}`,
+    notes.trim() || null,
+    "Títulos abatidos:",
+    ...lines,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function buildBulkReceiptRowNotes(existingNotes: string | null, appliedAmount: number, receivedDate: string, hasCarryover: boolean) {
+  return [
+    existingNotes?.trim() || null,
+    `Baixa por pagamento único em ${receivedDate}: ${appliedAmount.toFixed(2)}.`,
+    hasCarryover ? "Saldo remanescente transferido para novo título." : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function buildCarryoverNotes(
+  reimbursements: ReimbursementRow[],
+  receivedAmount: number,
+  receivedDate: string,
+  notes: string,
+) {
+  const lines = reimbursements.map((item) => {
+    const label = item.description?.trim() || "Sem descrição";
+    return `- ${label} (${item.expected_date ?? "sem data"}) · esperado ${Number(item.expected_amount || 0).toFixed(2)} · recebido antes ${Number(item.received_amount || 0).toFixed(2)}`;
+  });
+
+  return [
+    "Saldo remanescente criado após pagamento único de reembolsos.",
+    `Pagamento recebido em ${receivedDate}: ${receivedAmount.toFixed(2)}.`,
+    notes.trim() || null,
+    "Títulos originais:",
     ...lines,
   ]
     .filter(Boolean)

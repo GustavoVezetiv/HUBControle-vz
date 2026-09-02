@@ -8,7 +8,7 @@ import type {
   Reimbursement,
 } from "@/lib/supabase/types";
 
-const reimbursementTerminalStatuses = new Set(["received", "cancelled", "forgiven", "renegotiated"]);
+const reimbursementTerminalStatuses = new Set(["received", "cancelled", "forgiven", "renegotiated", "carried_over"]);
 
 type InvoicePreviewSource = Pick<
   CreditCardInvoice,
