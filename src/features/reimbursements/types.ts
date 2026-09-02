@@ -54,6 +54,15 @@ export type ReimbursementRenegotiationValues = {
   notes: string;
 };
 
+export type ReimbursementBulkReceiptValues = {
+  amount: string;
+  received_date: string;
+  method: string;
+  carryover_expected_date: string;
+  description: string;
+  notes: string;
+};
+
 export type ReimbursementFormValues = {
   person_id: string;
   category_id: string;

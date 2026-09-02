@@ -22,6 +22,7 @@ import {
   type PersonDebtViewMode,
 } from "@/features/reimbursements/debt-summary";
 import {
+  applyBulkReimbursementReceipt,
   archiveReimbursement,
   createReimbursement,
   generateLinkedEntryFromReimbursement,
@@ -36,6 +37,7 @@ import {
   emptyReimbursementForm,
   reimbursementToFormValues,
   type ReimbursementAccount,
+  type ReimbursementBulkReceiptValues,
   type ReimbursementCard,
   type ReimbursementCategory,
   type ReimbursementFormValues,
@@ -70,6 +72,7 @@ type ReimbursementReceiptValues = {
   notes: string;
 };
 type RenegotiationModalState = { reimbursements: ReimbursementRow[]; person: ReimbursementPerson | null } | null;
+type BulkReceiptModalState = { reimbursements: ReimbursementRow[]; person: ReimbursementPerson | null } | null;
 type ReimbursementsViewPreference = {
   search?: string;
   personFilter?: string;
@@ -201,6 +204,7 @@ export function ReimbursementsCrud() {
   const [linkModal, setLinkModal] = useState<LinkModalState>(null);
   const [receiveModal, setReceiveModal] = useState<ReceiveModalState>(null);
   const [renegotiationModal, setRenegotiationModal] = useState<RenegotiationModalState>(null);
+  const [bulkReceiptModal, setBulkReceiptModal] = useState<BulkReceiptModalState>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -698,6 +702,79 @@ export function ReimbursementsCrud() {
     }));
   }
 
+  function handleOpenBulkReceipt() {
+    const selected = reimbursements.filter((item) => selectedIds.has(item.id));
+    if (selected.length === 0) {
+      setFeedback({ type: "error", message: "Selecione ao menos um reembolso para aplicar o pagamento." });
+      return;
+    }
+
+    const personIds = new Set(selected.map((item) => item.person_id));
+    if (personIds.size > 1) {
+      setFeedback({ type: "error", message: "Selecione apenas reembolsos da mesma pessoa para registrar um pagamento único." });
+      return;
+    }
+
+    const invalid = selected.find(
+      (item) =>
+        !["expected", "partial", "late", "overdue"].includes(item.status) ||
+        getOpenAmount(item) <= 0 ||
+        item.renegotiated_into_id ||
+        item.status === "renegotiated" ||
+        item.status === "carried_over",
+    );
+    if (invalid) {
+      setFeedback({ type: "error", message: "Só é possível aplicar pagamento único em reembolsos em aberto, parciais ou atrasados." });
+      return;
+    }
+
+    setBulkReceiptModal({
+      reimbursements: selected,
+      person: people.find((person) => person.id === selected[0].person_id) ?? null,
+    });
+  }
+
+  async function handleBulkReceiptSubmit(values: ReimbursementBulkReceiptValues) {
+    if (!userId || !bulkReceiptModal) {
+      setFeedback({ type: "error", message: "Sessão não encontrada." });
+      return;
+    }
+
+    setSaving(true);
+    setFeedback(null);
+
+    try {
+      const result = await applyBulkReimbursementReceipt(
+        createClient(),
+        userId,
+        bulkReceiptModal.reimbursements,
+        values,
+      );
+
+      if (result.error) {
+        console.error("Erro técnico ao aplicar pagamento único de reembolsos:", result.error);
+        setFeedback({ type: "error", message: result.error.message });
+        return;
+      }
+
+      setFeedback({
+        type: "success",
+        message:
+          result.carryoverAmount > 0
+            ? `Pagamento aplicado. ${result.receivedCount} título(s) quitado(s) e saldo restante de ${formatCurrency(result.carryoverAmount)} transferido para novo título.`
+            : `Pagamento aplicado. ${result.receivedCount} título(s) quitado(s).`,
+      });
+      setBulkReceiptModal(null);
+      setSelectedIds(new Set());
+      await loadData();
+    } catch (error) {
+      console.error("Erro técnico ao aplicar pagamento único de reembolsos:", error);
+      setFeedback({ type: "error", message: "Não foi possível aplicar o pagamento único nos reembolsos selecionados." });
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleBulkDelete() {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
@@ -1018,6 +1095,14 @@ export function ReimbursementsCrud() {
               type="button"
               variant="secondary"
               disabled={bulkUpdating || deletingSelected}
+              onClick={handleOpenBulkReceipt}
+            >
+              Registrar pagamento único
+            </ActionButton>
+            <ActionButton
+              type="button"
+              variant="secondary"
+              disabled={bulkUpdating || deletingSelected}
               onClick={handleOpenRenegotiation}
             >
               Renegociar selecionados
@@ -1231,6 +1316,14 @@ export function ReimbursementsCrud() {
           saving={saving}
           onClose={() => setRenegotiationModal(null)}
           onSubmit={(values) => void handleRenegotiationSubmit(values)}
+        />
+      ) : null}
+      {bulkReceiptModal ? (
+        <BulkReceiptModal
+          modal={bulkReceiptModal}
+          saving={saving}
+          onClose={() => setBulkReceiptModal(null)}
+          onSubmit={(values) => void handleBulkReceiptSubmit(values)}
         />
       ) : null}
       {reportOpen ? (
@@ -1932,6 +2025,154 @@ function ReimbursementReceiptModal({
         <div className="flex justify-end gap-2 md:col-span-2">
           <ActionButton type="button" variant="secondary" onClick={onClose}>Cancelar</ActionButton>
           <ActionButton type="submit" disabled={saving}>{saving ? "Registrando..." : "Registrar recebimento"}</ActionButton>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function BulkReceiptModal({
+  modal,
+  saving,
+  onClose,
+  onSubmit,
+}: {
+  modal: Exclude<BulkReceiptModalState, null>;
+  saving: boolean;
+  onClose: () => void;
+  onSubmit: (values: ReimbursementBulkReceiptValues) => void;
+}) {
+  const totalExpected = modal.reimbursements.reduce((sum, item) => sum + Number(item.expected_amount || 0), 0);
+  const totalReceived = modal.reimbursements.reduce((sum, item) => sum + Number(item.received_amount || 0), 0);
+  const totalOpen = modal.reimbursements.reduce((sum, item) => sum + getOpenAmount(item), 0);
+  const receiptMethodOptions = paymentMethodOptions.filter((option) => option.value !== "credit_card");
+  const today = new Date().toISOString().slice(0, 10);
+  const [values, setValues] = useState<ReimbursementBulkReceiptValues>({
+    amount: String(totalOpen),
+    received_date: today,
+    method: "pix",
+    carryover_expected_date: addMonthsToDateInput(today, 1),
+    description: `Saldo restante - ${modal.person?.name ?? "reembolso"}`,
+    notes: "",
+  });
+
+  const receivedAmount = Number(values.amount || 0);
+  const openAfterPayment = Math.max(totalOpen - (Number.isFinite(receivedAmount) ? receivedAmount : 0), 0);
+  const hasCarryover = openAfterPayment > 0.009;
+
+  return (
+    <Modal
+      title="Registrar pagamento único"
+      onClose={onClose}
+      headerAction={
+        <ActionButton type="submit" form="bulk-reimbursement-receipt-form" disabled={saving}>
+          {saving ? "Aplicando..." : "Aplicar pagamento"}
+        </ActionButton>
+      }
+    >
+      <form
+        id="bulk-reimbursement-receipt-form"
+        className="grid gap-4 md:grid-cols-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit(values);
+        }}
+      >
+        <div className="rounded-md border border-mint-500/35 bg-mint-50 px-4 py-3 text-sm font-medium text-ink-800 shadow-sm dark:border-mint-400/35 dark:bg-mint-950/30 dark:text-slate-100 md:col-span-2">
+          Isso não é renegociação. O pagamento será abatido dos títulos selecionados em ordem de vencimento. Se sobrar saldo, o Hub cria um novo título para a próxima data.
+        </div>
+
+        <div className="rounded-md border border-ink-950/10 bg-slate-50 px-4 py-3 text-sm text-ink-700 dark:border-white/10 dark:bg-slate-900/60 dark:text-slate-200 md:col-span-2">
+          <p><strong>Pessoa:</strong> {modal.person?.name ?? "Pessoa selecionada"}</p>
+          <p><strong>Títulos selecionados:</strong> {modal.reimbursements.length}</p>
+          <p><strong>Total esperado:</strong> {formatCurrency(totalExpected)}</p>
+          <p><strong>Já recebido antes:</strong> {formatCurrency(totalReceived)}</p>
+          <p><strong>Saldo em aberto selecionado:</strong> {formatCurrency(totalOpen)}</p>
+        </div>
+
+        <FieldShell label="Valor recebido">
+          <input
+            required
+            min="0.01"
+            max={totalOpen}
+            step="0.01"
+            type="number"
+            className={inputClassName}
+            value={values.amount}
+            onChange={(event) => setValues({ ...values, amount: event.target.value })}
+          />
+        </FieldShell>
+
+        <FieldShell label="Data recebida">
+          <input
+            required
+            type="date"
+            className={inputClassName}
+            value={values.received_date}
+            onChange={(event) => setValues({ ...values, received_date: event.target.value })}
+          />
+        </FieldShell>
+
+        <FieldShell label="Forma de recebimento">
+          <select
+            className={inputClassName}
+            value={values.method}
+            onChange={(event) => setValues({ ...values, method: event.target.value })}
+          >
+            {receiptMethodOptions.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </FieldShell>
+
+        <div className="flex items-end gap-2">
+          <ActionButton type="button" variant="secondary" onClick={() => setValues({ ...values, amount: String(totalOpen) })}>
+            Receber total selecionado
+          </ActionButton>
+        </div>
+
+        {hasCarryover ? (
+          <>
+            <FieldShell label="Data do saldo restante">
+              <input
+                required
+                type="date"
+                className={inputClassName}
+                value={values.carryover_expected_date}
+                onChange={(event) => setValues({ ...values, carryover_expected_date: event.target.value })}
+              />
+            </FieldShell>
+            <FieldShell label="Descrição do novo título">
+              <input
+                required
+                className={inputClassName}
+                value={values.description}
+                onChange={(event) => setValues({ ...values, description: event.target.value })}
+              />
+            </FieldShell>
+          </>
+        ) : null}
+
+        <div className="md:col-span-2">
+          <FieldShell label="Observação">
+            <textarea
+              rows={3}
+              className={inputClassName}
+              value={values.notes}
+              onChange={(event) => setValues({ ...values, notes: event.target.value })}
+            />
+          </FieldShell>
+        </div>
+
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-950 shadow-sm dark:border-amber-400/50 dark:bg-amber-950/35 dark:text-amber-100 md:col-span-2">
+          <p>Valor recebido: {formatCurrency(Number.isFinite(receivedAmount) ? receivedAmount : 0)}</p>
+          <p>Saldo que continuará em aberto: {formatCurrency(openAfterPayment)}</p>
+          {hasCarryover ? <p>Será criado um novo título com esse saldo restante.</p> : <p>Não haverá saldo restante para transferir.</p>}
+        </div>
+
+        <div className="flex justify-end gap-2 md:col-span-2">
+          <ActionButton type="button" variant="secondary" onClick={onClose}>Cancelar</ActionButton>
+          <ActionButton type="submit" disabled={saving}>{saving ? "Aplicando..." : "Aplicar pagamento"}</ActionButton>
         </div>
       </form>
     </Modal>
@@ -3223,8 +3464,21 @@ function getPersonGroupStatusLabel(rows: ReimbursementRow[]) {
 }
 
 function getOpenAmount(reimbursement: ReimbursementRow) {
-  if (["received", "cancelled", "forgiven", "renegotiated"].includes(reimbursement.status)) return 0;
+  if (["received", "cancelled", "forgiven", "renegotiated", "carried_over"].includes(reimbursement.status)) return 0;
   return Math.max(Number(reimbursement.expected_amount) - Number(reimbursement.received_amount), 0);
+}
+
+function addMonthsToDateInput(date: string, months: number) {
+  const [year, month, day] = date.split("-").map(Number);
+  const nextDate = new Date(year, month - 1 + months, 1);
+  const lastDay = new Date(nextDate.getFullYear(), nextDate.getMonth() + 1, 0).getDate();
+  nextDate.setDate(Math.min(day, lastDay));
+
+  const nextYear = nextDate.getFullYear();
+  const nextMonth = String(nextDate.getMonth() + 1).padStart(2, "0");
+  const nextDay = String(nextDate.getDate()).padStart(2, "0");
+
+  return `${nextYear}-${nextMonth}-${nextDay}`;
 }
 
 function buildReimbursementReceiptContext(reimbursement: ReimbursementRow): LinkedEntryContext {

@@ -77,7 +77,7 @@ export function filterPersonDebtSummaries(summaries: PersonDebtSummary[], mode: 
 }
 
 export function getReimbursementOpenAmount(reimbursement: ReimbursementRow) {
-  if (["received", "cancelled", "forgiven", "renegotiated"].includes(reimbursement.status)) return 0;
+  if (["received", "cancelled", "forgiven", "renegotiated", "carried_over"].includes(reimbursement.status)) return 0;
   return Math.max(Number(reimbursement.expected_amount || 0) - Number(reimbursement.received_amount || 0), 0);
 }
 
@@ -126,5 +126,5 @@ function isPartiallyReceived(reimbursement: ReimbursementRow) {
 }
 
 function isDebtRelevantStatus(status: ReimbursementRow["status"]) {
-  return !["received", "cancelled", "forgiven", "renegotiated"].includes(status);
+  return !["received", "cancelled", "forgiven", "renegotiated", "carried_over"].includes(status);
 }
