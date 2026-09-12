@@ -142,6 +142,11 @@ export async function generateRecurringAccounts(
       description: account.description,
       amount: Number(account.amount),
       due_date: date,
+      late_interest_enabled: account.late_interest_enabled,
+      late_interest_rate: Number(account.late_interest_rate),
+      late_interest_frequency: account.late_interest_frequency,
+      late_fee_amount: Number(account.late_fee_amount),
+      interest_start_date: account.interest_start_date ? shiftDateToRecurrence(account.due_date, date, account.interest_start_date) : null,
       status: "pending",
       priority: account.priority,
       risk_level: account.risk_level,
@@ -321,6 +326,11 @@ function toPayload(
     description: values.description.trim() || null,
     amount: Number(values.amount || 0),
     due_date: values.due_date,
+    late_interest_enabled: values.late_interest_enabled,
+    late_interest_rate: values.late_interest_enabled ? Number(values.late_interest_rate || 0) : 0,
+    late_interest_frequency: values.late_interest_frequency,
+    late_fee_amount: values.late_interest_enabled ? Number(values.late_fee_amount || 0) : 0,
+    interest_start_date: values.late_interest_enabled ? values.interest_start_date || null : null,
     category_id: values.category_id || null,
     person_id: values.person_id || null,
     priority: values.priority,
@@ -342,6 +352,19 @@ function toPayload(
         }
       : null,
   };
+}
+
+function shiftDateToRecurrence(originalDueDate: string, nextDueDate: string, originalInterestStartDate: string) {
+  const offset = Math.max(diffCalendarDays(originalDueDate, originalInterestStartDate), 0);
+  const next = new Date(`${nextDueDate}T00:00:00.000Z`);
+  next.setUTCDate(next.getUTCDate() + offset);
+  return next.toISOString().slice(0, 10);
+}
+
+function diffCalendarDays(start: string, end: string) {
+  return Math.round(
+    (new Date(`${end}T00:00:00.000Z`).getTime() - new Date(`${start}T00:00:00.000Z`).getTime()) / 86_400_000,
+  );
 }
 
 async function syncInstallmentProgressFromAccounts(client: AppSupabaseClient, installmentId: string) {

@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { usePathname } from "next/navigation";
 
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
-import { getActiveNavigationGroup, navigationGroups, type NavigationGroupId } from "@/lib/navigation";
+import { navigationGroups, type NavigationGroupId } from "@/lib/navigation";
 
 type AppShellProps = {
   children: React.ReactNode;
@@ -35,11 +34,9 @@ export function AppShell({
   cardEffect = "normal",
   borderStyle = "medium",
 }: AppShellProps) {
-  const pathname = usePathname();
-  const activeGroupId = getActiveNavigationGroup(pathname)?.id ?? "financial";
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [openGroups, setOpenGroups] = useState<NavigationGroupId[]>([activeGroupId]);
+  const [openGroups, setOpenGroups] = useState<NavigationGroupId[]>([]);
 
   const contentWidthClass =
     contentWidth === "compact"
@@ -51,7 +48,7 @@ export function AppShell({
           : "max-w-7xl";
 
   const storageKey = useMemo(
-    () => (userEmail ? `hubvz:sidebar-preferences:${userEmail}` : "hubvz:sidebar-preferences"),
+    () => (userEmail ? `hubvz:sidebar-preferences:v2:${userEmail}` : "hubvz:sidebar-preferences:v2"),
     [userEmail],
   );
 
@@ -61,7 +58,8 @@ export function AppShell({
     try {
       const raw = window.localStorage.getItem(storageKey);
       if (!raw) {
-        setOpenGroups([activeGroupId]);
+        setSidebarCollapsed(true);
+        setOpenGroups([]);
         return;
       }
 
@@ -71,16 +69,13 @@ export function AppShell({
         : [];
 
       setSidebarCollapsed(Boolean(parsed.collapsed));
-      setOpenGroups(nextOpenGroups.length > 0 ? Array.from(new Set([...nextOpenGroups, activeGroupId])) : [activeGroupId]);
+      setOpenGroups(nextOpenGroups);
     } catch (error) {
       console.error("Erro técnico ao carregar preferências da sidebar:", error);
-      setOpenGroups([activeGroupId]);
+      setSidebarCollapsed(true);
+      setOpenGroups([]);
     }
-  }, [activeGroupId, storageKey]);
-
-  useEffect(() => {
-    setOpenGroups((current) => (current.includes(activeGroupId) ? current : [...current, activeGroupId]));
-  }, [activeGroupId]);
+  }, [storageKey]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -102,6 +97,11 @@ export function AppShell({
     );
   }
 
+  function openGroupFromCollapsed(groupId: NavigationGroupId) {
+    setSidebarCollapsed(false);
+    setOpenGroups([groupId]);
+  }
+
   return (
     <div
       className="hub-shell min-h-screen lg:flex"
@@ -111,6 +111,7 @@ export function AppShell({
       data-content-width={contentWidth}
       data-animation-level={animationLevel}
       data-animations={animationLevel === "off" ? "off" : "on"}
+      data-navigation-motion="enabled"
       data-card-effect={cardEffect}
       data-interactive-cards={cardEffect === "normal" ? "off" : "on"}
       data-card-glow={cardEffect === "soft_glow" || cardEffect === "strong_glow" ? "on" : "off"}
@@ -126,6 +127,7 @@ export function AppShell({
         onCloseMobile={() => setMobileSidebarOpen(false)}
         onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
         onToggleGroup={toggleGroup}
+        onOpenGroup={openGroupFromCollapsed}
       />
       <div className="min-w-0 flex-1">
         <Topbar

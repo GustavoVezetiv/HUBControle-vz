@@ -10,6 +10,7 @@ import { createLinkedEntry, logFinancialLinkCreated, logFinancialLinkUpdated } f
 import type { AppSupabaseClient } from "@/features/shared/types";
 import { archiveRecord, restoreArchivedRecord } from "@/features/shared/archive";
 import { findOrCreateInvoiceForTransactionDate } from "@/features/invoices/auto-invoices";
+import { calculateReimbursementInterest } from "@/features/reimbursements/interest";
 import type { CreditCardTransaction } from "@/lib/supabase/types";
 
 export type GenerateRecurringReimbursementsResult = {
@@ -1342,6 +1343,11 @@ function toPayload(
     expected_date: values.expected_date || null,
     received_date: values.received_date || null,
     received_at: values.received_date ? `${values.received_date}T00:00:00.000Z` : null,
+    late_interest_enabled: values.late_interest_enabled,
+    late_interest_rate: values.late_interest_enabled ? Number(values.late_interest_rate || 0) : 0,
+    late_interest_frequency: values.late_interest_frequency,
+    late_fee_amount: values.late_interest_enabled ? Number(values.late_fee_amount || 0) : 0,
+    interest_start_date: values.late_interest_enabled ? values.interest_start_date || null : null,
     status: values.status,
     ...sourcePayload,
     is_recurring: values.is_recurring,
@@ -1361,8 +1367,7 @@ function isEligibleForBulkReceipt(reimbursement: ReimbursementRow) {
 }
 
 function getOpenAmount(reimbursement: ReimbursementRow) {
-  if (["received", "cancelled", "forgiven", "renegotiated", "carried_over"].includes(reimbursement.status)) return 0;
-  return Math.max(Number(reimbursement.expected_amount || 0) - Number(reimbursement.received_amount || 0), 0);
+  return calculateReimbursementInterest(reimbursement).totalOpen;
 }
 
 function roundCurrency(value: number) {

@@ -75,6 +75,11 @@ export type ReimbursementFormValues = {
   received_amount: string;
   expected_date: string;
   received_date: string;
+  late_interest_enabled: boolean;
+  late_interest_rate: string;
+  late_interest_frequency: "daily" | "monthly";
+  late_fee_amount: string;
+  interest_start_date: string;
   status: string;
   notes: string;
   is_recurring: boolean;
@@ -109,6 +114,11 @@ export const emptyReimbursementForm: ReimbursementFormValues = {
   received_amount: "0",
   expected_date: "",
   received_date: "",
+  late_interest_enabled: false,
+  late_interest_rate: "0",
+  late_interest_frequency: "monthly",
+  late_fee_amount: "0",
+  interest_start_date: "",
   status: "expected",
   notes: "",
   is_recurring: false,
@@ -144,6 +154,11 @@ export function reimbursementToFormValues(reimbursement: ReimbursementRow): Reim
     received_amount: String(reimbursement.received_amount),
     expected_date: reimbursement.expected_date ?? "",
     received_date: reimbursement.received_date ?? "",
+    late_interest_enabled: Boolean(reimbursement.late_interest_enabled),
+    late_interest_rate: String(reimbursement.late_interest_rate ?? 0),
+    late_interest_frequency: reimbursement.late_interest_frequency === "daily" ? "daily" : "monthly",
+    late_fee_amount: String(reimbursement.late_fee_amount ?? 0),
+    interest_start_date: reimbursement.interest_start_date ?? "",
     status: reimbursement.status,
     notes: reimbursement.notes ?? "",
     is_recurring: reimbursement.is_recurring,

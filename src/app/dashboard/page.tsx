@@ -8,9 +8,10 @@ import { DashboardFavoriteShortcuts } from "@/features/dashboard/components/dash
 import { DashboardAiBriefing } from "@/features/dashboard/components/dashboard-ai-briefing";
 import { DashboardViewPreferences } from "@/features/dashboard/components/dashboard-view-preferences";
 import type { DashboardLayoutMode } from "@/features/dashboard/components/dashboard-view-preferences";
+import { MonthlyCashCalendar } from "@/features/cash-flow/components/monthly-cash-calendar";
 import { buildFinancialDiagnosticsFromSource, loadFinancialDiagnosticsSourceData } from "@/features/diagnostics/queries";
 import type { FinancialDiagnosticsData } from "@/features/diagnostics/types";
-import { buildFinancialSummary } from "@/features/decision/financial-summary";
+import { buildFinancialSummary, reimbursementOpenAmount } from "@/features/decision/financial-summary";
 import { calculatePaymentPlanScenario } from "@/features/payment-plans/simulator";
 import { formatCurrency, formatDate, todayISO } from "@/features/shared/format";
 import {
@@ -247,6 +248,20 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     activePlan,
     activePlanItems,
   });
+  const calendarPeriod = getCalendarPeriod(period);
+  const calendarSummary = buildFinancialSummary({
+    accounts,
+    incomeSources,
+    invoices,
+    transactions,
+    reimbursements,
+    installments,
+    activePlan,
+    activePlanItems,
+  }, calendarPeriod);
+  const calendarStartingBalance = activePlan?.reference_month?.slice(0, 7) === calendarPeriod.startDate.slice(0, 7)
+    ? Number(activePlan.starting_balance ?? 0)
+    : 0;
 
   const overviewCards = getOverviewCards(summary, decisionSummary, diagnosticsData, periodQuery);
   const attentionBlocks = buildAttentionBlocks({
@@ -363,6 +378,19 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           )}
         </SectionCard>
       </section>
+
+      <details className="rounded-md border border-ink-950/10 p-4 dark:border-white/10">
+        <summary className="cursor-pointer text-sm font-semibold text-ink-950 dark:text-slate-100">Calendário financeiro do mês</summary>
+        <p className="mt-2 text-sm text-ink-600 dark:text-slate-300">Abra para ver a projeção diária e registrar um saldo disponível ou débito diretamente no dia.</p>
+        <div className="mt-4">
+          <MonthlyCashCalendar
+            monthStart={calendarPeriod.startDate}
+            rows={calendarSummary.flowRows}
+            startingBalance={calendarStartingBalance}
+            userId={user.id}
+          />
+        </div>
+      </details>
 
       {!compactDashboard ? (
         <section className="grid gap-4 xl:grid-cols-2">
@@ -537,6 +565,14 @@ function buildPeriodQuery(period: PeriodValue) {
   return params.toString();
 }
 
+function getCalendarPeriod(period: PeriodValue): PeriodValue {
+  const baseDate = period.startDate || todayISO();
+  const [year, month] = baseDate.split("-").map(Number);
+  const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
+  const endDate = `${year}-${String(month).padStart(2, "0")}-${String(new Date(year, month, 0).getDate()).padStart(2, "0")}`;
+  return { preset: "custom", startDate, endDate };
+}
+
 function parseDashboardMode(searchParams: Record<string, string | string[] | undefined>): DashboardLayoutMode {
   const value = typeof searchParams.mode === "string" ? searchParams.mode : null;
   return value === "full" ? "full" : "simple";
@@ -690,14 +726,14 @@ function buildAttentionBlocks({
       value: String(lateReimbursements.length),
       helper:
         lateReimbursements.length > 0
-          ? `${formatCurrency(lateReimbursements.reduce((sum, item) => sum + Math.max(Number(item.expected_amount) - Number(item.received_amount), 0), 0))} seguem vinculados e atrasados.`
+          ? `${formatCurrency(lateReimbursements.reduce((sum, item) => sum + reimbursementOpenAmount(item), 0))} seguem vinculados e atrasados.`
           : "Nenhum reembolso atrasado no período.",
       tone: lateReimbursements.length > 0 ? "danger" : "neutral",
       href: `/dashboard/reimbursements?status=late&${periodQuery}`,
       empty: "Sem reembolsos atrasados agora.",
       items: lateReimbursements.slice(0, 3).map((item) => ({
         label: item.description || "Reembolso sem descrição",
-        meta: `${item.expected_date ? formatDate(item.expected_date) : "Sem data"} · ${formatCurrency(Math.max(Number(item.expected_amount) - Number(item.received_amount), 0))}`,
+        meta: `${item.expected_date ? formatDate(item.expected_date) : "Sem data"} · ${formatCurrency(reimbursementOpenAmount(item))}`,
         href: `/dashboard/reimbursements?status=late&${periodQuery}`,
       })),
     },
@@ -857,7 +893,7 @@ function buildDashboardSummary(
 
   const openReimbursements = reimbursements
     .filter((item) => ["expected", "partial", "late"].includes(item.status))
-    .reduce((total, item) => total + Math.max(Number(item.expected_amount) - Number(item.received_amount), 0), 0);
+    .reduce((total, item) => total + reimbursementOpenAmount(item), 0);
 
   const thirdPartyOpenAmount = transactions
     .filter(

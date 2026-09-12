@@ -189,6 +189,28 @@ supabase/migrations/202609020001_reimbursement_bulk_receipt_carryover.sql
 
 This migration adds the `carried_over` reimbursement status used when a selected reimbursement was partially paid through a single bulk payment and its remaining balance was transferred to a new title. This is not treated as renegotiation.
 
+### Calendário financeiro e juros por atraso
+
+O Fluxo de caixa agora inclui um calendário mensal de saldo projetado. Ele organiza entradas, dinheiro vinculado (como reembolsos) e saídas pela data esperada, para deixar claro como o caixa tende a evoluir ao longo do mês. Reembolsos e dinheiro de terceiros continuam separados de renda livre.
+
+Contas a pagar também podem receber juros e multa por atraso, sem alterar o valor principal salvo no título. Enquanto a conta estiver pendente ou atrasada, o Hub calcula o acréscimo visualmente a partir da data configurada (ou do dia seguinte ao vencimento):
+
+- juros diários: taxa percentual por dia em atraso;
+- juros mensais: taxa percentual por cada período de 30 dias iniciado;
+- multa fixa: aplicada uma única vez depois do início dos juros.
+
+Antes de usar esses campos em produção, execute no Supabase SQL Editor:
+
+```bash
+supabase/migrations/202609100001_accounts_payable_late_interest.sql
+```
+
+Reembolsos também podem ter juros e multa próprios, calculados sobre o saldo ainda em aberto. Ao receber o valor atualizado, o Hub registra a entrada vinculada sem tratá-la como renda livre. Execute também:
+
+```bash
+supabase/migrations/202609110001_reimbursements_late_interest.sql
+```
+
 The schema creates:
 
 - `profiles`

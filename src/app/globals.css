@@ -285,6 +285,34 @@ select {
   color: var(--hub-nav-active-text);
 }
 
+.hub-reimbursement-row-received {
+  background: color-mix(in srgb, rgb(var(--hub-mint-100)) 48%, transparent);
+  box-shadow: inset 3px 0 0 rgb(var(--hub-mint-500));
+}
+
+.hub-reimbursement-row-received:hover {
+  background: color-mix(in srgb, rgb(var(--hub-mint-100)) 68%, transparent) !important;
+}
+
+.hub-calendar-day {
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.hub-calendar-day:hover {
+  border-color: rgba(24, 185, 143, 0.32);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+  transform: translateY(-1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hub-sidebar,
+  .hub-calendar-day,
+  .hub-nav-group,
+  .hub-nav-item {
+    transition-duration: 0ms !important;
+  }
+}
+
 .hub-nav-badge {
   background: var(--hub-nav-badge-bg);
   color: var(--hub-nav-badge-text);
@@ -333,6 +361,19 @@ select {
   transition-duration: 0ms !important;
   animation-duration: 0ms !important;
   animation-iteration-count: 1 !important;
+}
+
+/* Navigation is a structural transition, kept subtle even when decorative effects are off. */
+.hub-shell[data-navigation-motion="enabled"] .hub-sidebar-motion {
+  transition-duration: 500ms !important;
+  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1) !important;
+}
+
+.hub-shell[data-navigation-motion="enabled"] .hub-sidebar-label,
+.hub-shell[data-navigation-motion="enabled"] .hub-sidebar-panel,
+.hub-shell[data-navigation-motion="enabled"] .hub-sidebar-group-icon {
+  transition-duration: 400ms !important;
+  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1) !important;
 }
 
 .hub-shell[data-animation-level="soft"] .hub-card,

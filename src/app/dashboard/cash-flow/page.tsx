@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
 import { buildFinancialSummary, type FlowRow } from "@/features/decision/financial-summary";
+import { MonthlyCashCalendar } from "@/features/cash-flow/components/monthly-cash-calendar";
 import { formatCurrency, formatDate } from "@/features/shared/format";
 import { PeriodFilter } from "@/features/shared/period-filter";
 import { parsePeriodSearchParams } from "@/features/shared/period";
@@ -23,6 +24,10 @@ export default async function CashFlowPage({
   if (!supabase) {
     return <CashFlowError message="Supabase não está configurado." />;
   }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   const [
     accountsResult,
@@ -66,8 +71,7 @@ export default async function CashFlowPage({
     return <CashFlowError message={error.message} />;
   }
 
-  const summary = buildFinancialSummary(
-    {
+  const dataset = {
       accounts: accountsResult.data ?? [],
       incomeSources: incomeResult.data ?? [],
       invoices: invoicesResult.data ?? [],
@@ -76,9 +80,13 @@ export default async function CashFlowPage({
       installments: installmentsResult.data ?? [],
       activePlan,
       activePlanItems: activePlanItemsResult.data ?? [],
-    },
-    selectedPeriod,
-  );
+    };
+  const summary = buildFinancialSummary(dataset, selectedPeriod);
+  const calendarPeriod = getCalendarPeriod(selectedPeriod);
+  const calendarSummary = buildFinancialSummary(dataset, calendarPeriod);
+  const calendarStartingBalance = isPlanForMonth(activePlan?.reference_month, calendarPeriod.startDate)
+    ? Number(activePlan?.starting_balance ?? 0)
+    : 0;
 
   const incomingRows = summary.flowRows.filter((row) => row.direction === "in");
   const outgoingRows = summary.flowRows.filter((row) => row.direction === "out");
@@ -175,12 +183,31 @@ export default async function CashFlowPage({
         </SectionCard>
       </section>
 
+      <MonthlyCashCalendar
+        monthStart={calendarPeriod.startDate}
+      rows={calendarSummary.flowRows}
+      startingBalance={calendarStartingBalance}
+      userId={user?.id ?? null}
+    />
+
       <section className="grid gap-4 xl:grid-cols-2">
         <FlowTable title="Entradas do período" rows={incomingRows} />
         <FlowTable title="Saídas do período" rows={outgoingRows} />
       </section>
     </div>
   );
+}
+
+function getCalendarPeriod(selectedPeriod: { preset: string; startDate: string; endDate: string }) {
+  const base = selectedPeriod.startDate || new Date().toISOString().slice(0, 10);
+  const [year, month] = base.split("-").map(Number);
+  const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
+  const endDate = `${year}-${String(month).padStart(2, "0")}-${String(new Date(year, month, 0).getDate()).padStart(2, "0")}`;
+  return { preset: "custom" as const, startDate, endDate };
+}
+
+function isPlanForMonth(referenceMonth: string | null | undefined, monthStart: string) {
+  return Boolean(referenceMonth && referenceMonth.slice(0, 7) === monthStart.slice(0, 7));
 }
 
 function FlowTable({ title, rows }: { title: string; rows: FlowRow[] }) {
@@ -201,8 +228,8 @@ function FlowTable({ title, rows }: { title: string; rows: FlowRow[] }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-ink-950/10">
-              {rows.map((row) => (
-                <tr key={`${row.type}-${row.description}-${row.date}-${row.amount}`}>
+              {rows.map((row, index) => (
+                <tr key={`${row.type}-${row.description}-${row.date}-${row.amount}-${index}`}>
                   <td className="px-4 py-3 text-ink-600">{formatDate(row.date)}</td>
                   <td className="px-4 py-3 text-ink-600">{row.type}</td>
                   <td className="px-4 py-3 font-medium text-ink-950">{row.description}</td>

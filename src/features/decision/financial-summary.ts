@@ -9,6 +9,8 @@ import type {
   Reimbursement,
 } from "@/lib/supabase/types";
 import type { PeriodValue } from "@/features/shared/period";
+import { calculateAccountInterest } from "@/features/accounts-payable/interest";
+import { calculateReimbursementInterest } from "@/features/reimbursements/interest";
 
 export type FinancialDataset = {
   accounts: AccountPayable[];
@@ -134,10 +136,10 @@ export function buildFinancialSummary(data: FinancialDataset, period?: PeriodVal
     currentIncome.filter((income) => income.inflow_kind === "third_party_money"),
     (income) => income.amount,
   );
-  const pendingAccounts = sum(currentAccounts, (account) => account.amount);
+  const pendingAccounts = sum(currentAccounts, (account) => calculateAccountInterest(account, now).total);
   const overdueAccounts = sum(
     currentAccounts.filter((account) => account.status === "overdue"),
-    (account) => account.amount,
+    (account) => calculateAccountInterest(account, now).total,
   );
   const openInvoices = sum(currentInvoices, invoiceOpenAmount);
   const overdueInvoices = sum(
@@ -159,17 +161,17 @@ export function buildFinancialSummary(data: FinancialDataset, period?: PeriodVal
   const projectedBalance = realIncomeExpected + linkedMoneyExpected - realObligations;
   const freeCashAfterRealObligations = realIncomeExpected - realObligations;
   const nextMonthPressure =
-    sum(nextMonthAccounts, (account) => account.amount) +
+    sum(nextMonthAccounts, (account) => calculateAccountInterest(account, now).total) +
     sum(nextMonthInvoices, invoiceOpenAmount) +
     sum(nextMonthInstallments, (installment) => installment.installment_amount);
   const highRiskAccounts = currentAccounts.filter((account) =>
     ["high", "critical"].includes(account.priority) || ["high", "critical"].includes(account.risk_level),
   );
   const criticalRiskAmount =
-    sum(currentAccounts.filter((account) => account.priority === "critical" || account.risk_level === "critical"), (account) => account.amount) +
+    sum(currentAccounts.filter((account) => account.priority === "critical" || account.risk_level === "critical"), (account) => calculateAccountInterest(account, now).total) +
     overdueAccounts +
     overdueInvoices;
-  const highRiskAmount = sum(highRiskAccounts, (account) => account.amount) + overdueInvoices;
+  const highRiskAmount = sum(highRiskAccounts, (account) => calculateAccountInterest(account, now).total) + overdueInvoices;
   const estimatedNetInvoiceCost = Math.max(openInvoices - openReimbursementAmount, 0);
   const reimbursementDependencyRatio =
     realIncomeExpected > 0 ? Math.min(linkedMoneyExpected / realIncomeExpected, 9.99) : linkedMoneyExpected > 0 ? 1 : 0;
@@ -194,11 +196,11 @@ export function buildFinancialSummary(data: FinancialDataset, period?: PeriodVal
     reimbursableTransactionAmount,
     openReimbursementAmount,
     estimatedNetInvoiceCost,
-    payNowItems: buildPayNowItems(currentAccounts, currentInvoices),
-    canWaitItems: buildCanWaitItems(currentAccounts),
+    payNowItems: buildPayNowItems(currentAccounts, currentInvoices, now),
+    canWaitItems: buildCanWaitItems(currentAccounts, now),
     nextInvoiceItems: buildNextInvoiceItems(currentInvoices, currentInstallments),
-    highRiskItems: buildHighRiskItems(currentAccounts, currentInvoices),
-    flowRows: buildFlowRows(currentAccounts, currentIncome, currentInvoices, currentInstallments, currentReimbursements),
+    highRiskItems: buildHighRiskItems(currentAccounts, currentInvoices, now),
+    flowRows: buildFlowRows(currentAccounts, currentIncome, currentInvoices, currentInstallments, currentReimbursements, now),
   };
 }
 
@@ -220,10 +222,10 @@ export function invoiceOpenAmount(invoice: CreditCardInvoice) {
 }
 
 export function reimbursementOpenAmount(reimbursement: Reimbursement) {
-  return Math.max(Number(reimbursement.expected_amount) - Number(reimbursement.received_amount), 0);
+  return calculateReimbursementInterest(reimbursement).totalOpen;
 }
 
-function buildPayNowItems(accounts: AccountPayable[], invoices: CreditCardInvoice[]) {
+function buildPayNowItems(accounts: AccountPayable[], invoices: CreditCardInvoice[], now: Date) {
   const accountItems = accounts
     .filter(
       (account) =>
@@ -235,7 +237,7 @@ function buildPayNowItems(accounts: AccountPayable[], invoices: CreditCardInvoic
     .map((account) => ({
       id: account.id,
       title: account.title,
-      amount: Number(account.amount),
+      amount: calculateAccountInterest(account, now).total,
       dueDate: account.due_date,
       reason: account.status === "overdue" ? "Atrasada" : "Evita risco ou multa",
       href: "/dashboard/accounts",
@@ -256,7 +258,7 @@ function buildPayNowItems(accounts: AccountPayable[], invoices: CreditCardInvoic
   return [...accountItems, ...invoiceItems].sort((a, b) => a.dueDate.localeCompare(b.dueDate)).slice(0, 6);
 }
 
-function buildCanWaitItems(accounts: AccountPayable[]) {
+function buildCanWaitItems(accounts: AccountPayable[], now: Date) {
   return accounts
     .filter(
       (account) =>
@@ -268,7 +270,7 @@ function buildCanWaitItems(accounts: AccountPayable[]) {
     .map((account) => ({
       id: account.id,
       title: account.title,
-      amount: Number(account.amount),
+      amount: calculateAccountInterest(account, now).total,
       dueDate: account.due_date,
       reason: "Marcada como pode atrasar e com risco controlado",
       href: "/dashboard/accounts",
@@ -301,14 +303,14 @@ function buildNextInvoiceItems(invoices: CreditCardInvoice[], installments: Inst
   return [...invoiceItems, ...installmentItems].sort((a, b) => b.amount - a.amount).slice(0, 6);
 }
 
-function buildHighRiskItems(accounts: AccountPayable[], invoices: CreditCardInvoice[]) {
+function buildHighRiskItems(accounts: AccountPayable[], invoices: CreditCardInvoice[], now: Date) {
   return [
     ...accounts
       .filter((account) => ["high", "critical"].includes(account.priority) || account.status === "overdue")
       .map((account) => ({
         id: account.id,
         title: account.title,
-        amount: Number(account.amount),
+        amount: calculateAccountInterest(account, now).total,
         dueDate: account.due_date,
         reason: account.status === "overdue" ? "Atrasada" : `Prioridade ${account.priority}`,
         href: "/dashboard/accounts",
@@ -334,13 +336,14 @@ function buildFlowRows(
   invoices: CreditCardInvoice[],
   installments: Installment[],
   reimbursements: Reimbursement[],
+  now: Date,
 ) {
   const rows: FlowRow[] = [
     ...accounts.map((account) => ({
       date: account.due_date,
       type: "Conta",
       description: account.title,
-      amount: Number(account.amount),
+      amount: calculateAccountInterest(account, now).total,
       direction: "out" as const,
       status: account.status === "overdue" ? "Atrasada" : "Pendente",
       linkedMoney: false,

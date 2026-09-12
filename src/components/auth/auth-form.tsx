@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useState } from "react";
 
 import { loadSystemPreferences } from "@/features/settings/system-preferences";
 import { createClient } from "@/lib/supabase/client";
@@ -21,31 +21,6 @@ export function AuthForm({ isConfigured }: AuthFormProps) {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (!isConfigured) return;
-
-    let active = true;
-
-    async function redirectAuthenticatedUser() {
-      try {
-        const supabase = createClient();
-        const { data, error: sessionError } = await supabase.auth.getUser();
-        if (!active || sessionError || !data.user) return;
-
-        router.replace(loadSystemPreferences(data.user.id).initialScreen);
-        router.refresh();
-      } catch (authError) {
-        console.error("Erro técnico ao verificar sessão na tela de login:", authError);
-      }
-    }
-
-    void redirectAuthenticatedUser();
-
-    return () => {
-      active = false;
-    };
-  }, [isConfigured, router]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

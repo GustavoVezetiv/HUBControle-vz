@@ -67,7 +67,7 @@ export function InvoicesCrud() {
   const [pendingPayment, setPendingPayment] = useState<PendingInvoicePayment | null>(null);
   const [linkedEntryContext, setLinkedEntryContext] = useState<LinkedEntryContext | null>(null);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
-  const [collapsedMonths, setCollapsedMonths] = useState<Set<string>>(new Set());
+  const [expandedMonths, setExpandedMonths] = useState<Set<string>>(new Set());
 
   const hasActiveFilters = search.trim() !== "" || cardFilter !== "all" || statusFilter !== "all" || period.preset !== "all";
 
@@ -235,7 +235,7 @@ export function InvoicesCrud() {
   }
 
   function toggleMonth(month: string) {
-    setCollapsedMonths((current) => {
+    setExpandedMonths((current) => {
       const next = new Set(current);
       if (next.has(month)) next.delete(month);
       else next.add(month);
@@ -485,7 +485,7 @@ export function InvoicesCrud() {
         ) : (
           <div className="space-y-4">
             {groupedInvoices.map((group) => {
-              const collapsed = collapsedMonths.has(group.month);
+              const collapsed = !expandedMonths.has(group.month);
               const total = group.rows.reduce((sum, invoice) => sum + Number(invoice.total_amount), 0);
 
               return (
@@ -504,7 +504,8 @@ export function InvoicesCrud() {
                     </span>
                     <span className="text-sm font-semibold text-mint-600 dark:text-mint-300">{collapsed ? "Expandir" : "Recolher"}</span>
                   </button>
-                  {collapsed ? null : (
+                  <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-in-out ${collapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"}`}>
+                    <div className="min-h-0 overflow-hidden">
                     <div className="overflow-x-auto">
                       <table className="min-w-full divide-y divide-ink-950/10 text-left text-sm">
                         <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-ink-600">
@@ -549,7 +550,8 @@ export function InvoicesCrud() {
                         </tbody>
                       </table>
                     </div>
-                  )}
+                    </div>
+                  </div>
                 </div>
               );
             })}
