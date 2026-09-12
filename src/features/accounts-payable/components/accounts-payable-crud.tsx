@@ -56,6 +56,7 @@ import {
   type AccountPerson,
 } from "@/features/accounts-payable/types";
 import { createClient } from "@/lib/supabase/client";
+import { calculateAccountInterest } from "@/features/accounts-payable/interest";
 
 type ModalState =
   | { mode: "create"; account: null }
@@ -154,7 +155,7 @@ export function AccountsPayableCrud() {
 
     return periodAccounts.reduce(
       (acc, account) => {
-        const amount = Number(account.amount);
+        const amount = calculateAccountInterest(account).total;
 
         if (account.status === "pending") {
           acc.pending += amount;
@@ -317,6 +318,26 @@ export function AccountsPayableCrud() {
     if (Number.isNaN(amount) || amount < 0) {
       setFeedback({ type: "error", message: "O valor deve ser maior ou igual a zero." });
       return;
+    }
+
+    if (values.late_interest_enabled) {
+      const interestRate = Number(values.late_interest_rate);
+      const lateFee = Number(values.late_fee_amount);
+
+      if (Number.isNaN(interestRate) || interestRate < 0) {
+        setFeedback({ type: "error", message: "A taxa de juros deve ser maior ou igual a zero." });
+        return;
+      }
+
+      if (Number.isNaN(lateFee) || lateFee < 0) {
+        setFeedback({ type: "error", message: "A multa fixa deve ser maior ou igual a zero." });
+        return;
+      }
+
+      if (values.interest_start_date && values.interest_start_date < values.due_date) {
+        setFeedback({ type: "error", message: "O início dos juros não pode ser anterior ao vencimento." });
+        return;
+      }
     }
 
     if (values.is_recurring) {
@@ -811,7 +832,10 @@ function AccountsTable({
           </tr>
         </thead>
         <tbody className="divide-y divide-ink-950/10">
-          {accounts.map((account) => (
+          {accounts.map((account) => {
+            const interest = calculateAccountInterest(account);
+
+            return (
             <tr key={account.id} onClick={(event) => handleRowClick(event, account.id)} className="cursor-default">
               <td className="px-4 py-3">
                 <input
@@ -852,7 +876,16 @@ function AccountsTable({
               <td className="px-4 py-3 font-medium text-ink-950">
                 {allowQuickTableEdit && !account.is_generated ? (
                   <QuickEditInput type="number" value={String(account.amount)} onCommit={(value) => onQuickUpdate(account, { amount: value })} />
-                ) : formatCurrency(Number(account.amount))}
+                ) : (
+                  <div>
+                    <span>{formatCurrency(Number(account.amount))}</span>
+                    {interest.isAccruing ? (
+                      <span className="mt-1 block text-xs font-semibold text-amberRisk-500">
+                        Atualizado: {formatCurrency(interest.total)}
+                      </span>
+                    ) : null}
+                  </div>
+                )}
               </td>
               <td className="px-4 py-3">
                 {allowQuickTableEdit && !account.is_generated ? (
@@ -914,7 +947,8 @@ function AccountsTable({
                 </div>
               </td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -1025,6 +1059,62 @@ function AccountModal({
         <FieldShell label="Vencimento">
           <input value={values.due_date} onChange={(event) => setValues({ ...values, due_date: event.target.value })} type="date" className={inputClassName} required />
         </FieldShell>
+        <FieldShell label="Aplicar juros se atrasar?">
+          <select
+            value={String(values.late_interest_enabled)}
+            onChange={(event) => setValues({ ...values, late_interest_enabled: event.target.value === "true" })}
+            className={inputClassName}
+          >
+            <option value="false">Não</option>
+            <option value="true">Sim</option>
+          </select>
+        </FieldShell>
+        {values.late_interest_enabled ? (
+          <div className="grid gap-4 rounded-md border border-amberRisk-500/20 bg-amberRisk-100/60 p-4 md:col-span-2 md:grid-cols-2 dark:bg-amber-950/25">
+            <FieldShell label="Taxa de juros (%)">
+              <input
+                value={values.late_interest_rate}
+                onChange={(event) => setValues({ ...values, late_interest_rate: event.target.value })}
+                type="number"
+                min="0"
+                step="0.0001"
+                className={inputClassName}
+              />
+            </FieldShell>
+            <FieldShell label="Frequência dos juros">
+              <select
+                value={values.late_interest_frequency}
+                onChange={(event) => setValues({ ...values, late_interest_frequency: event.target.value as "daily" | "monthly" })}
+                className={inputClassName}
+              >
+                <option value="daily">Ao dia</option>
+                <option value="monthly">Ao mês</option>
+              </select>
+            </FieldShell>
+            <FieldShell label="Multa fixa">
+              <input
+                value={values.late_fee_amount}
+                onChange={(event) => setValues({ ...values, late_fee_amount: event.target.value })}
+                type="number"
+                min="0"
+                step="0.01"
+                className={inputClassName}
+              />
+            </FieldShell>
+            <FieldShell label="Início dos juros (opcional)">
+              <input
+                value={values.interest_start_date}
+                onChange={(event) => setValues({ ...values, interest_start_date: event.target.value })}
+                type="date"
+                min={values.due_date || undefined}
+                className={inputClassName}
+              />
+            </FieldShell>
+            <p className="text-sm leading-6 text-ink-700 md:col-span-2 dark:text-slate-200">
+              O valor principal não será alterado. O Hub calcula o acréscimo enquanto a conta estiver pendente ou atrasada.
+            </p>
+          </div>
+        ) : null}
         <FieldShell label="Categoria">
           <CategorySelect categories={scopedCategories} value={selectedCategoryOutOfScope ? "" : values.category_id} onChange={(category_id) => setValues({ ...values, category_id })} />
           {selectedCategoryOutOfScope ? (

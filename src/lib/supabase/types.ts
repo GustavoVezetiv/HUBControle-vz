@@ -87,6 +87,11 @@ export type AccountPayable = UserOwnedRow & ArchiveFields & {
   description: string | null;
   amount: number;
   due_date: string;
+  late_interest_enabled: boolean;
+  late_interest_rate: number;
+  late_interest_frequency: "daily" | "monthly";
+  late_fee_amount: number;
+  interest_start_date: string | null;
   status: string;
   priority: string;
   risk_level: RiskLevel;
@@ -213,6 +218,11 @@ export type Reimbursement = UserOwnedRow & ArchiveFields & {
   description: string | null;
   expected_amount: number;
   received_amount: number;
+  late_interest_enabled: boolean;
+  late_interest_rate: number;
+  late_interest_frequency: "daily" | "monthly";
+  late_fee_amount: number;
+  interest_start_date: string | null;
   status: string;
   expected_date: string | null;
   received_at: string | null;

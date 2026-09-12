@@ -7,6 +7,11 @@ export type AccountPayableFormValues = {
   description: string;
   amount: string;
   due_date: string;
+  late_interest_enabled: boolean;
+  late_interest_rate: string;
+  late_interest_frequency: "daily" | "monthly";
+  late_fee_amount: string;
+  interest_start_date: string;
   category_id: string;
   person_id: string;
   priority: string;
@@ -42,6 +47,11 @@ export const emptyAccountForm: AccountPayableFormValues = {
   description: "",
   amount: "0",
   due_date: "",
+  late_interest_enabled: false,
+  late_interest_rate: "0",
+  late_interest_frequency: "monthly",
+  late_fee_amount: "0",
+  interest_start_date: "",
   category_id: "",
   person_id: "",
   priority: "medium",
@@ -63,6 +73,11 @@ export function accountToFormValues(account: AccountPayableRow): AccountPayableF
     description: account.description ?? "",
     amount: String(account.amount),
     due_date: account.due_date,
+    late_interest_enabled: Boolean(account.late_interest_enabled),
+    late_interest_rate: String(account.late_interest_rate ?? 0),
+    late_interest_frequency: account.late_interest_frequency === "daily" ? "daily" : "monthly",
+    late_fee_amount: String(account.late_fee_amount ?? 0),
+    interest_start_date: account.interest_start_date ?? "",
     category_id: account.category_id ?? "",
     person_id: account.person_id ?? "",
     priority: account.priority,

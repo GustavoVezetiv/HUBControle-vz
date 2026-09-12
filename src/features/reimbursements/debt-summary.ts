@@ -1,5 +1,6 @@
 import type { ReimbursementPerson, ReimbursementRow } from "@/features/reimbursements/types";
 import type { StatusTone } from "@/components/ui/status-badge";
+import { calculateReimbursementInterest } from "@/features/reimbursements/interest";
 
 export type PersonDebtStatus = "em_dia" | "atrasado" | "parcial" | "quitado";
 export type PersonDebtViewMode = "open_period" | "late" | "all_debt" | "all_history" | "hide_settled";
@@ -77,8 +78,7 @@ export function filterPersonDebtSummaries(summaries: PersonDebtSummary[], mode: 
 }
 
 export function getReimbursementOpenAmount(reimbursement: ReimbursementRow) {
-  if (["received", "cancelled", "forgiven", "renegotiated", "carried_over"].includes(reimbursement.status)) return 0;
-  return Math.max(Number(reimbursement.expected_amount || 0) - Number(reimbursement.received_amount || 0), 0);
+  return calculateReimbursementInterest(reimbursement).totalOpen;
 }
 
 export function isReimbursementLateByDate(reimbursement: ReimbursementRow, today = new Date().toISOString().slice(0, 10)) {

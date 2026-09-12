@@ -9,11 +9,13 @@ import {
   CalendarCheck2,
   CalendarRange,
   ChevronDown,
-  ChevronRight,
   CreditCard,
   FileText,
   HandCoins,
   History,
+  Landmark,
+  ListTodo,
+  Map,
   LayoutDashboard,
   Layers3,
   MapPin,
@@ -29,6 +31,7 @@ import {
   TrendingUp,
   Upload,
   Users,
+  Wrench,
   type LucideIcon,
 } from "lucide-react";
 
@@ -40,6 +43,7 @@ type SidebarProps = {
   mobileOpen: boolean;
   openGroups: NavigationGroupId[];
   onToggleGroup: (groupId: NavigationGroupId) => void;
+  onOpenGroup: (groupId: NavigationGroupId) => void;
   onToggleCollapsed: () => void;
   onCloseMobile: () => void;
 };
@@ -50,6 +54,7 @@ type SidebarContentProps = {
   collapsed: boolean;
   openGroups: NavigationGroupId[];
   onToggleGroup: (groupId: NavigationGroupId) => void;
+  onOpenGroup: (groupId: NavigationGroupId) => void;
   onToggleCollapsed: () => void;
   onNavigate: () => void;
   mobile?: boolean;
@@ -80,12 +85,21 @@ const navigationIcons: Record<NavigationIcon, LucideIcon> = {
   settings: Settings,
 };
 
+const groupIcons: Record<NavigationGroupId, LucideIcon> = {
+  financial: Landmark,
+  planning: ListTodo,
+  routine: Users,
+  leisure: Map,
+  system: Wrench,
+};
+
 export function Sidebar({
   groups,
   collapsed,
   mobileOpen,
   openGroups,
   onToggleGroup,
+  onOpenGroup,
   onToggleCollapsed,
   onCloseMobile,
 }: SidebarProps) {
@@ -95,7 +109,7 @@ export function Sidebar({
     <>
       <aside
         className={[
-          "hub-sidebar hidden min-h-screen shrink-0 border-r px-3 py-5 backdrop-blur transition-[width] duration-200 lg:block",
+          "hub-sidebar hub-sidebar-motion hidden min-h-screen shrink-0 overflow-hidden border-r px-3 py-5 backdrop-blur transition-[width,padding] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] lg:block",
           collapsed ? "w-20" : "w-80",
         ].join(" ")}
       >
@@ -105,15 +119,25 @@ export function Sidebar({
           collapsed={collapsed}
           openGroups={openGroups}
           onToggleGroup={onToggleGroup}
+          onOpenGroup={onOpenGroup}
           onToggleCollapsed={onToggleCollapsed}
           onNavigate={() => undefined}
         />
       </aside>
 
-      {mobileOpen ? (
-        <div className="fixed inset-0 z-40 bg-ink-950/45 lg:hidden" onClick={onCloseMobile}>
+        <div
+          className={[
+            "fixed inset-0 z-40 bg-ink-950/45 transition-opacity duration-300 lg:hidden",
+            mobileOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
+          ].join(" ")}
+          onClick={onCloseMobile}
+          aria-hidden={!mobileOpen}
+        >
           <aside
-            className="hub-sidebar absolute left-0 top-0 h-full w-[88vw] max-w-sm border-r px-3 py-5 shadow-2xl"
+            className={[
+              "hub-sidebar hub-sidebar-motion absolute left-0 top-0 h-full w-[88vw] max-w-sm border-r px-3 py-5 shadow-2xl transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
+              mobileOpen ? "translate-x-0" : "-translate-x-full",
+            ].join(" ")}
             onClick={(event) => event.stopPropagation()}
           >
             <SidebarContent
@@ -122,13 +146,13 @@ export function Sidebar({
               collapsed={false}
               openGroups={openGroups}
               onToggleGroup={onToggleGroup}
+              onOpenGroup={onOpenGroup}
               onToggleCollapsed={onCloseMobile}
               onNavigate={onCloseMobile}
               mobile
             />
           </aside>
         </div>
-      ) : null}
     </>
   );
 }
@@ -139,6 +163,7 @@ function SidebarContent({
   collapsed,
   openGroups,
   onToggleGroup,
+  onOpenGroup,
   onToggleCollapsed,
   onNavigate,
   mobile = false,
@@ -150,12 +175,14 @@ function SidebarContent({
           <div className={collapsed ? "flex w-full justify-center" : ""}>
             <div className={collapsed ? "text-center" : ""}>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-mint-600">Hub VZ</p>
-              {!collapsed ? (
-                <>
+              <div
+                className={`hub-sidebar-label grid transition-[grid-template-rows,opacity,transform] duration-400 ease-out ${collapsed ? "grid-rows-[0fr] -translate-x-2 opacity-0" : "grid-rows-[1fr] translate-x-0 opacity-100"}`}
+              >
+                <div className="min-h-0 overflow-hidden">
                   <h2 className="mt-2 text-lg font-semibold text-ink-950 dark:text-slate-100">Central</h2>
                   <p className="mt-1 text-sm text-ink-600 dark:text-slate-300">Módulos agrupados por área, com foco no que você usa todo dia.</p>
-                </>
-              ) : null}
+                </div>
+              </div>
             </div>
           </div>
           <button
@@ -184,6 +211,7 @@ function SidebarContent({
         {groups.map((group) => {
           const isOpen = collapsed ? false : openGroups.includes(group.id);
           const hasActiveItem = group.items.some((item) => isItemActive(item, pathname));
+          const GroupIcon = groupIcons[group.id];
 
           return (
             <section
@@ -194,34 +222,55 @@ function SidebarContent({
               ].join(" ")}
               aria-label={group.label}
             >
-              {!collapsed ? (
-                <button
-                  type="button"
-                  onClick={() => onToggleGroup(group.id)}
-                  className={[
-                    "hub-nav-group flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm font-semibold transition",
-                    hasActiveItem ? "hub-nav-group-active" : "",
-                  ].join(" ")}
-                  aria-expanded={isOpen}
+              <button
+                type="button"
+                onClick={() => (collapsed ? onOpenGroup(group.id) : onToggleGroup(group.id))}
+                className={[
+                  "hub-nav-group flex w-full items-center rounded-md text-left text-sm font-semibold transition-all duration-400 ease-out",
+                  collapsed ? "justify-center px-2 py-3 hover:scale-[1.04]" : "gap-3 px-3 py-2 hover:translate-x-0.5",
+                  hasActiveItem ? "hub-nav-group-active shadow-soft" : "",
+                ].join(" ")}
+                title={collapsed ? group.label : undefined}
+                aria-label={collapsed ? `Abrir ${group.label}` : group.label}
+                aria-expanded={!collapsed && isOpen}
+              >
+                <GroupIcon className={`hub-sidebar-group-icon h-5 w-5 shrink-0 transition-transform duration-400 ${collapsed ? "scale-100" : "scale-90"}`} strokeWidth={2} />
+                <span
+                  aria-hidden={collapsed}
+                  className={`hub-sidebar-label grid min-w-0 transition-[grid-template-columns,opacity,transform] duration-400 ease-out ${
+                    collapsed ? "grid-cols-[0fr] -translate-x-2 opacity-0" : "grid-cols-[1fr] translate-x-0 opacity-100"
+                  }`}
                 >
-                  <span className="hub-nav-group-icon">
-                    {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                  <span className="flex min-w-0 items-center gap-3 overflow-hidden">
+                    <span className={`hub-nav-group-icon shrink-0 transition-transform duration-400 ${isOpen ? "rotate-0" : "-rotate-90"}`}>
+                      <ChevronDown className="h-4 w-4" />
+                    </span>
+                    <span className="truncate">{group.label}</span>
                   </span>
-                  <span className="truncate">{group.label}</span>
-                </button>
-              ) : null}
+                </span>
+              </button>
 
-              <div className={collapsed || isOpen ? "space-y-1" : "hidden"}>
-                {group.items.map((item) => (
-                  <NavigationLink
-                    key={item.href}
-                    item={item}
-                    pathname={pathname}
-                    collapsed={collapsed}
-                    groupLabel={group.label}
-                    onNavigate={onNavigate}
-                  />
-                ))}
+              <div
+                aria-hidden={!isOpen}
+                className={[
+                  "hub-sidebar-panel grid transition-[grid-template-rows,opacity,transform] duration-400 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                  isOpen ? "grid-rows-[1fr] translate-y-0 opacity-100" : "grid-rows-[0fr] -translate-y-1 opacity-0",
+                ].join(" ")}
+              >
+                <div className="min-h-0 overflow-hidden">
+                  <div className="space-y-1">
+                    {group.items.map((item) => (
+                      <NavigationLink
+                        key={item.href}
+                        item={item}
+                        pathname={pathname}
+                        collapsed={collapsed}
+                        groupLabel={group.label}
+                        onNavigate={onNavigate}
+                      />
+                    ))}
+                  </div>
+                </div>
               </div>
             </section>
           );

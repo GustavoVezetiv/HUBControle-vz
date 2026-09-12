@@ -5,6 +5,7 @@ import autoTable from "jspdf-autotable";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { CircleCheckBig } from "lucide-react";
 
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
@@ -21,6 +22,7 @@ import {
   isReimbursementLateByDate,
   type PersonDebtViewMode,
 } from "@/features/reimbursements/debt-summary";
+import { calculateReimbursementInterest } from "@/features/reimbursements/interest";
 import {
   applyBulkReimbursementReceipt,
   archiveReimbursement,
@@ -255,17 +257,17 @@ export function ReimbursementsCrud() {
     const isOpen = (item: ReimbursementRow) => ["expected", "partial", "late"].includes(item.status);
     const totalExpected = periodReimbursements
       .filter(isOpen)
-      .reduce((sum, item) => sum + Number(item.expected_amount), 0);
+      .reduce((sum, item) => sum + calculateReimbursementInterest(item).principalOpen, 0);
     const totalReceived = periodReimbursements.reduce((sum, item) => sum + Number(item.received_amount), 0);
     const lateAmount = periodReimbursements
       .filter((item) => item.status === "late")
-      .reduce((sum, item) => sum + Number(item.expected_amount) - Number(item.received_amount), 0);
+      .reduce((sum, item) => sum + getOpenAmount(item), 0);
     const partialAmount = periodReimbursements
       .filter((item) => item.status === "partial")
-      .reduce((sum, item) => sum + Number(item.expected_amount) - Number(item.received_amount), 0);
+      .reduce((sum, item) => sum + getOpenAmount(item), 0);
     const amountOwed = periodReimbursements
       .filter(isOpen)
-      .reduce((sum, item) => sum + Number(item.expected_amount) - Number(item.received_amount), 0);
+      .reduce((sum, item) => sum + getOpenAmount(item), 0);
     const linkedGrossAmount = periodReimbursements.reduce((sum, item) => {
       const transaction = transactions.find((transactionItem) => transactionItem.id === item.credit_card_transaction_id);
       const account = accounts.find((accountItem) => accountItem.id === item.account_payable_id);
@@ -274,7 +276,12 @@ export function ReimbursementsCrud() {
     }, 0);
     const estimatedPersonalCost = Math.max(linkedGrossAmount - amountOwed, 0);
 
-    return { totalExpected, totalReceived, lateAmount, partialAmount, amountOwed, estimatedPersonalCost };
+    const lateInterestAmount = periodReimbursements.reduce(
+      (sum, item) => sum + calculateReimbursementInterest(item).interest + calculateReimbursementInterest(item).lateFee,
+      0,
+    );
+
+    return { totalExpected, totalReceived, lateAmount, partialAmount, amountOwed, estimatedPersonalCost, lateInterestAmount };
   }, [accounts, periodReimbursements, transactions]);
 
   const peopleSummary = useMemo(
@@ -381,6 +388,18 @@ export function ReimbursementsCrud() {
     if (values.is_recurring && values.recurrence_end_date && values.recurrence_end_date < (values.recurrence_start_date || values.expected_date)) {
       setFeedback({ type: "error", message: "O fim da recorrência deve ser depois do início." });
       return;
+    }
+    if (values.late_interest_enabled) {
+      const rate = Number(values.late_interest_rate);
+      const fee = Number(values.late_fee_amount);
+      if (Number.isNaN(rate) || rate < 0 || Number.isNaN(fee) || fee < 0) {
+        setFeedback({ type: "error", message: "Taxa de juros e multa devem ser maiores ou iguais a zero." });
+        return;
+      }
+      if (values.interest_start_date && values.expected_date && values.interest_start_date < values.expected_date) {
+        setFeedback({ type: "error", message: "O início dos juros não pode ser anterior à data prevista." });
+        return;
+      }
     }
     if (!userId) return;
 
@@ -557,12 +576,12 @@ export function ReimbursementsCrud() {
       }
 
       const nextReceivedAmount = Number(receiveModal.reimbursement.received_amount || 0) + amount;
-      const expectedAmount = Number(receiveModal.reimbursement.expected_amount || 0);
+      const totalOpenBeforeReceipt = getOpenAmount(receiveModal.reimbursement);
       const result = await updateReimbursement(client, receiveModal.reimbursement.id, {
         ...reimbursementToFormValues(receiveModal.reimbursement),
         received_amount: String(nextReceivedAmount),
         received_date: values.date,
-        status: nextReceivedAmount >= expectedAmount ? "received" : "partial",
+        status: amount >= totalOpenBeforeReceipt ? "received" : "partial",
         income_source_id: entry.data.id,
       });
 
@@ -620,7 +639,7 @@ export function ReimbursementsCrud() {
     const patch: Partial<ReimbursementFormValues> = { status };
 
     if (status === "received" && (!Number(reimbursement.received_amount) || !reimbursement.received_date)) {
-      const remaining = Math.max(Number(reimbursement.expected_amount) - Number(reimbursement.received_amount), 0);
+      const remaining = getOpenAmount(reimbursement);
       const amountRaw = window.prompt(
         "Informe o valor recebido para marcar este reembolso como recebido.",
         String(remaining || reimbursement.expected_amount || 0),
@@ -697,7 +716,7 @@ export function ReimbursementsCrud() {
     const today = new Date().toISOString().slice(0, 10);
     await handleBulkUpdate("Marcar como recebido", (reimbursement) => ({
       status: "received",
-      received_amount: String(Number(reimbursement.expected_amount)),
+      received_amount: String(Number(reimbursement.received_amount) + getOpenAmount(reimbursement)),
       received_date: reimbursement.received_date || today,
     }));
   }
@@ -917,6 +936,11 @@ export function ReimbursementsCrud() {
           Reembolsos recorrentes servem para valores mensais combinados, como assinaturas familiares.
           Gere próximas ocorrências de forma controlada e revise cada uma antes de considerar no caixa.
         </p>
+        {summary.lateInterestAmount > 0 ? (
+          <p className="mt-2 text-sm font-medium leading-6 text-amber-800 dark:text-amber-200">
+            Juros e multa calculados em títulos abertos: {formatCurrency(summary.lateInterestAmount)}. O valor original de cada reembolso permanece preservado.
+          </p>
+        ) : null}
       </SectionCard>
 
       <SectionCard title="Saldo devedor por pessoa" description="Por padrão, mostra apenas pessoas com valores em aberto no período selecionado, atrasos, parcelas parciais ou títulos previstos dentro deste recorte.">
@@ -1134,16 +1158,17 @@ export function ReimbursementsCrud() {
                   <th className="px-4 py-3">Esperado</th>
                   <th className="px-4 py-3">Recebido</th>
                   <th className="px-4 py-3">Data prevista</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Categoria</th>
-                  <th className="px-4 py-3">Vínculo</th>
-                  <th className="px-4 py-3">Recorrência</th>
+                  <th className="px-4 py-3 text-center">Status</th>
+                  <th className="px-4 py-3 text-center">Categoria</th>
+                  <th className="px-4 py-3 text-center">Vínculo</th>
+                  <th className="px-4 py-3 text-center">Recorrência</th>
                   <th className="px-4 py-3 text-right">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-ink-950/10">
                 {filteredReimbursements.map((reimbursement) => {
                   const isLate = isLateReimbursement(reimbursement);
+                  const interest = calculateReimbursementInterest(reimbursement);
 
                   return (
                   <tr
@@ -1155,7 +1180,7 @@ export function ReimbursementsCrud() {
                       else next.add(reimbursement.id);
                       setSelectedIds(next);
                     }}
-                    className={`cursor-default ${isLate ? "bg-amberRisk-100/40" : ""}`}
+                    className={`cursor-default ${isLate ? "bg-amberRisk-100/40" : ""} ${reimbursement.status === "received" ? "hub-reimbursement-row-received" : ""}`}
                   >
                     <td className="px-4 py-3">
                       <input
@@ -1183,7 +1208,12 @@ export function ReimbursementsCrud() {
                     <td className="px-4 py-3 text-ink-950">
                       {allowQuickTableEdit ? (
                         <QuickEditInput type="number" value={String(reimbursement.expected_amount)} onCommit={(value) => void handleQuickUpdate(reimbursement, { expected_amount: value })} />
-                      ) : formatCurrency(Number(reimbursement.expected_amount))}
+                      ) : (
+                        <div>
+                          <span>{formatCurrency(Number(reimbursement.expected_amount))}</span>
+                          {interest.isAccruing ? <span className="mt-1 block text-xs font-medium text-amberRisk-600">Atualizado: {formatCurrency(interest.totalOpen + Number(reimbursement.received_amount || 0))}</span> : null}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-ink-600">
                       {allowQuickTableEdit ? (
@@ -1199,15 +1229,19 @@ export function ReimbursementsCrud() {
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-ink-600">
-                      <div className="flex flex-wrap items-center gap-2">
+                    <td className="px-4 py-3 text-center text-ink-600">
+                      <div className="flex flex-wrap items-center justify-center gap-2">
                         <QuickEditSelect value={reimbursement.status} options={reimbursementStatusOptions} onCommit={(value) => void handleStatusUpdate(reimbursement, value)} />
+                        {reimbursement.status === "received" ? (
+                          <TextBadge tone="success"><CircleCheckBig className="mr-1 h-3.5 w-3.5" />Recebimento concluído</TextBadge>
+                        ) : null}
                         {isLate && reimbursement.status !== "late" ? <TextBadge tone="danger">Atrasado pela data</TextBadge> : null}
                         {reimbursement.renegotiated_into_id ? <TextBadge tone="neutral">Renegociado</TextBadge> : null}
                         {reimbursement.renegotiation_source_ids.length > 0 ? <TextBadge tone="info">Originado de renegociação</TextBadge> : null}
                       </div>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 text-center">
+                      <div className="flex justify-center">
                       {allowQuickTableEdit ? (
                         <QuickEditSelect
                           value={reimbursement.category_id ?? ""}
@@ -1217,9 +1251,10 @@ export function ReimbursementsCrud() {
                       ) : (
                         <CategoryBadge category={categories.find((category) => category.id === reimbursement.category_id)} />
                       )}
+                      </div>
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-col gap-1">
+                    <td className="px-4 py-3 text-center">
+                      <div className="flex flex-col items-center gap-1">
                         <TextBadge tone={getLinkedTone(reimbursement)}>
                           {getLinkedLabel(reimbursement, transactions, accounts, income)}
                         </TextBadge>
@@ -1230,7 +1265,7 @@ export function ReimbursementsCrud() {
                         ) : null}
                       </div>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 text-center">
                       {reimbursement.is_recurring ? (
                         <TextBadge tone="info">{reimbursement.recurrence_parent_id ? "Ocorrência" : "Recorrente"}</TextBadge>
                       ) : (
@@ -1532,6 +1567,36 @@ function ReimbursementModal({
         <FieldShell label="Data recebida">
           <input type="date" className={inputClassName} value={values.received_date} onChange={(event) => setValues({ ...values, received_date: event.target.value })} />
         </FieldShell>
+        <FieldShell label="Aplicar juros se atrasar?">
+          <select
+            className={inputClassName}
+            value={String(values.late_interest_enabled)}
+            onChange={(event) => setValues({ ...values, late_interest_enabled: event.target.value === "true" })}
+          >
+            <option value="false">Não</option>
+            <option value="true">Sim</option>
+          </select>
+        </FieldShell>
+        {values.late_interest_enabled ? (
+          <div className="grid gap-4 rounded-md border border-amberRisk-500/20 bg-amberRisk-100/60 p-4 md:col-span-2 md:grid-cols-2 dark:bg-amber-950/25">
+            <FieldShell label="Taxa de juros (%)">
+              <input min="0" step="0.0001" type="number" className={inputClassName} value={values.late_interest_rate} onChange={(event) => setValues({ ...values, late_interest_rate: event.target.value })} />
+            </FieldShell>
+            <FieldShell label="Frequência dos juros">
+              <select className={inputClassName} value={values.late_interest_frequency} onChange={(event) => setValues({ ...values, late_interest_frequency: event.target.value as "daily" | "monthly" })}>
+                <option value="daily">Ao dia</option>
+                <option value="monthly">Ao mês</option>
+              </select>
+            </FieldShell>
+            <FieldShell label="Multa fixa">
+              <input min="0" step="0.01" type="number" className={inputClassName} value={values.late_fee_amount} onChange={(event) => setValues({ ...values, late_fee_amount: event.target.value })} />
+            </FieldShell>
+            <FieldShell label="Início dos juros (opcional)">
+              <input type="date" className={inputClassName} value={values.interest_start_date} onChange={(event) => setValues({ ...values, interest_start_date: event.target.value })} />
+            </FieldShell>
+            <p className="text-sm leading-6 text-amber-900 dark:text-amber-100 md:col-span-2">O valor principal não muda. Enquanto o título estiver em aberto, o Hub mostra o total atualizado com juros e multa.</p>
+          </div>
+        ) : null}
         <FieldShell label="Reembolso recorrente?">
           <select
             className={inputClassName}
@@ -3464,8 +3529,7 @@ function getPersonGroupStatusLabel(rows: ReimbursementRow[]) {
 }
 
 function getOpenAmount(reimbursement: ReimbursementRow) {
-  if (["received", "cancelled", "forgiven", "renegotiated", "carried_over"].includes(reimbursement.status)) return 0;
-  return Math.max(Number(reimbursement.expected_amount) - Number(reimbursement.received_amount), 0);
+  return calculateReimbursementInterest(reimbursement).totalOpen;
 }
 
 function addMonthsToDateInput(date: string, months: number) {
