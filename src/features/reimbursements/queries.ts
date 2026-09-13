@@ -10,6 +10,7 @@ import { createLinkedEntry, logFinancialLinkCreated, logFinancialLinkUpdated } f
 import type { AppSupabaseClient } from "@/features/shared/types";
 import { archiveRecord, restoreArchivedRecord } from "@/features/shared/archive";
 import { findOrCreateInvoiceForTransactionDate } from "@/features/invoices/auto-invoices";
+import { getFifthBusinessDayOfNextMonth } from "@/features/reimbursements/carryover-date";
 import { calculateReimbursementInterest } from "@/features/reimbursements/interest";
 import type { CreditCardTransaction } from "@/lib/supabase/types";
 
@@ -262,10 +263,10 @@ export async function applyBulkReimbursementReceipt(
   }
 
   const carryoverAmount = roundCurrency(openTotal - amount);
-  const carryoverExpectedDate = values.carryover_expected_date?.trim();
+  const carryoverExpectedDate = getFifthBusinessDayOfNextMonth(receivedDate);
   const carryoverDescription = values.description?.trim();
   if (carryoverAmount > 0 && (!carryoverExpectedDate || !carryoverDescription)) {
-    return { error: { message: "Informe a data e a descrição do novo título com o saldo restante." } };
+    return { error: { message: "Não foi possível calcular o quinto dia útil do próximo mês para o saldo restante." } };
   }
 
   const sorted = [...reimbursements].sort((left, right) => {

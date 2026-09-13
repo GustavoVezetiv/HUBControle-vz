@@ -22,6 +22,7 @@ import {
   isReimbursementLateByDate,
   type PersonDebtViewMode,
 } from "@/features/reimbursements/debt-summary";
+import { getFifthBusinessDayOfNextMonth } from "@/features/reimbursements/carryover-date";
 import { calculateReimbursementInterest } from "@/features/reimbursements/interest";
 import {
   applyBulkReimbursementReceipt,
@@ -2116,7 +2117,6 @@ function BulkReceiptModal({
     amount: String(totalOpen),
     received_date: today,
     method: "pix",
-    carryover_expected_date: addMonthsToDateInput(today, 1),
     description: `Saldo restante - ${modal.person?.name ?? "reembolso"}`,
     notes: "",
   });
@@ -2124,6 +2124,7 @@ function BulkReceiptModal({
   const receivedAmount = Number(values.amount || 0);
   const openAfterPayment = Math.max(totalOpen - (Number.isFinite(receivedAmount) ? receivedAmount : 0), 0);
   const hasCarryover = openAfterPayment > 0.009;
+  const carryoverExpectedDate = getFifthBusinessDayOfNextMonth(values.received_date);
 
   return (
     <Modal
@@ -2144,7 +2145,7 @@ function BulkReceiptModal({
         }}
       >
         <div className="rounded-md border border-mint-500/35 bg-mint-50 px-4 py-3 text-sm font-medium text-ink-800 shadow-sm dark:border-mint-400/35 dark:bg-mint-950/30 dark:text-slate-100 md:col-span-2">
-          Isso não é renegociação. O pagamento será abatido dos títulos selecionados em ordem de vencimento. Se sobrar saldo, o Hub cria um novo título para a próxima data.
+          Isso não é renegociação. O pagamento será abatido dos títulos selecionados em ordem de vencimento. Se sobrar saldo, o Hub cria um novo título para o quinto dia útil do mês seguinte.
         </div>
 
         <div className="rounded-md border border-ink-950/10 bg-slate-50 px-4 py-3 text-sm text-ink-700 dark:border-white/10 dark:bg-slate-900/60 dark:text-slate-200 md:col-span-2">
@@ -2198,15 +2199,12 @@ function BulkReceiptModal({
 
         {hasCarryover ? (
           <>
-            <FieldShell label="Data do saldo restante">
-              <input
-                required
-                type="date"
-                className={inputClassName}
-                value={values.carryover_expected_date}
-                onChange={(event) => setValues({ ...values, carryover_expected_date: event.target.value })}
-              />
-            </FieldShell>
+            <div className="rounded-md border border-mint-500/35 bg-mint-50 px-4 py-3 text-sm text-ink-800 shadow-sm dark:border-mint-400/35 dark:bg-mint-950/30 dark:text-slate-100">
+              <p className="font-semibold">Vencimento do saldo restante</p>
+              <p>
+                O novo título será criado para o quinto dia útil do próximo mês: <strong>{carryoverExpectedDate ? formatDate(carryoverExpectedDate) : "data indisponível"}</strong>.
+              </p>
+            </div>
             <FieldShell label="Descrição do novo título">
               <input
                 required
@@ -3530,19 +3528,6 @@ function getPersonGroupStatusLabel(rows: ReimbursementRow[]) {
 
 function getOpenAmount(reimbursement: ReimbursementRow) {
   return calculateReimbursementInterest(reimbursement).totalOpen;
-}
-
-function addMonthsToDateInput(date: string, months: number) {
-  const [year, month, day] = date.split("-").map(Number);
-  const nextDate = new Date(year, month - 1 + months, 1);
-  const lastDay = new Date(nextDate.getFullYear(), nextDate.getMonth() + 1, 0).getDate();
-  nextDate.setDate(Math.min(day, lastDay));
-
-  const nextYear = nextDate.getFullYear();
-  const nextMonth = String(nextDate.getMonth() + 1).padStart(2, "0");
-  const nextDay = String(nextDate.getDate()).padStart(2, "0");
-
-  return `${nextYear}-${nextMonth}-${nextDay}`;
 }
 
 function buildReimbursementReceiptContext(reimbursement: ReimbursementRow): LinkedEntryContext {

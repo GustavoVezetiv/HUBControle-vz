@@ -189,6 +189,8 @@ supabase/migrations/202609020001_reimbursement_bulk_receipt_carryover.sql
 
 This migration adds the `carried_over` reimbursement status used when a selected reimbursement was partially paid through a single bulk payment and its remaining balance was transferred to a new title. This is not treated as renegotiation.
 
+No pagamento único parcial de vários reembolsos da mesma pessoa, o saldo restante sempre gera um novo título com vencimento no quinto dia útil do mês seguinte à data do recebimento. Nesta regra, dia útil considera segunda a sexta-feira; feriados locais e nacionais não são inferidos automaticamente.
+
 ### Calendário financeiro e juros por atraso
 
 O Fluxo de caixa agora inclui um calendário mensal de saldo projetado. Ele organiza entradas, dinheiro vinculado (como reembolsos) e saídas pela data esperada, para deixar claro como o caixa tende a evoluir ao longo do mês. Reembolsos e dinheiro de terceiros continuam separados de renda livre.
