@@ -18,6 +18,10 @@ export type PersonDebtSummary = {
   partialCount: number;
   totalCount: number;
   nextExpectedDate: string | null;
+  previousOpen: number;
+  previousCount: number;
+  previousLate: number;
+  oldestPreviousExpectedDate: string | null;
   status: PersonDebtStatus;
 };
 
@@ -25,22 +29,32 @@ export function buildPersonDebtSummaries(
   people: ReimbursementPerson[],
   reimbursements: ReimbursementRow[],
   today = new Date().toISOString().slice(0, 10),
+  periodStartDate?: string,
 ) {
   return people
     .map((person) => {
       const personRows = reimbursements.filter((item) => item.person_id === person.id);
+      const openRows = personRows.filter(isOutstandingReimbursementDebt);
       const totalExpected = personRows.reduce((sum, item) => sum + Number(item.expected_amount || 0), 0);
       const received = personRows.reduce((sum, item) => sum + Number(item.received_amount || 0), 0);
-      const open = personRows.reduce((sum, item) => sum + getReimbursementOpenAmount(item), 0);
-      const lateRows = personRows.filter((item) => isReimbursementLateByDate(item, today));
-      const periodRows = personRows.filter((item) => isDebtRelevantStatus(item.status));
+      const open = openRows.reduce((sum, item) => sum + getReimbursementOpenAmount(item), 0);
+      const lateRows = openRows.filter((item) => isReimbursementLateByDate(item, today));
+      const periodRows = openRows;
       const late = lateRows.reduce((sum, item) => sum + getReimbursementOpenAmount(item), 0);
       const periodOpen = periodRows.reduce((sum, item) => sum + getReimbursementOpenAmount(item), 0);
-      const openCount = personRows.filter((item) => getReimbursementOpenAmount(item) > 0).length;
-      const partialCount = personRows.filter((item) => isDebtRelevantStatus(item.status) && (item.status === "partial" || isPartiallyReceived(item))).length;
+      const openCount = openRows.length;
+      const partialCount = openRows.filter((item) => item.status === "partial" || isPartiallyReceived(item)).length;
+      const previousRows = periodStartDate
+        ? openRows.filter((item) => Boolean(item.expected_date && item.expected_date < periodStartDate))
+        : [];
       const nextExpectedDate =
-        personRows
-          .filter((item) => getReimbursementOpenAmount(item) > 0)
+        openRows
+          .map((item) => item.expected_date)
+          .filter((date): date is string => Boolean(date))
+          .sort()
+          .at(0) ?? null;
+      const oldestPreviousExpectedDate =
+        previousRows
           .map((item) => item.expected_date)
           .filter((date): date is string => Boolean(date))
           .sort()
@@ -60,6 +74,12 @@ export function buildPersonDebtSummaries(
         partialCount,
         totalCount: personRows.length,
         nextExpectedDate,
+        previousOpen: previousRows.reduce((sum, item) => sum + getReimbursementOpenAmount(item), 0),
+        previousCount: previousRows.length,
+        previousLate: previousRows
+          .filter((item) => isReimbursementLateByDate(item, today))
+          .reduce((sum, item) => sum + getReimbursementOpenAmount(item), 0),
+        oldestPreviousExpectedDate,
         status,
       };
     })
@@ -79,6 +99,10 @@ export function filterPersonDebtSummaries(summaries: PersonDebtSummary[], mode: 
 
 export function getReimbursementOpenAmount(reimbursement: ReimbursementRow) {
   return calculateReimbursementInterest(reimbursement).totalOpen;
+}
+
+export function isOutstandingReimbursementDebt(reimbursement: ReimbursementRow) {
+  return isDebtRelevantStatus(reimbursement.status) && getReimbursementOpenAmount(reimbursement) > 0;
 }
 
 export function isReimbursementLateByDate(reimbursement: ReimbursementRow, today = new Date().toISOString().slice(0, 10)) {
