@@ -293,6 +293,23 @@ export function SettingsPanel() {
                     <option value="full">Visão completa</option>
                   </select>
                 </FieldShell>
+
+                <FieldShell label="Resumo de pendências anteriores">
+                  <select
+                    className={inputClassName}
+                    value={systemPreferences.reimbursementDebtSummaryPopoverMode}
+                    onChange={(event) =>
+                      setSystemPreferences((current) => ({
+                        ...current,
+                        reimbursementDebtSummaryPopoverMode: event.target.value as SystemPreferences["reimbursementDebtSummaryPopoverMode"],
+                      }))
+                    }
+                  >
+                    <option value="cursor">Acompanhar mouse</option>
+                    <option value="fixed">Painel fixo à direita</option>
+                  </select>
+                  <p className="mt-2 text-xs text-ink-600">Usado no saldo devedor por pessoa em Reembolsos.</p>
+                </FieldShell>
               </div>
 
               <div className="mt-6">
