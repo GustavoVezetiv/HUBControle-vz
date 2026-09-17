@@ -19,9 +19,11 @@ import {
   filterPersonDebtSummaries,
   getPersonDebtStatusLabel,
   getPersonDebtStatusTone,
+  isOutstandingReimbursementDebt,
   isReimbursementLateByDate,
   type PersonDebtViewMode,
 } from "@/features/reimbursements/debt-summary";
+import { getFifthBusinessDayOfNextMonth } from "@/features/reimbursements/carryover-date";
 import { calculateReimbursementInterest } from "@/features/reimbursements/interest";
 import {
   applyBulkReimbursementReceipt,
@@ -82,6 +84,7 @@ type ReimbursementsViewPreference = {
   linkedFilter?: string;
   categoryFilter?: string;
   peopleSummaryView?: PersonDebtViewMode;
+  includePreviousDebt?: boolean;
   period?: PeriodValue;
 };
 
@@ -177,6 +180,7 @@ const reimbursementsDefaultViewPreference: Required<ReimbursementsViewPreference
   linkedFilter: "all",
   categoryFilter: "all",
   peopleSummaryView: "open_period",
+  includePreviousDebt: false,
   period: parsePeriodSearchParams({}),
 };
 
@@ -216,6 +220,7 @@ export function ReimbursementsCrud() {
   const [bulkPersonId, setBulkPersonId] = useState("");
   const [allowQuickTableEdit, setAllowQuickTableEdit] = useState(false);
   const [peopleSummaryView, setPeopleSummaryView] = useState<PersonDebtViewMode>("open_period");
+  const [includePreviousDebt, setIncludePreviousDebt] = useState(false);
   const [generatedInvoiceLink, setGeneratedInvoiceLink] = useState<{ invoiceId: string; transactionId?: string } | null>(null);
   const scopedCategories = useMemo(
     () => filterCategoriesByScopes(categories, categoryModuleDefinitions.reimbursements.scopes),
@@ -284,9 +289,27 @@ export function ReimbursementsCrud() {
     return { totalExpected, totalReceived, lateAmount, partialAmount, amountOwed, estimatedPersonalCost, lateInterestAmount };
   }, [accounts, periodReimbursements, transactions]);
 
+  const previousOpenReimbursements = useMemo(() => {
+    if (!includePreviousDebt || !period.startDate || period.preset === "all") return [];
+
+    return reimbursements.filter(
+      (item) =>
+        Boolean(item.expected_date && item.expected_date < period.startDate) &&
+        isOutstandingReimbursementDebt(item),
+    );
+  }, [includePreviousDebt, period.preset, period.startDate, reimbursements]);
+
+  const peopleSummaryReimbursements = useMemo(() => {
+    if (previousOpenReimbursements.length === 0) return periodReimbursements;
+
+    const rowsById = new Map(periodReimbursements.map((item) => [item.id, item]));
+    previousOpenReimbursements.forEach((item) => rowsById.set(item.id, item));
+    return [...rowsById.values()];
+  }, [periodReimbursements, previousOpenReimbursements]);
+
   const peopleSummary = useMemo(
-    () => buildPersonDebtSummaries(people, periodReimbursements),
-    [people, periodReimbursements],
+    () => buildPersonDebtSummaries(people, peopleSummaryReimbursements, undefined, period.startDate),
+    [people, peopleSummaryReimbursements, period.startDate],
   );
 
   const visiblePeopleSummary = useMemo(() => {
@@ -339,6 +362,7 @@ export function ReimbursementsCrud() {
     setLinkedFilter(preferenceText(preference.linkedFilter, "all"));
     setCategoryFilter(preferenceText(preference.categoryFilter, "all"));
     setPeopleSummaryView(preferenceString(preference.peopleSummaryView, reimbursementSummaryViews, "open_period"));
+    setIncludePreviousDebt(preference.includePreviousDebt === true);
     if (!searchParams.get("period") && !searchParams.get("start") && !searchParams.get("end")) {
       setPeriod(preferenceRecord(preference.period, reimbursementsDefaultViewPreference.period));
     }
@@ -352,6 +376,7 @@ export function ReimbursementsCrud() {
       linkedFilter,
       categoryFilter,
       peopleSummaryView,
+      includePreviousDebt,
       period,
     });
     setFeedback({
@@ -373,6 +398,7 @@ export function ReimbursementsCrud() {
     setLinkedFilter(reimbursementsDefaultViewPreference.linkedFilter);
     setCategoryFilter(reimbursementsDefaultViewPreference.categoryFilter);
     setPeopleSummaryView(reimbursementsDefaultViewPreference.peopleSummaryView);
+    setIncludePreviousDebt(reimbursementsDefaultViewPreference.includePreviousDebt);
     setPeriod(reimbursementsDefaultViewPreference.period);
   }
 
@@ -943,7 +969,20 @@ export function ReimbursementsCrud() {
         ) : null}
       </SectionCard>
 
-      <SectionCard title="Saldo devedor por pessoa" description="Por padrão, mostra apenas pessoas com valores em aberto no período selecionado, atrasos, parcelas parciais ou títulos previstos dentro deste recorte.">
+      <SectionCard title="Saldo devedor por pessoa" description="Por padrão, mostra apenas valores do período selecionado. Ative a opção abaixo para somar pendências ainda abertas de períodos anteriores.">
+        <label
+          className="mb-4 inline-flex cursor-pointer items-center gap-2 rounded-md border border-ink-950/10 bg-slate-50 px-3 py-2 text-sm font-medium text-ink-700 shadow-sm transition hover:border-mint-500/60 dark:border-white/10 dark:bg-slate-900/60 dark:text-slate-200"
+          title={period.preset === "all" ? "Todos os títulos já estão visíveis neste período." : "Soma títulos pendentes com vencimento anterior ao início do período selecionado."}
+        >
+          <input
+            type="checkbox"
+            className="h-4 w-4 rounded border-slate-400 text-mint-600 focus:ring-mint-500 dark:border-slate-500"
+            checked={includePreviousDebt}
+            disabled={period.preset === "all"}
+            onChange={(event) => setIncludePreviousDebt(event.target.checked)}
+          />
+          Incluir pendências anteriores
+        </label>
         <div className="mb-4 flex flex-wrap gap-2">
           {[
             { value: "open_period", label: "Em aberto no período" },
@@ -972,7 +1011,7 @@ export function ReimbursementsCrud() {
               <button
                 key={item.person.id}
                 type="button"
-                className={`hub-card flex h-full flex-col rounded-xl border p-4 text-left text-ink-950 shadow-sm transition hover:border-mint-500 hover:bg-mint-50/60 hover:shadow-md dark:text-slate-100 dark:hover:bg-slate-800/90 ${
+                className={`hub-card group relative flex h-full flex-col rounded-xl border p-4 text-left text-ink-950 shadow-sm transition hover:border-mint-500 hover:bg-mint-50/60 hover:shadow-md dark:text-slate-100 dark:hover:bg-slate-800/90 ${
                   personFilter === item.person.id
                     ? "border-mint-500 ring-2 ring-mint-500/25 dark:border-mint-400 dark:ring-mint-400/25"
                     : "border-slate-300 dark:border-slate-700"
@@ -1000,6 +1039,14 @@ export function ReimbursementsCrud() {
                     {item.totalCount} titulo(s) · {item.openCount} aberto(s) · {item.lateCount} atrasado(s)
                   </p>
                 </div>
+                {includePreviousDebt && item.previousCount > 0 ? (
+                  <div className="pointer-events-none absolute inset-x-3 bottom-3 z-20 translate-y-1 rounded-md border border-mint-500/40 bg-white p-3 text-left text-xs text-ink-700 opacity-0 shadow-xl transition duration-200 group-hover:translate-y-0 group-hover:opacity-100 group-focus-visible:translate-y-0 group-focus-visible:opacity-100 dark:bg-slate-950 dark:text-slate-200">
+                    <p className="font-semibold text-ink-950 dark:text-slate-100">Pendências anteriores incluídas</p>
+                    <p>{item.previousCount} título(s) somando {formatCurrency(item.previousOpen)}.</p>
+                    <p>{item.previousLate > 0 ? `${formatCurrency(item.previousLate)} está em atraso.` : "Sem valor vencido até agora."}</p>
+                    <p>Mais antiga: {item.oldestPreviousExpectedDate ? formatDate(item.oldestPreviousExpectedDate) : "sem data"}.</p>
+                  </div>
+                ) : null}
               </button>
             ))}
           </div>
@@ -2116,7 +2163,6 @@ function BulkReceiptModal({
     amount: String(totalOpen),
     received_date: today,
     method: "pix",
-    carryover_expected_date: addMonthsToDateInput(today, 1),
     description: `Saldo restante - ${modal.person?.name ?? "reembolso"}`,
     notes: "",
   });
@@ -2124,6 +2170,7 @@ function BulkReceiptModal({
   const receivedAmount = Number(values.amount || 0);
   const openAfterPayment = Math.max(totalOpen - (Number.isFinite(receivedAmount) ? receivedAmount : 0), 0);
   const hasCarryover = openAfterPayment > 0.009;
+  const carryoverExpectedDate = getFifthBusinessDayOfNextMonth(values.received_date);
 
   return (
     <Modal
@@ -2144,7 +2191,7 @@ function BulkReceiptModal({
         }}
       >
         <div className="rounded-md border border-mint-500/35 bg-mint-50 px-4 py-3 text-sm font-medium text-ink-800 shadow-sm dark:border-mint-400/35 dark:bg-mint-950/30 dark:text-slate-100 md:col-span-2">
-          Isso não é renegociação. O pagamento será abatido dos títulos selecionados em ordem de vencimento. Se sobrar saldo, o Hub cria um novo título para a próxima data.
+          Isso não é renegociação. O pagamento será abatido dos títulos selecionados em ordem de vencimento. Se sobrar saldo, o Hub cria um novo título para o quinto dia útil do mês seguinte.
         </div>
 
         <div className="rounded-md border border-ink-950/10 bg-slate-50 px-4 py-3 text-sm text-ink-700 dark:border-white/10 dark:bg-slate-900/60 dark:text-slate-200 md:col-span-2">
@@ -2198,15 +2245,12 @@ function BulkReceiptModal({
 
         {hasCarryover ? (
           <>
-            <FieldShell label="Data do saldo restante">
-              <input
-                required
-                type="date"
-                className={inputClassName}
-                value={values.carryover_expected_date}
-                onChange={(event) => setValues({ ...values, carryover_expected_date: event.target.value })}
-              />
-            </FieldShell>
+            <div className="rounded-md border border-mint-500/35 bg-mint-50 px-4 py-3 text-sm text-ink-800 shadow-sm dark:border-mint-400/35 dark:bg-mint-950/30 dark:text-slate-100">
+              <p className="font-semibold">Vencimento do saldo restante</p>
+              <p>
+                O novo título será criado para o quinto dia útil do próximo mês: <strong>{carryoverExpectedDate ? formatDate(carryoverExpectedDate) : "data indisponível"}</strong>.
+              </p>
+            </div>
             <FieldShell label="Descrição do novo título">
               <input
                 required
@@ -3530,19 +3574,6 @@ function getPersonGroupStatusLabel(rows: ReimbursementRow[]) {
 
 function getOpenAmount(reimbursement: ReimbursementRow) {
   return calculateReimbursementInterest(reimbursement).totalOpen;
-}
-
-function addMonthsToDateInput(date: string, months: number) {
-  const [year, month, day] = date.split("-").map(Number);
-  const nextDate = new Date(year, month - 1 + months, 1);
-  const lastDay = new Date(nextDate.getFullYear(), nextDate.getMonth() + 1, 0).getDate();
-  nextDate.setDate(Math.min(day, lastDay));
-
-  const nextYear = nextDate.getFullYear();
-  const nextMonth = String(nextDate.getMonth() + 1).padStart(2, "0");
-  const nextDay = String(nextDate.getDate()).padStart(2, "0");
-
-  return `${nextYear}-${nextMonth}-${nextDay}`;
 }
 
 function buildReimbursementReceiptContext(reimbursement: ReimbursementRow): LinkedEntryContext {
