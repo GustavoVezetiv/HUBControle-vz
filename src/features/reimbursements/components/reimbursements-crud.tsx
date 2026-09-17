@@ -4,7 +4,7 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { CircleCheckBig } from "lucide-react";
 
 import { EmptyState } from "@/components/ui/empty-state";
@@ -21,6 +21,7 @@ import {
   getPersonDebtStatusTone,
   isOutstandingReimbursementDebt,
   isReimbursementLateByDate,
+  type PersonDebtSummary,
   type PersonDebtViewMode,
 } from "@/features/reimbursements/debt-summary";
 import { getFifthBusinessDayOfNextMonth } from "@/features/reimbursements/carryover-date";
@@ -62,6 +63,7 @@ import { isAnyDateInPeriod, parsePeriodSearchParams, type PeriodValue } from "@/
 import { getQuickTableEditPreference } from "@/features/shared/quick-edit";
 import type { FeedbackState } from "@/features/shared/types";
 import { clearViewPreference, loadViewPreference, preferenceRecord, preferenceString, preferenceText, saveViewPreference } from "@/features/shared/view-preferences";
+import { loadSystemPreferences, type ReimbursementDebtSummaryPopoverMode } from "@/features/settings/system-preferences";
 import { createLinkedEntry } from "@/features/linked-entries/queries";
 import type { LinkedEntryContext } from "@/features/linked-entries/types";
 import { createClient } from "@/lib/supabase/client";
@@ -77,6 +79,11 @@ type ReimbursementReceiptValues = {
 };
 type RenegotiationModalState = { reimbursements: ReimbursementRow[]; person: ReimbursementPerson | null } | null;
 type BulkReceiptModalState = { reimbursements: ReimbursementRow[]; person: ReimbursementPerson | null } | null;
+type PreviousDebtPopoverState = {
+  summary: PersonDebtSummary;
+  reimbursements: ReimbursementRow[];
+  position: { x: number; y: number };
+};
 type ReimbursementsViewPreference = {
   search?: string;
   personFilter?: string;
@@ -221,6 +228,8 @@ export function ReimbursementsCrud() {
   const [allowQuickTableEdit, setAllowQuickTableEdit] = useState(false);
   const [peopleSummaryView, setPeopleSummaryView] = useState<PersonDebtViewMode>("open_period");
   const [includePreviousDebt, setIncludePreviousDebt] = useState(false);
+  const [previousDebtPopoverMode, setPreviousDebtPopoverMode] = useState<ReimbursementDebtSummaryPopoverMode>("cursor");
+  const [previousDebtPopover, setPreviousDebtPopover] = useState<PreviousDebtPopoverState | null>(null);
   const [generatedInvoiceLink, setGeneratedInvoiceLink] = useState<{ invoiceId: string; transactionId?: string } | null>(null);
   const scopedCategories = useMemo(
     () => filterCategoriesByScopes(categories, categoryModuleDefinitions.reimbursements.scopes),
@@ -367,6 +376,33 @@ export function ReimbursementsCrud() {
       setPeriod(preferenceRecord(preference.period, reimbursementsDefaultViewPreference.period));
     }
   }, [searchParams, userId]);
+
+  useEffect(() => {
+    if (!userId) return;
+    setPreviousDebtPopoverMode(loadSystemPreferences(userId).reimbursementDebtSummaryPopoverMode);
+  }, [userId]);
+
+  useEffect(() => {
+    setPreviousDebtPopover(null);
+  }, [includePreviousDebt, period.endDate, period.startDate]);
+
+  function openPreviousDebtPopover(
+    summary: PersonDebtSummary,
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) {
+    if (!includePreviousDebt || summary.previousCount === 0) return;
+
+    setPreviousDebtPopover({
+      summary,
+      reimbursements: previousOpenReimbursements.filter((item) => item.person_id === summary.person.id),
+      position: getPreviousDebtPopoverPosition(event),
+    });
+  }
+
+  function movePreviousDebtPopover(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (previousDebtPopoverMode !== "cursor") return;
+    setPreviousDebtPopover((current) => current ? { ...current, position: getPreviousDebtPopoverPosition(event) } : current);
+  }
 
   function handleSaveViewPreference() {
     const saved = saveViewPreference("reimbursements", userId, {
@@ -1011,12 +1047,15 @@ export function ReimbursementsCrud() {
               <button
                 key={item.person.id}
                 type="button"
-                className={`hub-card group relative flex h-full flex-col rounded-xl border p-4 text-left text-ink-950 shadow-sm transition hover:border-mint-500 hover:bg-mint-50/60 hover:shadow-md dark:text-slate-100 dark:hover:bg-slate-800/90 ${
+                className={`hub-card flex h-full flex-col rounded-xl border p-4 text-left text-ink-950 shadow-sm transition hover:border-mint-500 hover:bg-mint-50/60 hover:shadow-md dark:text-slate-100 dark:hover:bg-slate-800/90 ${
                   personFilter === item.person.id
                     ? "border-mint-500 ring-2 ring-mint-500/25 dark:border-mint-400 dark:ring-mint-400/25"
                     : "border-slate-300 dark:border-slate-700"
                 }`}
                 onClick={() => setPersonFilter(item.person.id)}
+                onPointerEnter={(event) => openPreviousDebtPopover(item, event)}
+                onPointerMove={movePreviousDebtPopover}
+                onPointerLeave={() => setPreviousDebtPopover(null)}
                 aria-pressed={personFilter === item.person.id}
               >
                 <div className="flex items-start justify-between gap-3">
@@ -1039,14 +1078,6 @@ export function ReimbursementsCrud() {
                     {item.totalCount} titulo(s) · {item.openCount} aberto(s) · {item.lateCount} atrasado(s)
                   </p>
                 </div>
-                {includePreviousDebt && item.previousCount > 0 ? (
-                  <div className="pointer-events-none absolute inset-x-3 bottom-3 z-20 translate-y-1 rounded-md border border-mint-500/40 bg-white p-3 text-left text-xs text-ink-700 opacity-0 shadow-xl transition duration-200 group-hover:translate-y-0 group-hover:opacity-100 group-focus-visible:translate-y-0 group-focus-visible:opacity-100 dark:bg-slate-950 dark:text-slate-200">
-                    <p className="font-semibold text-ink-950 dark:text-slate-100">Pendências anteriores incluídas</p>
-                    <p>{item.previousCount} título(s) somando {formatCurrency(item.previousOpen)}.</p>
-                    <p>{item.previousLate > 0 ? `${formatCurrency(item.previousLate)} está em atraso.` : "Sem valor vencido até agora."}</p>
-                    <p>Mais antiga: {item.oldestPreviousExpectedDate ? formatDate(item.oldestPreviousExpectedDate) : "sem data"}.</p>
-                  </div>
-                ) : null}
               </button>
             ))}
           </div>
@@ -1358,6 +1389,14 @@ export function ReimbursementsCrud() {
         )}
       </SectionCard>
 
+      {includePreviousDebt && previousDebtPopover ? (
+        <PreviousDebtPopover
+          mode={previousDebtPopoverMode}
+          periodStartDate={period.startDate}
+          state={previousDebtPopover}
+        />
+      ) : null}
+
       {modal ? (
         <ReimbursementModal
           accounts={accounts}
@@ -1426,6 +1465,70 @@ export function ReimbursementsCrud() {
       ) : null}
     </div>
   );
+}
+
+function PreviousDebtPopover({
+  mode,
+  periodStartDate,
+  state,
+}: {
+  mode: ReimbursementDebtSummaryPopoverMode;
+  periodStartDate: string;
+  state: PreviousDebtPopoverState;
+}) {
+  const rows = [...state.reimbursements].sort((left, right) =>
+    String(left.expected_date ?? "").localeCompare(String(right.expected_date ?? "")),
+  );
+  const shownRows = rows.slice(0, 6);
+  const remainingRows = rows.length - shownRows.length;
+  const fixedMode = mode === "fixed";
+
+  return (
+    <aside
+      role="tooltip"
+      className={[
+        "pointer-events-none z-30 w-[min(23rem,calc(100vw-2rem))] rounded-lg border border-mint-500/45 bg-white p-4 text-sm text-ink-700 shadow-2xl dark:bg-slate-950 dark:text-slate-200",
+        fixedMode ? "fixed bottom-4 right-4" : "fixed",
+      ].join(" ")}
+      style={fixedMode ? undefined : { left: state.position.x, top: state.position.y }}
+    >
+      <p className="font-semibold text-ink-950 dark:text-slate-100">{state.summary.person.name}</p>
+      <p className="mt-1 text-xs text-ink-600 dark:text-slate-300">
+        Pendências anteriores a {periodStartDate ? formatDate(periodStartDate) : "este período"}
+      </p>
+      <div className="mt-3 grid grid-cols-2 gap-2 rounded-md bg-slate-50 p-3 text-xs dark:bg-slate-900/70">
+        <p><span className="block text-ink-600 dark:text-slate-300">Em aberto</span><strong className="text-amber-700 dark:text-amber-300">{formatCurrency(state.summary.previousOpen)}</strong></p>
+        <p><span className="block text-ink-600 dark:text-slate-300">Em atraso</span><strong className="text-danger-600 dark:text-danger-300">{formatCurrency(state.summary.previousLate)}</strong></p>
+      </div>
+      <ul className="mt-3 divide-y divide-ink-950/10 border-y border-ink-950/10 dark:divide-white/10 dark:border-white/10">
+        {shownRows.map((reimbursement) => (
+          <li key={reimbursement.id} className="grid grid-cols-[auto_1fr_auto] gap-2 py-2">
+            <span className="whitespace-nowrap font-medium text-ink-950 dark:text-slate-100">
+              {reimbursement.expected_date ? formatDate(reimbursement.expected_date) : "Sem data"}
+            </span>
+            <span className="min-w-0 truncate">{reimbursement.description || "Sem descrição"}</span>
+            <strong className="whitespace-nowrap text-ink-950 dark:text-slate-100">{formatCurrency(getOpenAmount(reimbursement))}</strong>
+          </li>
+        ))}
+      </ul>
+      {remainingRows > 0 ? (
+        <p className="mt-2 text-xs text-ink-600 dark:text-slate-300">Mais {remainingRows} título(s) anterior(es).</p>
+      ) : null}
+    </aside>
+  );
+}
+
+function getPreviousDebtPopoverPosition(event: ReactPointerEvent<HTMLButtonElement>) {
+  const width = 368;
+  const height = 310;
+  const offset = 18;
+  const x = Math.min(event.clientX + offset, window.innerWidth - width - 16);
+  const y = Math.min(event.clientY + offset, window.innerHeight - height - 16);
+
+  return {
+    x: Math.max(16, x),
+    y: Math.max(16, y),
+  };
 }
 
 function ReimbursementModal({

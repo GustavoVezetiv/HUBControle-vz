@@ -26,6 +26,7 @@ export type ShortcutId =
 
 export type ModuleViewMode = "list" | "kanban";
 export type DashboardMode = "simple" | "full";
+export type ReimbursementDebtSummaryPopoverMode = "cursor" | "fixed";
 
 export type SystemPreferences = {
   initialScreen: InitialScreenRoute;
@@ -35,6 +36,7 @@ export type SystemPreferences = {
   purchaseViewMode: ModuleViewMode;
   placeViewMode: ModuleViewMode;
   dashboardMode: DashboardMode;
+  reimbursementDebtSummaryPopoverMode: ReimbursementDebtSummaryPopoverMode;
 };
 
 export const initialScreenOptions: Array<{ value: InitialScreenRoute; label: string }> = [
@@ -84,6 +86,7 @@ export const defaultSystemPreferences: SystemPreferences = {
   purchaseViewMode: "list",
   placeViewMode: "list",
   dashboardMode: "simple",
+  reimbursementDebtSummaryPopoverMode: "cursor",
 };
 
 function systemPreferencesKey(userId?: string | null) {
@@ -165,6 +168,10 @@ function normalizeSystemPreferences(value: unknown): SystemPreferences {
     purchaseViewMode: record.purchaseViewMode === "kanban" ? "kanban" : defaultSystemPreferences.purchaseViewMode,
     placeViewMode: record.placeViewMode === "kanban" ? "kanban" : defaultSystemPreferences.placeViewMode,
     dashboardMode: record.dashboardMode === "full" ? "full" : defaultSystemPreferences.dashboardMode,
+    reimbursementDebtSummaryPopoverMode:
+      record.reimbursementDebtSummaryPopoverMode === "fixed"
+        ? "fixed"
+        : defaultSystemPreferences.reimbursementDebtSummaryPopoverMode,
   };
 }
 
