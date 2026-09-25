@@ -237,7 +237,52 @@ export type Reimbursement = UserOwnedRow & ArchiveFields & {
   renegotiated_at: string | null;
   renegotiation_source_ids: string[];
   pix_reference: string | null;
+  reimbursement_group_id: string | null;
   notes: string | null;
+};
+
+export type SubscriptionStatus = "active" | "paused" | "cancelled";
+
+export type Subscription = UserOwnedRow & ArchiveFields & {
+  credit_card_id: string;
+  category_id: string | null;
+  name: string;
+  description: string | null;
+  amount: number;
+  billing_day: number;
+  start_date: string;
+  end_date: string | null;
+  status: SubscriptionStatus;
+  notes: string | null;
+};
+
+export type SubscriptionMember = UserOwnedRow & {
+  subscription_id: string;
+  person_id: string;
+  share_amount: number;
+  is_active: boolean;
+};
+
+export type ReimbursementGroup = UserOwnedRow & {
+  subscription_id: string | null;
+  credit_card_transaction_id: string | null;
+  credit_card_invoice_id: string | null;
+  category_id: string | null;
+  description: string;
+  expected_date: string | null;
+  total_amount: number;
+  notes: string | null;
+};
+
+export type SubscriptionOccurrence = UserOwnedRow & {
+  subscription_id: string;
+  reference_month: string;
+  transaction_date: string;
+  credit_card_transaction_id: string | null;
+  reimbursement_group_id: string | null;
+  status: "generating" | "generated" | "failed";
+  error_message: string | null;
+  generated_at: string | null;
 };
 
 export type Installment = UserOwnedRow & {
@@ -631,6 +676,10 @@ export type Database = {
       credit_card_invoices: SupabaseTable<CreditCardInvoice>;
       credit_card_transactions: SupabaseTable<CreditCardTransaction>;
       reimbursements: SupabaseTable<Reimbursement>;
+      reimbursement_groups: SupabaseTable<ReimbursementGroup>;
+      subscriptions: SupabaseTable<Subscription>;
+      subscription_members: SupabaseTable<SubscriptionMember>;
+      subscription_occurrences: SupabaseTable<SubscriptionOccurrence>;
       installments: SupabaseTable<Installment>;
       payment_plans: SupabaseTable<PaymentPlan>;
       payment_plan_items: SupabaseTable<PaymentPlanItem>;

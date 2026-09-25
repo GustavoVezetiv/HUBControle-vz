@@ -8,6 +8,7 @@ export type NavigationIcon =
   | "installments"
   | "cash-flow"
   | "payment-plans"
+  | "subscriptions"
   | "purchases"
   | "goals"
   | "weekly-review"
@@ -52,6 +53,7 @@ export const navigationGroups: NavigationGroup[] = [
       { label: "Receitas", href: "/dashboard/income", icon: "income" },
       { label: "Cartões", href: "/dashboard/cards", icon: "cards" },
       { label: "Faturas", href: "/dashboard/invoices", icon: "invoices" },
+      { label: "Assinaturas", href: "/dashboard/subscriptions", icon: "subscriptions" },
       { label: "Reembolsos", href: "/dashboard/reimbursements", icon: "reimbursements", badge: "chave" },
       { label: "Parcelamentos", href: "/dashboard/installments", icon: "installments" },
       { label: "Fluxo de caixa", href: "/dashboard/cash-flow", icon: "cash-flow" },

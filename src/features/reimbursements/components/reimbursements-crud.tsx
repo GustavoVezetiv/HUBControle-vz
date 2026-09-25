@@ -5,7 +5,7 @@ import autoTable from "jspdf-autotable";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Fragment, useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { CircleCheckBig } from "lucide-react";
+import { CircleCheckBig, X } from "lucide-react";
 
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
@@ -30,6 +30,7 @@ import {
   applyBulkReimbursementReceipt,
   archiveReimbursement,
   createReimbursement,
+  createGroupedReimbursements,
   generateLinkedEntryFromReimbursement,
   generateRecurringReimbursements,
   listReimbursements,
@@ -47,6 +48,7 @@ import {
   type ReimbursementCategory,
   type ReimbursementFormValues,
   type ReimbursementGeneratedLinkValues,
+  type GroupedReimbursementValues,
   type ReimbursementFinancialLinkMode,
   type ReimbursementIncome,
   type ReimbursementInvoice,
@@ -56,7 +58,7 @@ import {
   type ReimbursementTransaction,
 } from "@/features/reimbursements/types";
 import { ActionButton, BulkActionsBar, CategoryBadge, CategorySelect, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, RowSelectionHint, shouldToggleRowSelection, TextBadge, TitleButton, ViewPreferenceActions } from "@/features/shared/crud-ui";
-import { formatCurrency, formatDate } from "@/features/shared/format";
+import { formatCurrency, formatDate, todayISO } from "@/features/shared/format";
 import { accountStatusOptions, invoiceStatusOptions, optionLabel, paymentMethodOptions, reimbursementStatusOptions } from "@/features/shared/options";
 import { PeriodFilter } from "@/features/shared/period-filter";
 import { isAnyDateInPeriod, parsePeriodSearchParams, type PeriodValue } from "@/features/shared/period";
@@ -79,6 +81,7 @@ type ReimbursementReceiptValues = {
 };
 type RenegotiationModalState = { reimbursements: ReimbursementRow[]; person: ReimbursementPerson | null } | null;
 type BulkReceiptModalState = { reimbursements: ReimbursementRow[]; person: ReimbursementPerson | null } | null;
+type GroupedReimbursementModalState = { open: true } | null;
 type PreviousDebtPopoverState = {
   summary: PersonDebtSummary;
   reimbursements: ReimbursementRow[];
@@ -218,6 +221,7 @@ export function ReimbursementsCrud() {
   const [receiveModal, setReceiveModal] = useState<ReceiveModalState>(null);
   const [renegotiationModal, setRenegotiationModal] = useState<RenegotiationModalState>(null);
   const [bulkReceiptModal, setBulkReceiptModal] = useState<BulkReceiptModalState>(null);
+  const [groupedReimbursementModal, setGroupedReimbursementModal] = useState<GroupedReimbursementModalState>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -524,6 +528,36 @@ export function ReimbursementsCrud() {
     } catch (error) {
       console.error("Erro técnico ao salvar reembolso:", error);
       setFeedback({ type: "error", message: "Não foi possível salvar o reembolso." });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleGroupedSubmit(values: GroupedReimbursementValues) {
+    if (!userId) {
+      setFeedback({ type: "error", message: "Sessão não encontrada." });
+      return;
+    }
+
+    setSaving(true);
+    setFeedback(null);
+    try {
+      const result = await createGroupedReimbursements(createClient(), userId, values);
+      if (result.error || !result.data) {
+        console.error("Erro técnico ao criar lançamento agrupado:", result.error);
+        setFeedback({ type: "error", message: result.error?.message ?? "Não foi possível criar os títulos agrupados." });
+        return;
+      }
+
+      setGroupedReimbursementModal(null);
+      setFeedback({
+        type: "success",
+        message: `${result.data.reimbursements.length} títulos criados em um grupo de ${formatCurrency(result.data.totalAmount)}.`,
+      });
+      await loadData();
+    } catch (error) {
+      console.error("Erro técnico ao criar lançamento agrupado:", error);
+      setFeedback({ type: "error", message: "Não foi possível criar os títulos agrupados." });
     } finally {
       setSaving(false);
     }
@@ -964,6 +998,7 @@ export function ReimbursementsCrud() {
         action={
           <div className="flex flex-wrap justify-end gap-2">
             <ActionButton variant="secondary" onClick={() => setReportOpen(true)}>Gerar relatório</ActionButton>
+            <ActionButton variant="secondary" onClick={() => setGroupedReimbursementModal({ open: true })}>Lançamento agrupado</ActionButton>
             <ActionButton onClick={() => setModal({ mode: "create", reimbursement: null })}>Novo reembolso</ActionButton>
           </div>
         }
@@ -1411,6 +1446,15 @@ export function ReimbursementsCrud() {
           userId={userId}
           onClose={() => setModal(null)}
           onSubmit={(values) => void handleSubmit(values)}
+        />
+      ) : null}
+      {groupedReimbursementModal ? (
+        <GroupedReimbursementModal
+          categories={scopedCategories}
+          people={people}
+          saving={saving}
+          onClose={() => setGroupedReimbursementModal(null)}
+          onSubmit={(values) => void handleGroupedSubmit(values)}
         />
       ) : null}
       {linkModal ? (
@@ -2128,6 +2172,118 @@ function ReimbursementModal({
             <AuditRecordHistory userId={userId} module="reimbursements" recordId={modal.reimbursement.id} title="Histórico do reembolso" />
           </div>
         ) : null}
+      </form>
+    </Modal>
+  );
+}
+
+function GroupedReimbursementModal({
+  categories,
+  people,
+  saving,
+  onClose,
+  onSubmit,
+}: {
+  categories: ReimbursementCategory[];
+  people: ReimbursementPerson[];
+  saving: boolean;
+  onClose: () => void;
+  onSubmit: (values: GroupedReimbursementValues) => void;
+}) {
+  const [values, setValues] = useState<GroupedReimbursementValues>({
+    person_ids: [],
+    category_id: "",
+    description: "",
+    amount_per_person: "0",
+    expected_date: todayISO(),
+    notes: "",
+  });
+  const [personToAdd, setPersonToAdd] = useState("");
+  const selectedPeople = people.filter((person) => values.person_ids.includes(person.id));
+  const availablePeople = people.filter((person) => !values.person_ids.includes(person.id));
+  const total = Number(values.amount_per_person || 0) * selectedPeople.length;
+
+  function addPerson() {
+    if (!personToAdd || values.person_ids.includes(personToAdd)) return;
+    setValues((current) => ({ ...current, person_ids: [...current.person_ids, personToAdd] }));
+    setPersonToAdd("");
+  }
+
+  function removePerson(personId: string) {
+    setValues((current) => ({ ...current, person_ids: current.person_ids.filter((id) => id !== personId) }));
+  }
+
+  return (
+    <Modal
+      title="Lançamento agrupado"
+      description="Cria um título independente para cada pessoa. O grupo apenas registra que todos vieram da mesma despesa."
+      onClose={onClose}
+      headerAction={<ActionButton type="submit" form="grouped-reimbursement-form" disabled={saving}>{saving ? "Criando..." : "Criar títulos"}</ActionButton>}
+    >
+      <form
+        id="grouped-reimbursement-form"
+        className="grid gap-4 md:grid-cols-2"
+        aria-busy={saving}
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit(values);
+        }}
+      >
+        <div className="md:col-span-2">
+          <FieldShell label="Descrição compartilhada">
+            <input required className={inputClassName} value={values.description} onChange={(event) => setValues({ ...values, description: event.target.value })} placeholder="Ex.: Jantar de equipe" />
+          </FieldShell>
+        </div>
+        <FieldShell label="Valor por pessoa">
+          <input required min="0.01" step="0.01" type="number" className={inputClassName} value={values.amount_per_person} onChange={(event) => setValues({ ...values, amount_per_person: event.target.value })} />
+        </FieldShell>
+        <FieldShell label="Data prevista">
+          <input required type="date" className={inputClassName} value={values.expected_date} onChange={(event) => setValues({ ...values, expected_date: event.target.value })} />
+        </FieldShell>
+        <FieldShell label="Categoria">
+          <CategorySelect categories={categories} value={values.category_id} onChange={(category_id) => setValues({ ...values, category_id })} />
+        </FieldShell>
+        <div className="rounded-md border border-mint-500/25 bg-mint-50 px-3 py-3 text-sm text-ink-800 dark:bg-mint-950/25 dark:text-slate-100">
+          <p className="font-semibold">Resumo do grupo</p>
+          <p className="mt-1">{selectedPeople.length} pessoa(s) x {formatCurrency(Number(values.amount_per_person || 0))}</p>
+          <p className="mt-1 font-semibold">Total a receber: {formatCurrency(Number.isFinite(total) ? total : 0)}</p>
+        </div>
+        <div className="md:col-span-2 rounded-md border border-ink-950/10 bg-slate-50 p-4 dark:border-white/10 dark:bg-slate-900/50">
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="min-w-56 flex-1">
+              <FieldShell label="Adicionar pessoa">
+                <select className={inputClassName} value={personToAdd} onChange={(event) => setPersonToAdd(event.target.value)}>
+                  <option value="">Selecione uma pessoa</option>
+                  {availablePeople.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
+                </select>
+              </FieldShell>
+            </div>
+            <ActionButton type="button" variant="secondary" onClick={addPerson} disabled={!personToAdd}>Adicionar</ActionButton>
+          </div>
+          {selectedPeople.length === 0 ? (
+            <p className="mt-4 text-sm text-ink-600 dark:text-slate-300">Selecione quem deve receber este título. Cada pessoa terá seu próprio saldo e histórico.</p>
+          ) : (
+            <ul className="mt-4 grid gap-2 sm:grid-cols-2">
+              {selectedPeople.map((person) => (
+                <li key={person.id} className="flex items-center justify-between gap-3 rounded-md border border-ink-950/10 bg-white px-3 py-2 text-sm text-ink-800 dark:border-white/10 dark:bg-slate-950 dark:text-slate-100">
+                  <span>{person.name}</span>
+                  <button type="button" onClick={() => removePerson(person.id)} className="rounded p-1 text-ink-600 transition hover:bg-danger-100 hover:text-danger-600 dark:text-slate-300 dark:hover:bg-danger-950/40" aria-label={`Remover ${person.name}`} title={`Remover ${person.name}`}>
+                    <X className="h-4 w-4" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className="md:col-span-2">
+          <FieldShell label="Observações">
+            <textarea rows={3} className={inputClassName} value={values.notes} onChange={(event) => setValues({ ...values, notes: event.target.value })} />
+          </FieldShell>
+        </div>
+        <div className="flex justify-end gap-2 md:col-span-2">
+          <ActionButton type="button" variant="secondary" onClick={onClose}>Cancelar</ActionButton>
+          <ActionButton type="submit" disabled={saving || selectedPeople.length === 0}>{saving ? "Criando..." : "Criar títulos"}</ActionButton>
+        </div>
       </form>
     </Modal>
   );
@@ -3555,6 +3711,10 @@ function getLinkedLabel(
   invoices: ReimbursementInvoice[] = [],
   cards: ReimbursementCard[] = [],
 ) {
+  if (reimbursement.reimbursement_group_id || reimbursement.source_type === "reimbursement_group") {
+    return "Despesa compartilhada";
+  }
+
   if (reimbursement.credit_card_invoice_id) {
     const invoice = invoices.find((item) => item.id === reimbursement.credit_card_invoice_id);
     const card = cards.find((item) => item.id === invoice?.credit_card_id);
@@ -3594,6 +3754,7 @@ function formatInvoiceOptionLabel(invoice: ReimbursementInvoice, cards: Reimburs
 }
 
 function getLinkedTone(reimbursement: ReimbursementRow) {
+  if (reimbursement.reimbursement_group_id || reimbursement.source_type === "reimbursement_group") return "info";
   if (reimbursement.credit_card_transaction_id) return "info";
   if (reimbursement.account_payable_id) return "warning";
   if (reimbursement.income_source_id) return "success";

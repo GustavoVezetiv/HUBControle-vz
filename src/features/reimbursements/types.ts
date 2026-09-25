@@ -62,6 +62,15 @@ export type ReimbursementBulkReceiptValues = {
   notes: string;
 };
 
+export type GroupedReimbursementValues = {
+  person_ids: string[];
+  category_id: string;
+  description: string;
+  amount_per_person: string;
+  expected_date: string;
+  notes: string;
+};
+
 export type ReimbursementFormValues = {
   person_id: string;
   category_id: string;
