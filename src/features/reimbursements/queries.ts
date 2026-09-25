@@ -1,5 +1,6 @@
 import type {
   ReimbursementBulkReceiptValues,
+  GroupedReimbursementValues,
   ReimbursementGeneratedLinkValues,
   ReimbursementFormValues,
   ReimbursementRenegotiationValues,
@@ -67,6 +68,84 @@ export async function createReimbursement(
     await safeLogCreate(client, userId, "reimbursements", result.data.id, result.data);
   }
   return result;
+}
+
+export async function createGroupedReimbursements(
+  client: AppSupabaseClient,
+  userId: string,
+  values: GroupedReimbursementValues,
+) {
+  const personIds = [...new Set(values.person_ids.filter(Boolean))];
+  const amount = Number(values.amount_per_person || 0);
+  const description = values.description.trim();
+
+  if (personIds.length === 0 || !description || !values.expected_date || !Number.isFinite(amount) || amount <= 0) {
+    return { data: null, error: { message: "Informe descrição, valor por pessoa, data prevista e ao menos uma pessoa." } };
+  }
+
+  const peopleResult = await client
+    .from("people")
+    .select("id")
+    .eq("user_id", userId)
+    .in("id", personIds);
+
+  if (peopleResult.error || (peopleResult.data?.length ?? 0) !== personIds.length) {
+    console.error("Erro técnico ao validar pessoas do lançamento agrupado:", peopleResult.error);
+    return { data: null, error: { message: "Uma ou mais pessoas selecionadas não estão disponíveis." } };
+  }
+
+  const totalAmount = roundCurrency(amount * personIds.length);
+  const groupResult = await client
+    .from("reimbursement_groups")
+    .insert({
+      user_id: userId,
+      category_id: values.category_id || null,
+      description,
+      expected_date: values.expected_date,
+      total_amount: totalAmount,
+      notes: values.notes.trim() || null,
+    })
+    .select("*")
+    .single();
+
+  if (groupResult.error || !groupResult.data) {
+    console.error("Erro técnico ao criar grupo de reembolsos:", groupResult.error);
+    return { data: null, error: { message: "Não foi possível criar o grupo de reembolsos." } };
+  }
+
+  const rows = personIds.map((personId) => ({
+    user_id: userId,
+    person_id: personId,
+    category_id: values.category_id || null,
+    source_type: "reimbursement_group" as const,
+    source_id: groupResult.data.id,
+    reimbursement_group_id: groupResult.data.id,
+    description,
+    expected_amount: amount,
+    received_amount: 0,
+    status: "expected",
+    expected_date: values.expected_date,
+    notes: values.notes.trim() || null,
+  }));
+
+  const insertResult = await client.from("reimbursements").insert(rows).select("*");
+  if (insertResult.error) {
+    console.error("Erro técnico ao criar títulos agrupados de reembolso:", insertResult.error);
+    await client.from("reimbursement_groups").delete().eq("user_id", userId).eq("id", groupResult.data.id);
+    return { data: null, error: { message: "Não foi possível criar os títulos para as pessoas selecionadas." } };
+  }
+
+  await safeLogCreate(client, userId, "reimbursement_groups", groupResult.data.id, groupResult.data, {
+    people_count: personIds.length,
+    total_amount: totalAmount,
+  });
+  await Promise.all(
+    (insertResult.data ?? []).map((row) =>
+      safeLogCreate(client, userId, "reimbursements", row.id, row, { reimbursement_group_id: groupResult.data.id }),
+    ),
+  );
+
+  return { data: { group: groupResult.data, reimbursements: insertResult.data ?? [], totalAmount }, error: null };
 }
 
 export async function updateReimbursement(
@@ -1324,7 +1403,9 @@ function toPayload(
         ? null
         : values.account_payable_id || null;
   const linkedIncomeId = values.income_source_id || null;
-  const sourcePayload = linkedTransactionId
+  const sourcePayload = current?.reimbursement_group_id && values.financial_link_mode === "none"
+    ? { source_type: current.source_type, source_id: current.source_id }
+    : linkedTransactionId
     ? { source_type: "credit_card_transaction", source_id: linkedTransactionId }
     : buildNonCardSourcePayload(linkedAccountId, linkedIncomeId);
 

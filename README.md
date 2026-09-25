@@ -193,6 +193,20 @@ No pagamento único parcial de vários reembolsos da mesma pessoa, o saldo resta
 
 Em `Reembolsos`, o resumo `Saldo devedor por pessoa` possui a opção `Incluir pendências anteriores`. Quando ativada, ela soma títulos ainda abertos com vencimento anterior ao início do período selecionado, sem alterar a tabela principal nem duplicar títulos já transferidos para uma nova cobrança. Ao passar o mouse sobre uma pessoa, um painel externo lista data, descrição e valor de cada pendência anterior. Em Configurações, escolha se esse painel acompanha o mouse ou fica fixo à direita.
 
+### Lançamentos agrupados e assinaturas
+
+O botão `Lançamento agrupado`, em **Reembolsos**, cria vários títulos independentes em uma única operação. Informe a descrição, o valor por pessoa, a data prevista e selecione os participantes. Cada pessoa mantém seu próprio saldo, recebimento, atraso e histórico; o grupo apenas preserva a rastreabilidade da despesa compartilhada.
+
+A nova rota **Assinaturas** centraliza cobranças recorrentes do cartão, como Microsoft Family e streaming. Cadastre o cartão, o valor, dia de cobrança e participantes com a parcela de cada pessoa. A ação `Gerar cobrança` é manual e idempotente por mês: ela cria um lançamento na fatura correta e, quando houver participantes, gera títulos individuais de reembolso. O reembolso não é tratado como renda livre.
+
+Antes de usar estes dois fluxos, execute no Supabase SQL Editor:
+
+```bash
+supabase/migrations/202609240001_subscriptions_and_reimbursement_groups.sql
+```
+
+Essa migration cria as tabelas `subscriptions`, `subscription_members`, `subscription_occurrences` e `reimbursement_groups`, adiciona `reimbursement_group_id` aos reembolsos e aplica RLS por `user_id` em todas as tabelas novas. Ela também torna `reimbursements.source_type` um campo de texto, preservando os valores existentes e permitindo registrar origens rastreáveis como grupos, saldos transferidos e renegociações.
+
 ### Calendário financeiro e juros por atraso
 
 O Fluxo de caixa agora inclui um calendário mensal de saldo projetado. Ele organiza entradas, dinheiro vinculado (como reembolsos) e saídas pela data esperada, para deixar claro como o caixa tende a evoluir ao longo do mês. Reembolsos e dinheiro de terceiros continuam separados de renda livre.
