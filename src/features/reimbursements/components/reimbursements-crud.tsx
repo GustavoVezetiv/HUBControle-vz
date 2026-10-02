@@ -246,10 +246,28 @@ export function ReimbursementsCrud() {
     );
   }, [period, reimbursements]);
 
+  const previousOpenReimbursements = useMemo(() => {
+    if (!includePreviousDebt || !period.startDate || period.preset === "all") return [];
+
+    return reimbursements.filter(
+      (item) =>
+        Boolean(item.expected_date && item.expected_date < period.startDate) &&
+        isOutstandingReimbursementDebt(item),
+    );
+  }, [includePreviousDebt, period.preset, period.startDate, reimbursements]);
+
+  const reimbursementsInView = useMemo(() => {
+    if (previousOpenReimbursements.length === 0) return periodReimbursements;
+
+    const rowsById = new Map(periodReimbursements.map((item) => [item.id, item]));
+    previousOpenReimbursements.forEach((item) => rowsById.set(item.id, item));
+    return [...rowsById.values()];
+  }, [periodReimbursements, previousOpenReimbursements]);
+
   const filteredReimbursements = useMemo(() => {
     const needle = search.trim().toLowerCase();
 
-    return periodReimbursements.filter((reimbursement) => {
+    return reimbursementsInView.filter((reimbursement) => {
       const personName = people.find((person) => person.id === reimbursement.person_id)?.name ?? "";
       const hasLink = Boolean(
         reimbursement.credit_card_transaction_id ||
@@ -269,24 +287,24 @@ export function ReimbursementsCrud() {
           (linkedFilter === "manual" && !hasLink))
       );
     });
-  }, [categoryFilter, linkedFilter, people, periodReimbursements, personFilter, search, statusFilter]);
+  }, [categoryFilter, linkedFilter, people, personFilter, reimbursementsInView, search, statusFilter]);
 
   const summary = useMemo(() => {
     const isOpen = (item: ReimbursementRow) => ["expected", "partial", "late"].includes(item.status);
-    const totalExpected = periodReimbursements
+    const totalExpected = reimbursementsInView
       .filter(isOpen)
       .reduce((sum, item) => sum + calculateReimbursementInterest(item).principalOpen, 0);
-    const totalReceived = periodReimbursements.reduce((sum, item) => sum + Number(item.received_amount), 0);
-    const lateAmount = periodReimbursements
+    const totalReceived = reimbursementsInView.reduce((sum, item) => sum + Number(item.received_amount), 0);
+    const lateAmount = reimbursementsInView
       .filter((item) => item.status === "late")
       .reduce((sum, item) => sum + getOpenAmount(item), 0);
-    const partialAmount = periodReimbursements
+    const partialAmount = reimbursementsInView
       .filter((item) => item.status === "partial")
       .reduce((sum, item) => sum + getOpenAmount(item), 0);
-    const amountOwed = periodReimbursements
+    const amountOwed = reimbursementsInView
       .filter(isOpen)
       .reduce((sum, item) => sum + getOpenAmount(item), 0);
-    const linkedGrossAmount = periodReimbursements.reduce((sum, item) => {
+    const linkedGrossAmount = reimbursementsInView.reduce((sum, item) => {
       const transaction = transactions.find((transactionItem) => transactionItem.id === item.credit_card_transaction_id);
       const account = accounts.find((accountItem) => accountItem.id === item.account_payable_id);
 
@@ -294,31 +312,17 @@ export function ReimbursementsCrud() {
     }, 0);
     const estimatedPersonalCost = Math.max(linkedGrossAmount - amountOwed, 0);
 
-    const lateInterestAmount = periodReimbursements.reduce(
+    const lateInterestAmount = reimbursementsInView.reduce(
       (sum, item) => sum + calculateReimbursementInterest(item).interest + calculateReimbursementInterest(item).lateFee,
       0,
     );
 
     return { totalExpected, totalReceived, lateAmount, partialAmount, amountOwed, estimatedPersonalCost, lateInterestAmount };
-  }, [accounts, periodReimbursements, transactions]);
-
-  const previousOpenReimbursements = useMemo(() => {
-    if (!includePreviousDebt || !period.startDate || period.preset === "all") return [];
-
-    return reimbursements.filter(
-      (item) =>
-        Boolean(item.expected_date && item.expected_date < period.startDate) &&
-        isOutstandingReimbursementDebt(item),
-    );
-  }, [includePreviousDebt, period.preset, period.startDate, reimbursements]);
+  }, [accounts, reimbursementsInView, transactions]);
 
   const peopleSummaryReimbursements = useMemo(() => {
-    if (previousOpenReimbursements.length === 0) return periodReimbursements;
-
-    const rowsById = new Map(periodReimbursements.map((item) => [item.id, item]));
-    previousOpenReimbursements.forEach((item) => rowsById.set(item.id, item));
-    return [...rowsById.values()];
-  }, [periodReimbursements, previousOpenReimbursements]);
+    return reimbursementsInView;
+  }, [reimbursementsInView]);
 
   const peopleSummary = useMemo(
     () => buildPersonDebtSummaries(people, peopleSummaryReimbursements, undefined, period.startDate),
@@ -1040,7 +1044,7 @@ export function ReimbursementsCrud() {
         ) : null}
       </SectionCard>
 
-      <SectionCard title="Saldo devedor por pessoa" description="Por padrão, mostra apenas valores do período selecionado. Ative a opção abaixo para somar pendências ainda abertas de períodos anteriores.">
+      <SectionCard title="Saldo devedor por pessoa" description="Por padrão, mostra apenas valores do período selecionado. Ative a opção abaixo para incluir pendências ainda abertas de períodos anteriores nos totais, na lista e no relatório PDF.">
         <label
           className="mb-4 inline-flex cursor-pointer items-center gap-2 rounded-md border border-ink-950/10 bg-slate-50 px-3 py-2 text-sm font-medium text-ink-700 shadow-sm transition hover:border-mint-500/60 dark:border-white/10 dark:bg-slate-900/60 dark:text-slate-200"
           title={period.preset === "all" ? "Todos os títulos já estão visíveis neste período." : "Soma títulos pendentes com vencimento anterior ao início do período selecionado."}
@@ -2893,17 +2897,16 @@ function ReimbursementReportModal({
   }
 
   return (
-    <Modal title="Relatório de reembolsos" onClose={onClose}>
+    <Modal title="Relatório de reembolsos" onClose={onClose} size="wide" resizable closeButtonStyle="icon">
       <div className="reimbursement-report-shell space-y-5">
         <div className="report-actions flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-ink-600">
-            Relatório otimizado para PDF com nome sugerido automático e layout próprio para compartilhamento.
+          <p className="text-sm leading-6 text-ink-600">
+            Revise o recorte atual e baixe o documento quando estiver pronto.
           </p>
           <div className="flex flex-wrap gap-2">
             <ActionButton variant="secondary" onClick={handleDownloadPdf} disabled={downloadingPdf}>
               {downloadingPdf ? "Baixando..." : "Baixar PDF"}
             </ActionButton>
-            <ActionButton variant="secondary" onClick={onClose}>Voltar</ActionButton>
           </div>
         </div>
         {pdfError ? (
@@ -2936,48 +2939,47 @@ function ReimbursementReportModal({
             </div>
           ) : (
             <>
-              <section className="report-summary mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <ReportMetric label="Total esperado" value={formatCurrency(summary.expected)} />
-                <ReportMetric label="Total recebido" value={formatCurrency(summary.received)} />
-                <ReportMetric label="Total em aberto" value={formatCurrency(summary.open)} tone={summary.open > 0 ? "warning" : "success"} />
-                <ReportMetric label="Quantidade de reembolsos" value={String(summary.count)} />
-                <ReportMetric label="Quantidade de pessoas" value={String(summary.personCount)} />
-                <ReportMetric label="Maior valor em aberto" value={formatCurrency(summary.largestOpen)} tone={summary.largestOpen > 0 ? "warning" : "neutral"} />
-                <ReportMetric label="Próximo recebimento previsto" value={summary.nextExpectedDate ? formatDate(summary.nextExpectedDate) : "-"} />
-                <ReportMetric label="Percentual recebido" value={`${summary.receivedPercentage.toFixed(1)}%`} tone={summary.receivedPercentage >= 80 ? "success" : "neutral"} />
+              <section className="report-summary mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <ReportMetric label="Em aberto" value={formatCurrency(summary.open)} helper="Valor que ainda falta receber" tone={summary.open > 0 ? "warning" : "success"} />
+                <ReportMetric label="Recebido" value={formatCurrency(summary.received)} helper={`${summary.receivedPercentage.toFixed(1)}% do total esperado`} tone={summary.receivedPercentage >= 80 ? "success" : "neutral"} />
+                <ReportMetric label="Total esperado" value={formatCurrency(summary.expected)} helper="Soma dos títulos no recorte" />
+                <ReportMetric label="Maior pendência" value={formatCurrency(summary.largestOpen)} helper="Maior saldo individual em aberto" tone={summary.largestOpen > 0 ? "warning" : "neutral"} />
+                <ReportMetric label="Pessoas e títulos" value={`${summary.personCount} pessoa${summary.personCount === 1 ? "" : "s"}`} helper={`${summary.count} título${summary.count === 1 ? "" : "s"} no relatório`} />
+                <ReportMetric label="Próximo recebimento" value={summary.nextExpectedDate ? formatDate(summary.nextExpectedDate) : "Sem previsão"} helper="Menor data prevista ainda em aberto" />
               </section>
 
               <section className="mt-7 space-y-5">
                 {groups.map((group) => (
                   <div key={group.person.id} className="report-person-group rounded-lg border border-ink-950/10 bg-white">
                     <div className="report-person-header border-b border-ink-950/10 bg-slate-50 px-4 py-3">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                         <div>
                           <h3 className="text-base font-semibold text-ink-950">{group.person.name}</h3>
                           <p className="mt-1 text-xs font-medium uppercase tracking-[0.12em] text-ink-600">{group.statusLabel}</p>
                         </div>
-                        <div className="grid gap-x-4 gap-y-1 text-right text-xs text-ink-600 sm:grid-cols-4">
+                        <div className="grid grid-cols-2 gap-x-5 gap-y-2 text-xs text-ink-600 sm:grid-cols-4 lg:text-right">
                           <p><strong className="block text-ink-950">{formatCurrency(group.summary.expected)}</strong> esperado</p>
                           <p><strong className="block text-ink-950">{formatCurrency(group.summary.received)}</strong> recebido</p>
                           <p><strong className="block text-ink-950">{formatCurrency(group.summary.open)}</strong> em aberto</p>
-                          <p><strong className="block text-ink-950">{group.summary.count}</strong> itens</p>
+                          <p><strong className="block text-ink-950">{group.summary.count}</strong> títulos</p>
                         </div>
                       </div>
                     </div>
 
-                    <table className="report-table w-full table-fixed border-collapse text-left text-sm">
-                      <thead>
-                        <tr className="border-b border-ink-950/10 text-xs uppercase tracking-[0.12em] text-ink-600">
-                          <th className="w-[12%] px-4 py-3 font-semibold">Data</th>
-                          <th className="w-[32%] px-4 py-3 font-semibold">Descrição</th>
-                          <th className="w-[18%] px-4 py-3 font-semibold">Categoria/Vínculo</th>
-                          <th className="w-[10%] px-4 py-3 text-right font-semibold">Esperado</th>
-                          <th className="w-[10%] px-4 py-3 text-right font-semibold">Recebido</th>
-                          <th className="w-[10%] px-4 py-3 text-right font-semibold">Em aberto</th>
-                          <th className="w-[8%] px-4 py-3 font-semibold">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-ink-950/10">
+                    <div className="overflow-x-auto">
+                      <table className="report-table min-w-[940px] w-full table-fixed border-collapse text-left text-sm">
+                        <thead>
+                          <tr className="border-b border-ink-950/10 text-xs uppercase tracking-[0.08em] text-ink-600">
+                            <th className="w-[11%] px-4 py-3 font-semibold">Data</th>
+                            <th className="w-[29%] px-4 py-3 font-semibold">Descrição</th>
+                            <th className="w-[22%] px-4 py-3 font-semibold">Categoria e vínculo</th>
+                            <th className="w-[10%] px-4 py-3 text-right font-semibold">Esperado</th>
+                            <th className="w-[10%] px-4 py-3 text-right font-semibold">Recebido</th>
+                            <th className="w-[10%] px-4 py-3 text-right font-semibold">Em aberto</th>
+                            <th className="w-[8%] px-4 py-3 font-semibold">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-ink-950/10">
                         {group.rows.map((reimbursement) => {
                           const openAmount = getOpenAmount(reimbursement);
                           const category = categories.find((item) => item.id === reimbursement.category_id);
@@ -3051,8 +3053,9 @@ function ReimbursementReportModal({
                             </Fragment>
                           );
                         })}
-                      </tbody>
-                    </table>
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 ))}
               </section>
@@ -3072,10 +3075,12 @@ function ReimbursementReportModal({
 function ReportMetric({
   label,
   value,
+  helper,
   tone = "neutral",
 }: {
   label: string;
   value: string;
+  helper?: string;
   tone?: "neutral" | "success" | "warning";
 }) {
   const toneClass =
@@ -3089,6 +3094,7 @@ function ReportMetric({
     <div className={`report-metric rounded-md border px-3 py-2 ${toneClass}`}>
       <p className="report-metric-label text-[10px] font-semibold uppercase tracking-[0.08em] opacity-80">{label}</p>
       <p className="report-metric-value mt-1 text-base font-semibold tracking-tight">{value}</p>
+      {helper ? <p className="mt-1 text-xs leading-5 opacity-80">{helper}</p> : null}
     </div>
   );
 }
