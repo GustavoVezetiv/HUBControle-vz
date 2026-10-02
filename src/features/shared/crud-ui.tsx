@@ -1,5 +1,6 @@
 "use client";
 
+import { X } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties, type MouseEvent } from "react";
 
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
@@ -52,9 +53,21 @@ type ModalProps = {
   children: React.ReactNode;
   onClose: () => void;
   headerAction?: React.ReactNode;
+  size?: "default" | "wide";
+  resizable?: boolean;
+  closeButtonStyle?: "text" | "icon";
 };
 
-export function Modal({ title, description, children, onClose, headerAction }: ModalProps) {
+export function Modal({
+  title,
+  description,
+  children,
+  onClose,
+  headerAction,
+  size = "default",
+  resizable = false,
+  closeButtonStyle = "text",
+}: ModalProps) {
   const sectionRef = useRef<HTMLElement | null>(null);
   const [hasForm, setHasForm] = useState(false);
 
@@ -99,7 +112,11 @@ export function Modal({ title, description, children, onClose, headerAction }: M
     >
       <section
         ref={sectionRef}
-        className="hub-modal max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-lg border border-ink-950/10 shadow-soft"
+        className={[
+          "hub-modal max-h-[92vh] w-full overflow-y-auto rounded-lg border border-ink-950/10 shadow-soft",
+          size === "wide" ? "max-w-6xl" : "max-w-3xl",
+          resizable ? "md:resize md:overflow-auto" : "",
+        ].join(" ")}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
@@ -121,9 +138,15 @@ export function Modal({ title, description, children, onClose, headerAction }: M
             <button
               type="button"
               onClick={onClose}
-              className="hub-action hub-action-secondary rounded-md border border-ink-950/10 px-3 py-2 text-sm font-semibold text-ink-600 transition hover:border-danger-600 hover:text-danger-600"
+              aria-label={`Fechar ${title}`}
+              title={`Fechar ${title}`}
+              className={
+                closeButtonStyle === "icon"
+                  ? "hub-action hub-action-secondary inline-flex h-9 w-9 items-center justify-center rounded-md border border-ink-950/10 text-ink-600 transition hover:border-danger-600 hover:text-danger-600"
+                  : "hub-action hub-action-secondary rounded-md border border-ink-950/10 px-3 py-2 text-sm font-semibold text-ink-600 transition hover:border-danger-600 hover:text-danger-600"
+              }
             >
-              Fechar
+              {closeButtonStyle === "icon" ? <X className="h-4 w-4" aria-hidden="true" /> : "Fechar"}
             </button>
           </div>
         </div>

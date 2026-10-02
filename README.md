@@ -191,7 +191,7 @@ This migration adds the `carried_over` reimbursement status used when a selected
 
 No pagamento único parcial de vários reembolsos da mesma pessoa, o saldo restante sempre gera um novo título com vencimento no quinto dia útil do mês seguinte à data do recebimento. Nesta regra, dia útil considera segunda a sexta-feira; feriados locais e nacionais não são inferidos automaticamente.
 
-Em `Reembolsos`, o resumo `Saldo devedor por pessoa` possui a opção `Incluir pendências anteriores`. Quando ativada, ela soma títulos ainda abertos com vencimento anterior ao início do período selecionado, sem alterar a tabela principal nem duplicar títulos já transferidos para uma nova cobrança. Ao passar o mouse sobre uma pessoa, um painel externo lista data, descrição e valor de cada pendência anterior. Em Configurações, escolha se esse painel acompanha o mouse ou fica fixo à direita.
+Em `Reembolsos`, o resumo `Saldo devedor por pessoa` possui a opção `Incluir pendências anteriores`. Quando ativada, ela inclui títulos ainda abertos com vencimento anterior ao início do período selecionado nos cards, na tabela e no PDF, sem duplicar títulos já transferidos para uma nova cobrança. Ao passar o mouse sobre uma pessoa, um painel externo lista data, descrição e valor de cada pendência anterior. Em Configurações, escolha se esse painel acompanha o mouse ou fica fixo à direita.
 
 ### Lançamentos agrupados e assinaturas
 

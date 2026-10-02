@@ -166,9 +166,17 @@ export function SettingsPanel() {
       <PageHeader
         eyebrow="Preferências"
         title="Configurações"
-        description="Ajustes básicos do perfil e do comportamento financeiro do app."
+        description="Escolha como o Hub mostra informações, abre suas telas e prepara análises para o seu dia a dia."
       />
       <CrudFeedback feedback={feedback} />
+
+      <nav aria-label="Ir para uma seção de configurações" className="flex flex-wrap gap-x-4 gap-y-2 border-b border-ink-950/10 pb-3 text-sm font-medium dark:border-white/10">
+        <a className="text-mint-700 transition hover:text-mint-600 dark:text-mint-300 dark:hover:text-mint-200" href="#perfil-financeiro">Perfil financeiro</a>
+        <a className="text-mint-700 transition hover:text-mint-600 dark:text-mint-300 dark:hover:text-mint-200" href="#aparencia">Aparência</a>
+        <a className="text-mint-700 transition hover:text-mint-600 dark:text-mint-300 dark:hover:text-mint-200" href="#navegacao">Navegação e atalhos</a>
+        <a className="text-mint-700 transition hover:text-mint-600 dark:text-mint-300 dark:hover:text-mint-200" href="#preferencias-ia">IA</a>
+        <a className="text-mint-700 transition hover:text-mint-600 dark:text-mint-300 dark:hover:text-mint-200" href="#backup-exportacao">Backup</a>
+      </nav>
 
       <section className="grid gap-4 md:grid-cols-3">
         <StatCard label="Conta" value={email ?? "-"} helper="Email autenticado no Supabase." tone="info" />
@@ -176,17 +184,23 @@ export function SettingsPanel() {
         <StatCard label="Fuso horário" value={profile?.timezone ?? values.timezone} helper="Base para datas e meses." tone="neutral" />
       </section>
 
-      <SectionCard title="Perfil financeiro" description="Essas preferências ficam vinculadas ao seu usuário e protegidas por RLS.">
+      <SectionCard title="Preferências do Hub" description="Revise cada grupo e salve uma única vez no final. Dados do perfil ficam na sua conta; aparência, atalhos e visualizações ficam neste navegador.">
         {loading ? (
           <p className="text-sm text-ink-600">Carregando configurações...</p>
         ) : (
           <form className="space-y-6" onSubmit={handleSubmit}>
-            <div className="grid gap-4 md:grid-cols-2">
-              <FieldShell label="Nome de exibição"><input className={inputClassName} value={values.display_name} onChange={(event) => setValues({ ...values, display_name: event.target.value })} /></FieldShell>
-              <FieldShell label="Email"><input className={inputClassName} value={email ?? ""} disabled /></FieldShell>
-              <FieldShell label="Moeda"><select className={inputClassName} value={values.currency} onChange={(event) => setValues({ ...values, currency: event.target.value })}>{currencyOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></FieldShell>
-              <FieldShell label="Fuso horário"><select className={inputClassName} value={values.timezone} onChange={(event) => setValues({ ...values, timezone: event.target.value })}>{timezoneOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></FieldShell>
-              <FieldShell label="Dia inicial do mês"><input min="1" max="28" type="number" className={inputClassName} value={values.month_start_day} onChange={(event) => setValues({ ...values, month_start_day: event.target.value })} /></FieldShell>
+            <section id="perfil-financeiro" className="scroll-mt-24">
+              <div className="mb-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-mint-700 dark:text-mint-300">1. Base do seu controle</p>
+                <h3 className="mt-1 text-base font-semibold text-ink-950 dark:text-slate-100">Perfil financeiro</h3>
+                <p className="mt-1 text-sm leading-6 text-ink-600 dark:text-slate-300">Define a referência usada em valores, datas e no fechamento do seu mês financeiro.</p>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+              <FieldShell label="Nome mostrado no Hub"><input className={inputClassName} value={values.display_name} onChange={(event) => setValues({ ...values, display_name: event.target.value })} /><p className="mt-2 text-xs text-ink-600 dark:text-slate-300">Aparece nas áreas personalizadas do seu Hub.</p></FieldShell>
+              <FieldShell label="Email da conta"><input className={inputClassName} value={email ?? ""} disabled /><p className="mt-2 text-xs text-ink-600 dark:text-slate-300">Vem da autenticação e não pode ser alterado aqui.</p></FieldShell>
+              <FieldShell label="Moeda principal"><select className={inputClassName} value={values.currency} onChange={(event) => setValues({ ...values, currency: event.target.value })}>{currencyOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><p className="mt-2 text-xs text-ink-600 dark:text-slate-300">Usada para exibir valores no controle financeiro.</p></FieldShell>
+              <FieldShell label="Fuso horário"><select className={inputClassName} value={values.timezone} onChange={(event) => setValues({ ...values, timezone: event.target.value })}>{timezoneOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><p className="mt-2 text-xs text-ink-600 dark:text-slate-300">Define como o Hub interpreta dias, meses e horários.</p></FieldShell>
+              <FieldShell label="Início do mês financeiro"><input min="1" max="28" type="number" className={inputClassName} value={values.month_start_day} onChange={(event) => setValues({ ...values, month_start_day: event.target.value })} /><p className="mt-2 text-xs text-ink-600 dark:text-slate-300">Escolha o dia que inicia seu ciclo. Use 1 para acompanhar o mês calendário.</p></FieldShell>
               <FieldShell label="Permitir edição rápida em tabelas">
                 <select className={inputClassName} value={String(values.allow_quick_table_edit)} onChange={(event) => setValues({ ...values, allow_quick_table_edit: event.target.value === "true" })}>
                   <option value="false">Desativado</option>
@@ -195,11 +209,13 @@ export function SettingsPanel() {
                 <p className="mt-2 text-xs text-ink-600">Quando ativado, campos simples podem ser editados direto na tabela. Vínculos sensíveis continuam no modal.</p>
               </FieldShell>
             </div>
+            </section>
 
-            <div className="hub-card rounded-lg border border-ink-950/10 bg-slate-50 p-4">
+            <section id="aparencia" className="hub-card scroll-mt-24 rounded-lg border border-ink-950/10 bg-slate-50 p-4">
               <div className="mb-4">
-                <h3 className="text-sm font-semibold text-ink-950">Aparência do Hub</h3>
-                <p className="mt-1 text-sm leading-6 text-ink-600">Ajuste visual leve para leitura diária. Não altera cálculos nem regras financeiras.</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-mint-700 dark:text-mint-300">2. Conforto de leitura</p>
+                <h3 className="mt-1 text-base font-semibold text-ink-950 dark:text-slate-100">Aparência do Hub</h3>
+                <p className="mt-1 text-sm leading-6 text-ink-600 dark:text-slate-300">Personalize o visual sem alterar cálculos, filtros ou regras financeiras. A prévia abaixo mostra o efeito antes de salvar.</p>
               </div>
               <div className="grid gap-4 md:grid-cols-3">
                 <FieldShell label="Estilo visual">
@@ -212,11 +228,13 @@ export function SettingsPanel() {
                   <select className={inputClassName} value={values.interface_density} onChange={(event) => setValues({ ...values, interface_density: event.target.value as SettingsFormValues["interface_density"] })}>
                     {interfaceDensityOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                   </select>
+                  <p className="mt-2 text-xs text-ink-600 dark:text-slate-300">Compacta mostra mais linhas; confortável dá mais espaço entre informações.</p>
                 </FieldShell>
                 <FieldShell label="Estilo dos badges de categoria">
                   <select className={inputClassName} value={values.category_badge_style} onChange={(event) => setValues({ ...values, category_badge_style: event.target.value as SettingsFormValues["category_badge_style"] })}>
                     {categoryBadgeStyleOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                   </select>
+                  <p className="mt-2 text-xs text-ink-600 dark:text-slate-300">Muda apenas como o nome e a cor das categorias aparecem.</p>
                 </FieldShell>
                 <FieldShell label="Largura do conteúdo">
                   <select className={inputClassName} value={values.content_width} onChange={(event) => setValues({ ...values, content_width: event.target.value as SettingsFormValues["content_width"] })}>
@@ -234,22 +252,25 @@ export function SettingsPanel() {
                   <select className={inputClassName} value={values.card_effect} onChange={(event) => setValues({ ...values, card_effect: event.target.value as SettingsFormValues["card_effect"] })}>
                     {cardEffectOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                   </select>
+                  <p className="mt-2 text-xs text-ink-600 dark:text-slate-300">Controla destaque ao passar o mouse; use Normal para uma leitura mais discreta.</p>
                 </FieldShell>
                 <FieldShell label="Bordas">
                   <select className={inputClassName} value={values.border_style} onChange={(event) => setValues({ ...values, border_style: event.target.value as SettingsFormValues["border_style"], surface_radius: event.target.value as SettingsFormValues["surface_radius"] })}>
                     {borderStyleOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                   </select>
+                  <p className="mt-2 text-xs text-ink-600 dark:text-slate-300">Define o peso visual e o arredondamento das superfícies.</p>
                 </FieldShell>
               </div>
               <VisualPreview values={values} />
-            </div>
+            </section>
 
-            <div className="hub-card rounded-lg border border-ink-950/10 bg-slate-50 p-4">
+            <section id="navegacao" className="hub-card scroll-mt-24 rounded-lg border border-ink-950/10 bg-slate-50 p-4">
               <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <h3 className="text-sm font-semibold text-ink-950">Preferências do sistema</h3>
-                  <p className="mt-1 text-sm leading-6 text-ink-600">
-                    Personalize como o Hub abre e quais atalhos aparecem primeiro. Essas preferências ficam salvas localmente por usuário neste navegador.
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-mint-700 dark:text-mint-300">3. Abrir e navegar</p>
+                  <h3 className="mt-1 text-base font-semibold text-ink-950 dark:text-slate-100">Telas e atalhos</h3>
+                  <p className="mt-1 text-sm leading-6 text-ink-600 dark:text-slate-300">
+                    Defina por onde começar e quais atalhos merecem estar no Dashboard. Essas escolhas ficam salvas apenas neste navegador para a sua conta.
                   </p>
                 </div>
                 <ActionButton type="button" variant="secondary" onClick={handleRestoreSystemDefaults}>
@@ -258,7 +279,7 @@ export function SettingsPanel() {
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
-                <FieldShell label="Tela inicial padrão">
+                <FieldShell label="Abrir o Hub em">
                   <select
                     className={inputClassName}
                     value={systemPreferences.initialScreen}
@@ -275,10 +296,10 @@ export function SettingsPanel() {
                       </option>
                     ))}
                   </select>
-                  <p className="mt-2 text-xs text-ink-600">Usada após entrar no sistema.</p>
+                  <p className="mt-2 text-xs text-ink-600 dark:text-slate-300">É a primeira tela mostrada após entrar no Hub.</p>
                 </FieldShell>
 
-                <FieldShell label="Preferência de Dashboard">
+                <FieldShell label="Quantidade de detalhes no Dashboard">
                   <select
                     className={inputClassName}
                     value={systemPreferences.dashboardMode}
@@ -292,6 +313,7 @@ export function SettingsPanel() {
                     <option value="simple">Resumo simples</option>
                     <option value="full">Visão completa</option>
                   </select>
+                  <p className="mt-2 text-xs text-ink-600 dark:text-slate-300">Resumo simples prioriza decisões; visão completa traz mais contexto na tela inicial.</p>
                 </FieldShell>
 
                 <FieldShell label="Resumo de pendências anteriores">
@@ -313,8 +335,8 @@ export function SettingsPanel() {
               </div>
 
               <div className="mt-6">
-                <h4 className="text-sm font-semibold text-ink-950">Modo de visualização padrão por módulo</h4>
-                <p className="mt-1 text-sm text-ink-600">Use aqui os modos mais repetidos. Filtros detalhados continuam salvos dentro de cada tela.</p>
+                <h4 className="text-sm font-semibold text-ink-950 dark:text-slate-100">Como abrir as telas de acompanhamento</h4>
+                <p className="mt-1 text-sm text-ink-600 dark:text-slate-300">Use lista para leitura tabular e kanban para acompanhar etapas. Filtros detalhados continuam pertencendo a cada tela.</p>
               </div>
 
               <div className="mt-4 grid gap-4 md:grid-cols-2">
@@ -388,8 +410,8 @@ export function SettingsPanel() {
 
               <div className="mt-6">
                 <div className="mb-3">
-                  <h4 className="text-sm font-semibold text-ink-950">Atalhos favoritos</h4>
-                  <p className="mt-1 text-sm text-ink-600">Escolha até 6 atalhos para aparecer no Dashboard.</p>
+                  <h4 className="text-sm font-semibold text-ink-950 dark:text-slate-100">Atalhos no Dashboard</h4>
+                  <p className="mt-1 text-sm text-ink-600 dark:text-slate-300">Escolha até 6 ações que você usa com frequência. Elas aparecem como acesso rápido no Dashboard.</p>
                 </div>
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                   {shortcutOptions.map((shortcut) => {
@@ -422,13 +444,14 @@ export function SettingsPanel() {
                   {systemPreferences.favoriteShortcuts.length}/6 atalhos selecionados.
                 </p>
               </div>
-            </div>
+            </section>
 
-            <div className="hub-card rounded-lg border border-ink-950/10 bg-slate-50 p-4">
+            <section id="preferencias-ia" className="hub-card scroll-mt-24 rounded-lg border border-ink-950/10 bg-slate-50 p-4">
               <div className="mb-4">
-                <h3 className="text-sm font-semibold text-ink-950">Preferências da IA</h3>
-                <p className="mt-1 text-sm leading-6 text-ink-600">
-                  Esse contexto orienta análises, briefings e explicações da IA. A IA não altera dados automaticamente.
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-mint-700 dark:text-mint-300">4. Contexto para análises</p>
+                <h3 className="mt-1 text-base font-semibold text-ink-950 dark:text-slate-100">Preferências da IA</h3>
+                <p className="mt-1 text-sm leading-6 text-ink-600 dark:text-slate-300">
+                  Diga ao Hub o que importa para você. Isso orienta análises e resumos; nenhuma tarefa ou dado financeiro é alterado automaticamente.
                 </p>
               </div>
 
@@ -604,14 +627,17 @@ export function SettingsPanel() {
                   </select>
                 </FieldShell>
               </div>
-            </div>
+            </section>
 
-            <div className="flex items-end justify-end"><ActionButton type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar configurações"}</ActionButton></div>
+            <div className="mt-8 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-ink-950/10 bg-white px-4 py-3 shadow-sm dark:border-white/10 dark:bg-slate-950/95">
+              <p className="text-sm text-ink-600 dark:text-slate-300">Revise as opções que mudou e aplique tudo de uma vez.</p>
+              <ActionButton type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar configurações"}</ActionButton>
+            </div>
           </form>
         )}
       </SectionCard>
 
-      <SectionCard title="Ambiente" description="Resumo técnico para beta privado.">
+      <SectionCard title="Informações técnicas" description="Referência do ambiente atual. Este bloco não exige nenhuma ação no uso diário.">
         <div className="grid gap-3 text-sm text-ink-700 md:grid-cols-2">
           <p><strong className="text-ink-950">Autenticação:</strong> Supabase Auth</p>
           <p><strong className="text-ink-950">Banco:</strong> Supabase PostgreSQL com RLS</p>
