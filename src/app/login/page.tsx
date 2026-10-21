@@ -7,8 +7,16 @@ export const metadata = {
   title: "Login",
 };
 
-export default function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ redirect?: string }>;
+}) {
   const supabaseConfigured = isSupabaseConfigured();
+  const requestedRedirect = (await searchParams).redirect;
+  const redirectTo = requestedRedirect?.startsWith("/oauth/consent?authorization_id=") && !requestedRedirect.includes("\\")
+    ? requestedRedirect
+    : undefined;
 
   return (
     <main className="flex min-h-screen items-center justify-center px-6 py-12">
@@ -24,7 +32,7 @@ export default function LoginPage() {
           acessível para usuários autenticados.
         </p>
 
-        <AuthForm isConfigured={supabaseConfigured} />
+        <AuthForm isConfigured={supabaseConfigured} redirectTo={redirectTo} />
 
         <VezetivSignatureWrapper />
       </section>

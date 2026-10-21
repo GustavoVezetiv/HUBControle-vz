@@ -1,0 +1,2 @@
+-- Reserved migration. Grant-wide revocation is implemented against the
+-- encrypted OAuth payload, so no schema change is required.

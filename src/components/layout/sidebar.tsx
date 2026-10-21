@@ -27,6 +27,7 @@ import {
   Receipt,
   Repeat2,
   Settings,
+  ShieldCheck,
   ShoppingBag,
   Tags,
   Target,
@@ -87,6 +88,7 @@ const navigationIcons: Record<NavigationIcon, LucideIcon> = {
   history: History,
   archived: Archive,
   imports: Upload,
+  "mcp-approvals": ShieldCheck,
   settings: Settings,
 };
 
