@@ -1,5 +1,33 @@
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
+export type McpActionRequest = {
+  id: string;
+  user_id: string;
+  tool_name: string;
+  arguments: Json;
+  intent_signature: string;
+  status: "pending" | "completed" | "rejected" | "failed";
+  result: Json | null;
+  error_message: string | null;
+  expires_at: string;
+  created_at: string;
+  completed_at: string | null;
+  approved_at: string | null;
+  rejected_at: string | null;
+  decided_by: string | null;
+};
+
+export type McpWriteOperation = {
+  id: string;
+  user_id: string;
+  idempotency_key: string;
+  tool_name: string;
+  arguments: Json;
+  result: Json;
+  created_at: string;
+  completed_at: string;
+};
+
 export type FinancialInflowKind = "real_income" | "reimbursement" | "third_party_money";
 export type OwnershipType = "personal" | "reimbursable" | "third_party" | "shared" | "family";
 export type InvoicePaymentStatus =
@@ -700,11 +728,29 @@ export type Database = {
       routine_ai_summaries: SupabaseTable<RoutineAiSummary>;
       routine_sync_runs: SupabaseTable<RoutineSyncRun>;
       audit_logs: SupabaseTable<AuditLog>;
+      mcp_action_requests: SupabaseTable<McpActionRequest>;
+      mcp_write_operations: SupabaseTable<McpWriteOperation>;
       voice_capture_sessions: SupabaseTable<VoiceCaptureSession>;
       voice_capture_suggestions: SupabaseTable<VoiceCaptureSuggestion>;
     };
     Views: Record<string, never>;
     Functions: {
+      mcp_decide_planning_action: {
+        Args: { p_request_id: string; p_intent_signature: string; p_decision: string };
+        Returns: Json;
+      };
+      mcp_execute_direct_write_v1: {
+        Args: { p_user_id: string; p_idempotency_key: string; p_tool_name: string; p_arguments: Json };
+        Returns: Json;
+      };
+      mcp_execute_direct_write_v2: {
+        Args: { p_user_id: string; p_idempotency_key: string; p_tool_name: string; p_arguments: Json };
+        Returns: Json;
+      };
+      mcp_recalculate_invoice_totals_v1: {
+        Args: { p_user_id: string; p_invoice_id: string; p_allow_paid?: boolean };
+        Returns: Json;
+      };
       create_default_categories_for_current_user: {
         Args: Record<string, never>;
         Returns: void;

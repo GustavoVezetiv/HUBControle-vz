@@ -25,3 +25,10 @@ Thumbs.db
 # Codex local hook state
 .codex/backups/
 .codex/state/
+
+.vercel
+
+# Local MCP diagnostics and generated artifacts
+/tmp/
+/.codex-dev-server*.log
+/tsconfig.tsbuildinfo

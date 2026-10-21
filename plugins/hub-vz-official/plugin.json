@@ -1,0 +1,28 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "hub-vz-official",
+  "version": "1.1.0",
+  "description": "Consulta e CRUD autenticado dos modulos financeiros e pessoais do Hub VZ oficial.",
+  "author": {
+    "name": "Gustavo Vezetiv"
+  },
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Hub VZ - Oficial",
+        "shortDescription": "Organize suas financas",
+        "longDescription": "Consulte e mantenha contas, receitas, lancamentos, cartoes, faturas, assinaturas, parcelamentos, reembolsos, compras planejadas, metas, lugares, notas, planos de pagamento e revisoes no Hub VZ oficial, com autenticacao, RLS, auditoria e idempotencia.",
+        "developerName": "Gustavo Vezetiv",
+        "category": "Productivity",
+        "capabilities": ["Interactive"],
+        "logo": "./assets/icon.svg",
+        "composerIcon": "./assets/icon.svg",
+        "defaultPrompt": [
+          "Mostre meu resumo financeiro no Hub VZ.",
+          "Liste minhas faturas e reembolsos pendentes.",
+          "Registre uma despesa no Hub VZ conforme eu informar."
+        ]
+      }
+    }
+  }
+}

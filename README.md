@@ -85,6 +85,7 @@ Implemented in the foundation phase:
 - Bulk reimbursement receipt flow for one payment that pays down several selected titles and transfers only the remaining balance to a new title
 - Voice capture ingestion endpoint for the Vozetiv Capture mobile app
 - Voice capture processing pipeline with transcription, AI organization and manual review queue
+- MCP Streamable HTTP endpoint at `/api/mcp`, authenticated as the signed-in Hub VZ user
 - Controlled monthly recurring income generation
 - CRUD for planned purchases and wishes
 - CRUD for roles e lugares
@@ -170,6 +171,33 @@ Do not commit `.env.local`.
 
 `NEXT_PUBLIC_SITE_URL` should be the public app URL used by Supabase redirects. Use
 `http://localhost:3000` locally and the final Vercel URL in production.
+
+## MCP for ChatGPT
+
+Hub VZ contains a stateless Streamable HTTP MCP route at `/api/mcp`. It is
+**disabled by default**. The Hub OAuth broker issues resource-bound opaque tokens
+to ChatGPT and keeps the Supabase session server-side. Read tools use the user's
+JWT under RLS. Ordinary write tools execute directly through one atomic,
+idempotent and audited RPC available only to the server `service_role`; neither
+ChatGPT nor a normal Data API session can call that RPC. Writes additionally
+require `MCP_ENABLE_WRITES=true` and `MCP_DIRECT_WRITES_READY=true`.
+
+The direct-write migration is:
+
+```bash
+supabase/migrations/202610100001_mcp_direct_writes.sql
+```
+
+Staging uses the Hub's own OAuth 2.1 authorization server with PKCE S256,
+resource binding, rotating refresh tokens and the exact ChatGPT client metadata.
+Production remains disabled until its migration and environment configuration
+are explicitly authorized. Current setup, tool inventory and validation results
+are in [`docs/MCP_STAGING.md`](docs/MCP_STAGING.md).
+
+The reviewed production rollout, exact production project identifiers,
+consolidated migration, environment flags and rollback sequence are documented
+in [`docs/MCP_PRODUCTION.md`](docs/MCP_PRODUCTION.md). Preparing those artifacts
+does not authorize applying the migration or deploying production.
 
 ## Database Schema
 
@@ -1140,6 +1168,8 @@ Initial project documentation:
 - [Architecture Decisions](docs/DECISIONS.md)
 - [Deployment Checklist](docs/DEPLOYMENT_CHECKLIST.md)
 - [Beta Test Checklist](docs/BETA_TEST_CHECKLIST.md)
+- [MCP - arquitetura e staging seguro](docs/MCP_STAGING.md)
+- [MCP - publicacao oficial e rollback](docs/MCP_PRODUCTION.md)
 ## Arquivamento seguro
 
 Os módulos de contas, receitas, faturas, lançamentos de fatura, reembolsos, compras e metas agora usam arquivamento em vez de exclusão definitiva como ação padrão.

@@ -21,6 +21,7 @@ export type NavigationIcon =
   | "history"
   | "archived"
   | "imports"
+  | "mcp-approvals"
   | "settings";
 
 export type NavigationItem = {
@@ -92,6 +93,7 @@ export const navigationGroups: NavigationGroup[] = [
       { label: "Histórico", href: "/dashboard/history", icon: "history" },
       { label: "Arquivados", href: "/dashboard/archived", icon: "archived" },
       { label: "Importações", href: "/dashboard/imports", icon: "imports" },
+      { label: "Aprovações MCP", href: "/dashboard/mcp-approvals", icon: "mcp-approvals" },
       { label: "Configurações", href: "/dashboard/settings", icon: "settings" },
     ],
   },

@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Hub VZ">
+  <rect width="64" height="64" rx="16" fill="#0b111a"/>
+  <path
+    d="M20.5 42.5h23.8c5 0 9-3.7 9-8.5 0-4.6-3.6-8.3-8.2-8.5C43 18.2 36.8 13.5 29.6 13.5c-7.6 0-14 5.3-15.6 12.5-4.8.7-8.5 4.8-8.5 9.8 0 5.4 4.3 9.7 10 9.7h5"
+    fill="#111827"
+    stroke="#2dd4bf"
+    stroke-width="4"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <path
+    d="M23 33.5c5-4.5 13-4.5 18 0"
+    fill="none"
+    stroke="#f8fafc"
+    stroke-width="3.5"
+    stroke-linecap="round"
+  />
+  <path
+    d="M27.3 38.5c2.6-2.1 6.1-2.1 8.7 0"
+    fill="none"
+    stroke="#f8fafc"
+    stroke-width="3.5"
+    stroke-linecap="round"
+  />
+  <circle cx="32" cy="44" r="2.7" fill="#2dd4bf"/>
+</svg>

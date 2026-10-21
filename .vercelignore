@@ -1,0 +1,3 @@
+.codex-dev-server*.log
+tmp/
+tsconfig.tsbuildinfo

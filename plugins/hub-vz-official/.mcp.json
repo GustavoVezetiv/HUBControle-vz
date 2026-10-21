@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "hub-vz-official": {
+      "type": "streamable-http",
+      "url": "https://hub.vezetiv.dev/api/mcp",
+      "headers": {}
+    }
+  }
+}

@@ -9,11 +9,12 @@ import { getAuthRedirectUrl } from "@/lib/supabase/config";
 
 type AuthFormProps = {
   isConfigured: boolean;
+  redirectTo?: string;
 };
 
 type AuthMode = "sign-in" | "sign-up";
 
-export function AuthForm({ isConfigured }: AuthFormProps) {
+export function AuthForm({ isConfigured, redirectTo }: AuthFormProps) {
   const router = useRouter();
   const [mode, setMode] = useState<AuthMode>("sign-in");
   const [email, setEmail] = useState("");
@@ -48,7 +49,9 @@ export function AuthForm({ isConfigured }: AuthFormProps) {
           return;
         }
 
-        const targetRoute = loadSystemPreferences(signInData.user?.id).initialScreen;
+        const targetRoute = redirectTo
+          ? redirectTo
+          : loadSystemPreferences(signInData.user?.id).initialScreen;
         router.push(targetRoute);
         router.refresh();
         return;
@@ -68,7 +71,9 @@ export function AuthForm({ isConfigured }: AuthFormProps) {
       }
 
       if (data.session) {
-        const targetRoute = loadSystemPreferences(data.session.user.id).initialScreen;
+        const targetRoute = redirectTo
+          ? redirectTo
+          : loadSystemPreferences(data.session.user.id).initialScreen;
         router.push(targetRoute);
         router.refresh();
         return;

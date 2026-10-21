@@ -1,1 +1,3 @@
-v
+-- Reserved migration.
+-- The initial schema already creates import_batches.mapping_config and
+-- import_rows.validation_errors, so no additional DDL is required here.
