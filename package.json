@@ -16,6 +16,8 @@
     "validate:reimbursement-renegotiation": "node scripts/validate-reimbursement-renegotiation.mjs",
     "validate:weekly-review-baseline": "node scripts/validate-weekly-review-baseline.mjs",
     "test:mcp": "node --experimental-strip-types --experimental-default-type=module --test tests/mcp-security.test.mjs",
+    "test:reimbursements:usability": "node --test tests/reimbursement-usability.test.mjs",
+    "preview:reimbursements": "node scripts/preview-reimbursements.mjs",
     "test:mcp:staging": "node scripts/validate-mcp-staging-v2.mjs",
     "test:mcp:public": "node scripts/validate-mcp-public-oauth.mjs",
     "test:mcp:production:readonly": "node scripts/validate-mcp-production-readonly.mjs",

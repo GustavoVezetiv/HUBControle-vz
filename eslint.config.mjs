@@ -18,6 +18,7 @@ const eslintConfig = [
       "next-env.d.ts",
       "out/**",
       "build/**",
+      "tmp/reimbursements-preview/**",
     ],
   },
   ...compat.extends("next/core-web-vitals", "next/typescript"),

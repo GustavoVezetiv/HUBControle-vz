@@ -24,7 +24,11 @@ import {
   type PersonDebtSummary,
   type PersonDebtViewMode,
 } from "@/features/reimbursements/debt-summary";
-import { getFifthBusinessDayOfNextMonth } from "@/features/reimbursements/carryover-date";
+import { getFifthBusinessDayOfNextMonth, getReimbursementToday } from "@/features/reimbursements/carryover-date";
+import { defaultAdvancedReimbursementFilters, filterReimbursementRows, getAmountRangeError, type AdvancedReimbursementFilters } from "@/features/reimbursements/filters";
+import { AdvancedReimbursementFiltersPanel } from "@/features/reimbursements/components/advanced-reimbursement-filters";
+import { PersonSearchSelect, ReimbursementCategorySelect as CategorySelect, reimbursementStatusChoices } from "@/features/reimbursements/components/reimbursement-selects";
+import { SearchableSelect } from "@/features/shared/searchable-select";
 import { calculateReimbursementInterest } from "@/features/reimbursements/interest";
 import {
   applyBulkReimbursementReceipt,
@@ -40,7 +44,7 @@ import {
   updateReimbursement,
 } from "@/features/reimbursements/queries";
 import {
-  emptyReimbursementForm,
+  createReimbursementForm,
   reimbursementToFormValues,
   type ReimbursementAccount,
   type ReimbursementBulkReceiptValues,
@@ -57,8 +61,8 @@ import {
   type ReimbursementRow,
   type ReimbursementTransaction,
 } from "@/features/reimbursements/types";
-import { ActionButton, BulkActionsBar, CategoryBadge, CategorySelect, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, RowSelectionHint, shouldToggleRowSelection, TextBadge, TitleButton, ViewPreferenceActions } from "@/features/shared/crud-ui";
-import { formatCurrency, formatDate, todayISO } from "@/features/shared/format";
+import { ActionButton, BulkActionsBar, CategoryBadge, CrudFeedback, FieldShell, inputClassName, Modal, QuickEditInput, QuickEditSelect, RowSelectionHint, shouldToggleRowSelection, TextBadge, TitleButton, ViewPreferenceActions } from "@/features/shared/crud-ui";
+import { formatCurrency, formatDate } from "@/features/shared/format";
 import { accountStatusOptions, invoiceStatusOptions, optionLabel, paymentMethodOptions, reimbursementStatusOptions } from "@/features/shared/options";
 import { PeriodFilter } from "@/features/shared/period-filter";
 import { isAnyDateInPeriod, parsePeriodSearchParams, type PeriodValue } from "@/features/shared/period";
@@ -87,7 +91,7 @@ type PreviousDebtPopoverState = {
   reimbursements: ReimbursementRow[];
   position: { x: number; y: number };
 };
-type ReimbursementsViewPreference = {
+type ReimbursementsViewPreference = Partial<AdvancedReimbursementFilters> & {
   search?: string;
   personFilter?: string;
   statusFilter?: string;
@@ -184,6 +188,7 @@ function renderVezetivSignatureImage(): Promise<PdfSignatureImage | null> {
 
 const reimbursementSummaryViews = ["open_period", "late", "all_debt", "all_history", "hide_settled"] as const;
 const reimbursementsDefaultViewPreference: Required<ReimbursementsViewPreference> = {
+  ...defaultAdvancedReimbursementFilters,
   search: "",
   personFilter: "all",
   statusFilter: "all",
@@ -210,6 +215,8 @@ export function ReimbursementsCrud() {
   const [statusFilter, setStatusFilter] = useState(searchParams.get("status") ?? "all");
   const [linkedFilter, setLinkedFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [advancedFilters, setAdvancedFilters] = useState<AdvancedReimbursementFilters>({ ...defaultAdvancedReimbursementFilters });
+  const filterToday = getReimbursementToday();
   const [period, setPeriod] = useState(() => parsePeriodSearchParams(Object.fromEntries(searchParams.entries())));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -265,29 +272,10 @@ export function ReimbursementsCrud() {
   }, [periodReimbursements, previousOpenReimbursements]);
 
   const filteredReimbursements = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-
-    return reimbursementsInView.filter((reimbursement) => {
-      const personName = people.find((person) => person.id === reimbursement.person_id)?.name ?? "";
-      const hasLink = Boolean(
-        reimbursement.credit_card_transaction_id ||
-          reimbursement.account_payable_id ||
-          reimbursement.income_source_id,
-      );
-
-      return (
-        (!needle ||
-          (reimbursement.description ?? "").toLowerCase().includes(needle) ||
-          personName.toLowerCase().includes(needle)) &&
-        (personFilter === "all" || reimbursement.person_id === personFilter) &&
-        (categoryFilter === "all" || reimbursement.category_id === categoryFilter) &&
-        (statusFilter === "all" || reimbursement.status === statusFilter) &&
-        (linkedFilter === "all" ||
-          (linkedFilter === "linked" && hasLink) ||
-          (linkedFilter === "manual" && !hasLink))
-      );
-    });
-  }, [categoryFilter, linkedFilter, people, personFilter, reimbursementsInView, search, statusFilter]);
+    return filterReimbursementRows(reimbursementsInView, {
+      ...advancedFilters, search, personFilter, statusFilter, linkedFilter, categoryFilter,
+    }, { people, categories, cards, invoices, transactions }, filterToday);
+  }, [advancedFilters, cards, categories, categoryFilter, filterToday, invoices, linkedFilter, people, personFilter, reimbursementsInView, search, statusFilter, transactions]);
 
   const summary = useMemo(() => {
     const isOpen = (item: ReimbursementRow) => ["expected", "partial", "late"].includes(item.status);
@@ -378,6 +366,13 @@ export function ReimbursementsCrud() {
     if (!searchParams.get("status")) setStatusFilter(preferenceText(preference.statusFilter, "all"));
     setLinkedFilter(preferenceText(preference.linkedFilter, "all"));
     setCategoryFilter(preferenceText(preference.categoryFilter, "all"));
+    setAdvancedFilters({
+      balanceFilter: preferenceString(preference.balanceFilter, ["all", "open", "closed"], "all"),
+      maturityFilter: preferenceString(preference.maturityFilter, ["all", "late", "today", "week", "undated"], "all"),
+      recurrenceFilter: preferenceString(preference.recurrenceFilter, ["all", "recurring", "single"], "all"),
+      cardFilter: preferenceText(preference.cardFilter, "all"),
+      minAmount: preferenceText(preference.minAmount), maxAmount: preferenceText(preference.maxAmount),
+    });
     setPeopleSummaryView(preferenceString(preference.peopleSummaryView, reimbursementSummaryViews, "open_period"));
     setIncludePreviousDebt(preference.includePreviousDebt === true);
     if (!searchParams.get("period") && !searchParams.get("start") && !searchParams.get("end")) {
@@ -414,6 +409,7 @@ export function ReimbursementsCrud() {
 
   function handleSaveViewPreference() {
     const saved = saveViewPreference("reimbursements", userId, {
+      ...advancedFilters,
       search,
       personFilter,
       statusFilter,
@@ -441,6 +437,7 @@ export function ReimbursementsCrud() {
     setStatusFilter(reimbursementsDefaultViewPreference.statusFilter);
     setLinkedFilter(reimbursementsDefaultViewPreference.linkedFilter);
     setCategoryFilter(reimbursementsDefaultViewPreference.categoryFilter);
+    setAdvancedFilters({ ...defaultAdvancedReimbursementFilters });
     setPeopleSummaryView(reimbursementsDefaultViewPreference.peopleSummaryView);
     setIncludePreviousDebt(reimbursementsDefaultViewPreference.includePreviousDebt);
     setPeriod(reimbursementsDefaultViewPreference.period);
@@ -1131,27 +1128,25 @@ export function ReimbursementsCrud() {
           </div>
         ) : null}
         <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-5">
-          <input className={inputClassName} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por descrição ou pessoa" />
-          <select className={inputClassName} value={personFilter} onChange={(event) => setPersonFilter(event.target.value)}>
-            <option value="all">Todas pessoas</option>
-            {people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
-          </select>
-          <select className={inputClassName} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-            <option value="all">Todos status</option>
-            {reimbursementStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
-          <CategorySelect
-            categories={categories}
+          <FieldShell label="Buscar"><input className={inputClassName} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Descrição, pessoa, categoria, notas…" /></FieldShell>
+          <FieldShell label="Pessoa"><PersonSearchSelect people={people} label="Filtrar por pessoa" value={personFilter === "all" ? "" : personFilter} placeholder="Todas as pessoas" onChange={(value) => setPersonFilter(value || "all")} /></FieldShell>
+          <FieldShell label="Status"><SearchableSelect label="Filtrar por status" options={[{ value: "all", label: "Todos os status" }, ...reimbursementStatusChoices]} value={statusFilter} onChange={setStatusFilter} clearable={false} /></FieldShell>
+          <FieldShell label="Categoria"><CategorySelect
+            categories={[{ id: "none", name: "Sem categoria", type: "other", icon: "outros", color: null }, ...categories]}
             value={categoryFilter === "all" ? "" : categoryFilter}
             placeholder="Todas categorias"
+            label="Filtrar por categoria"
             onChange={(value) => setCategoryFilter(value || "all")}
-          />
-          <select className={inputClassName} value={linkedFilter} onChange={(event) => setLinkedFilter(event.target.value)}>
+          /></FieldShell>
+          <FieldShell label="Vínculo"><select className={inputClassName} value={linkedFilter} onChange={(event) => setLinkedFilter(event.target.value)}>
             <option value="all">Todos vínculos</option>
             <option value="linked">Com lançamento</option>
             <option value="manual">Manual</option>
-          </select>
+          </select></FieldShell>
         </div>
+        <AdvancedReimbursementFiltersPanel filters={advancedFilters} cards={cards} onChange={setAdvancedFilters} />
+        {getAmountRangeError(advancedFilters.minAmount, advancedFilters.maxAmount) ? <p role="alert" className="mt-3 text-sm text-danger-600">{getAmountRangeError(advancedFilters.minAmount, advancedFilters.maxAmount)}</p> : null}
+        <p className="mt-3 text-xs text-ink-600 dark:text-slate-400">{filteredReimbursements.length} de {reimbursementsInView.length} reembolsos na lista. Os filtros também são aplicados ao relatório.</p>
         <div className="mt-4">
           <ViewPreferenceActions onSave={handleSaveViewPreference} onRestore={handleRestoreViewPreference} onClearFilters={handleClearFilters} />
         </div>
@@ -1607,7 +1602,7 @@ function ReimbursementModal({
   onSubmit: (values: ReimbursementFormValues) => void;
 }) {
   const [values, setValues] = useState<ReimbursementFormValues>(
-    modal?.mode === "edit" ? reimbursementToFormValues(modal.reimbursement) : emptyReimbursementForm,
+    () => modal?.mode === "edit" ? reimbursementToFormValues(modal.reimbursement) : createReimbursementForm(),
   );
   const scopedCategories = useMemo(
     () => filterCategoriesByScopes(categories, categoryModuleDefinitions.reimbursements.scopes),
@@ -1730,15 +1725,10 @@ function ReimbursementModal({
         }}
       >
         <FieldShell label="Pessoa responsável">
-          <select required className={inputClassName} value={values.person_id} onChange={(event) => setValues({ ...values, person_id: event.target.value })}>
-            <option value="">Selecione</option>
-            {people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
-          </select>
+          <PersonSearchSelect required people={people} value={values.person_id} onChange={(person_id) => setValues((current) => ({ ...current, person_id }))} />
         </FieldShell>
         <FieldShell label="Status">
-          <select className={inputClassName} value={values.status} onChange={(event) => setValues({ ...values, status: event.target.value })}>
-            {reimbursementStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
+          <SearchableSelect label="Status do reembolso" options={reimbursementStatusChoices} value={values.status} onChange={(status) => setValues((current) => ({ ...current, status }))} clearable={false} />
         </FieldShell>
         <FieldShell label="Categoria">
           <CategorySelect categories={scopedCategories} value={selectedCategoryOutOfScope ? "" : values.category_id} onChange={(category_id) => setValues({ ...values, category_id })} />
@@ -1761,6 +1751,8 @@ function ReimbursementModal({
         </FieldShell>
         <FieldShell label="Data prevista">
           <input type="date" className={inputClassName} value={values.expected_date} onChange={(event) => setValues({ ...values, expected_date: event.target.value })} />
+          <button type="button" className="mt-2 text-xs font-semibold text-mint-700 underline-offset-4 hover:underline dark:text-mint-300" onClick={() => setValues((current) => ({ ...current, expected_date: getFifthBusinessDayOfNextMonth(getReimbursementToday()) ?? "" }))}>Usar 5º dia útil do próximo mês</button>
+          <p className="mt-1 text-xs text-ink-600 dark:text-slate-400">Sugestão editável. Desconta fins de semana e feriados nacionais.</p>
         </FieldShell>
         <FieldShell label="Data recebida">
           <input type="date" className={inputClassName} value={values.received_date} onChange={(event) => setValues({ ...values, received_date: event.target.value })} />
@@ -2199,7 +2191,7 @@ function GroupedReimbursementModal({
     category_id: "",
     description: "",
     amount_per_person: "0",
-    expected_date: todayISO(),
+    expected_date: getFifthBusinessDayOfNextMonth(getReimbursementToday()) ?? "",
     notes: "",
   });
   const [personToAdd, setPersonToAdd] = useState("");
@@ -2243,6 +2235,7 @@ function GroupedReimbursementModal({
         </FieldShell>
         <FieldShell label="Data prevista">
           <input required type="date" className={inputClassName} value={values.expected_date} onChange={(event) => setValues({ ...values, expected_date: event.target.value })} />
+          <button type="button" className="mt-2 text-xs font-semibold text-mint-700 hover:underline dark:text-mint-300" onClick={() => setValues((current) => ({ ...current, expected_date: getFifthBusinessDayOfNextMonth(getReimbursementToday()) ?? "" }))}>Usar 5º dia útil do próximo mês</button>
         </FieldShell>
         <FieldShell label="Categoria">
           <CategorySelect categories={categories} value={values.category_id} onChange={(category_id) => setValues({ ...values, category_id })} />
@@ -2256,10 +2249,7 @@ function GroupedReimbursementModal({
           <div className="flex flex-wrap items-end gap-2">
             <div className="min-w-56 flex-1">
               <FieldShell label="Adicionar pessoa">
-                <select className={inputClassName} value={personToAdd} onChange={(event) => setPersonToAdd(event.target.value)}>
-                  <option value="">Selecione uma pessoa</option>
-                  {availablePeople.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
-                </select>
+                <PersonSearchSelect people={availablePeople} label="Adicionar pessoa ao grupo" value={personToAdd} onChange={setPersonToAdd} />
               </FieldShell>
             </div>
             <ActionButton type="button" variant="secondary" onClick={addPerson} disabled={!personToAdd}>Adicionar</ActionButton>

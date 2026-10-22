@@ -217,7 +217,7 @@ supabase/migrations/202609020001_reimbursement_bulk_receipt_carryover.sql
 
 This migration adds the `carried_over` reimbursement status used when a selected reimbursement was partially paid through a single bulk payment and its remaining balance was transferred to a new title. This is not treated as renegotiation.
 
-No pagamento único parcial de vários reembolsos da mesma pessoa, o saldo restante sempre gera um novo título com vencimento no quinto dia útil do mês seguinte à data do recebimento. Nesta regra, dia útil considera segunda a sexta-feira; feriados locais e nacionais não são inferidos automaticamente.
+No pagamento único parcial de vários reembolsos da mesma pessoa, o saldo restante sempre gera um novo título com vencimento no quinto dia útil do mês seguinte à data do recebimento. O cálculo desconta fins de semana e feriados nacionais brasileiros; feriados locais e pontos facultativos não entram nesse calendário. Novos reembolsos individuais ou agrupados também sugerem essa data, que pode ser editada. Consulte [os detalhes dos campos e filtros](docs/REIMBURSEMENTS_USABILITY.md).
 
 Em `Reembolsos`, o resumo `Saldo devedor por pessoa` possui a opção `Incluir pendências anteriores`. Quando ativada, ela inclui títulos ainda abertos com vencimento anterior ao início do período selecionado nos cards, na tabela e no PDF, sem duplicar títulos já transferidos para uma nova cobrança. Ao passar o mouse sobre uma pessoa, um painel externo lista data, descrição e valor de cada pendência anterior. Em Configurações, escolha se esse painel acompanha o mouse ou fica fixo à direita.
 

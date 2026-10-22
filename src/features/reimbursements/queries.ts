@@ -33,7 +33,7 @@ export async function listReimbursements(client: AppSupabaseClient) {
 
 export async function listReimbursementSupportData(client: AppSupabaseClient) {
   const [people, transactions, accounts, income, categories, cards, invoices] = await Promise.all([
-    client.from("people").select("id,name").order("name", { ascending: true }),
+    client.from("people").select("id,name,relationship_type,is_active").order("name", { ascending: true }),
     client
       .from("credit_card_transactions")
       .select("id,credit_card_id,invoice_id,category_id,description,amount,transaction_date,reimbursement_id,is_reimbursable")

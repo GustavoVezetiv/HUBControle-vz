@@ -1,7 +1,8 @@
 import type { AccountPayable, Category, CreditCard, CreditCardInvoice, CreditCardTransaction, IncomeSource, Person, Reimbursement } from "@/lib/supabase/types";
+import { getFifthBusinessDayOfNextMonth, getReimbursementToday } from "@/features/reimbursements/carryover-date";
 
 export type ReimbursementRow = Reimbursement;
-export type ReimbursementPerson = Pick<Person, "id" | "name">;
+export type ReimbursementPerson = Pick<Person, "id" | "name"> & Partial<Pick<Person, "relationship_type" | "is_active">>;
 export type ReimbursementTransaction = Pick<
   CreditCardTransaction,
   | "id"
@@ -148,6 +149,10 @@ export const emptyReimbursementForm: ReimbursementFormValues = {
   financial_link_new_payment_method: "pix",
   financial_link_remove_mode: "keep_transaction",
 };
+
+export function createReimbursementForm(referenceDate = getReimbursementToday()): ReimbursementFormValues {
+  return { ...emptyReimbursementForm, expected_date: getFifthBusinessDayOfNextMonth(referenceDate) ?? "" };
+}
 
 export function reimbursementToFormValues(reimbursement: ReimbursementRow): ReimbursementFormValues {
   return {
