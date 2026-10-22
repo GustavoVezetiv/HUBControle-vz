@@ -26,6 +26,14 @@ export async function POST(request: Request) {
   if (Number(request.headers.get("content-length") ?? 0) > 65_536) {
     return NextResponse.json({ error: "Requisição MCP excede 64 KiB." }, { status: 413 });
   }
+  const auth = await getMcpAuthContext(request);
+  if ("error" in auth) {
+    return NextResponse.json(
+      { error: auth.error },
+      { status: auth.status, headers: auth.status === 401 ? { "WWW-Authenticate": mcpAuthenticateHeader() } : undefined },
+    );
+  }
+
   let payload: JsonRpcRequest;
   try {
     payload = (await request.json()) as JsonRpcRequest;
@@ -43,19 +51,6 @@ export async function POST(request: Request) {
 
   if (!acceptsMcpProtocolHeader(payload.method, request.headers.get("MCP-Protocol-Version"))) {
     return NextResponse.json({ error: "Versão MCP não suportada." }, { status: 400 });
-  }
-
-  const auth = await getMcpAuthContext(request);
-  if ("error" in auth) {
-    // Tool-level challenges let the host open OAuth without executing a tool.
-    // Discovery remains protected by the standard HTTP Bearer challenge.
-    if (auth.status === 401 && payload.method === "tools/call") {
-      return jsonRpcResult(id, authenticationToolResult(auth.error));
-    }
-    return NextResponse.json(
-      { error: auth.error },
-      { status: auth.status, headers: auth.status === 401 ? { "WWW-Authenticate": mcpAuthenticateHeader() } : undefined },
-    );
   }
 
   try {
@@ -92,23 +87,14 @@ async function callTool(id: string | number | null, params: Record<string, unkno
   const name = params.name;
   if (typeof name !== "string") return jsonRpcError(id, -32602, "Nome da ferramenta obrigatório.");
   try {
+    const args = validateToolArguments(name, params.arguments ?? {});
+    const context = { client: auth.client, userId: auth.user.id };
     const tool = hubTools.find((item) => item.name === name);
     let output: unknown;
     if (!tool) throw new Error("Ferramenta desconhecida.");
-    const requiredScopes = tool.securitySchemes.flatMap((scheme) => scheme.scopes);
-    if (!requiredScopes.every((scope) => auth.scopes.includes(scope))) {
-      return jsonRpcResult(id, authenticationToolResult(
-        "Reconecte sua conta Hub VZ para conceder as permissões desta ferramenta.",
-        mcpAuthenticateHeader({
-          error: "insufficient_scope",
-          scopes: requiredScopes,
-          description: "Reconecte sua conta Hub VZ para conceder as permissoes desta ferramenta",
-        }),
-      ));
-    }
+    if (!auth.scopes.includes("mcp:read")) throw new Error("Token sem permissão de leitura MCP.");
     if (!tool.annotations.readOnlyHint && !areMcpWritesEnabled()) throw new Error("Escritas MCP desativadas até a validação de segurança e configuração explícita.");
-    const args = validateToolArguments(name, params.arguments ?? {});
-    const context = { client: auth.client, userId: auth.user.id };
+    if (!tool.annotations.readOnlyHint && !auth.scopes.includes("mcp:write")) throw new Error("Token sem permissão de escrita MCP. Reconecte o Hub VZ para conceder o novo escopo.");
     if (tool.annotations.readOnlyHint) output = await runReadTool(name, args, context);
     else output = await runWriteTool(name, args, context);
     return jsonRpcResult(id, toolResult(output));
@@ -116,14 +102,6 @@ async function callTool(id: string | number | null, params: Record<string, unkno
     const message = error instanceof Error ? error.message : "Falha ao executar ferramenta.";
     return jsonRpcResult(id, { content: [{ type: "text", text: message }], isError: true });
   }
-}
-
-function authenticationToolResult(message: string, challenge = mcpAuthenticateHeader()) {
-  return {
-    content: [{ type: "text", text: message }],
-    _meta: { "mcp/www_authenticate": [challenge] },
-    isError: true,
-  };
 }
 
 function toolResult(output: unknown) {

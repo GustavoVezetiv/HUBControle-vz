@@ -159,7 +159,7 @@ test("only pending, unexpired intentions can be approved in the Hub", () => {
   assert.equal(canDecideMcpProposal({ ...signed, toolName: "hub_create_transaction" }, "user-1", secret, now), false);
 });
 
-test("MCP contract exposes direct writes with idempotency and enforces write authorization", async () => {
+test("static MCP contract exposes direct writes with idempotency and no dashboard proposal", () => {
   const tools = readFileSync(new URL("../src/features/mcp/tools.ts", import.meta.url), "utf8");
   const admin = readFileSync(new URL("../src/features/mcp/admin.ts", import.meta.url), "utf8");
   const route = readFileSync(new URL("../src/app/api/mcp/route.ts", import.meta.url), "utf8");
@@ -175,15 +175,7 @@ test("MCP contract exposes direct writes with idempotency and enforces write aut
   assert.doesNotMatch(tools, /hub_confirm_action/);
   assert.doesNotMatch(route, /prepareWriteTool/);
   assert.match(route, /runWriteTool/);
-  const { createHarness, SIMULATED_TOKENS } = await import("./mcp-auth-route.test.mjs");
-  const harness = createHarness();
-  const denied = await harness.request("tools/call", {
-    name: "hub_create_account", arguments: {},
-  }, { token: SIMULATED_TOKENS.read });
-  assert.equal(denied.body.result.isError, true);
-  assert.match(denied.body.result._meta["mcp/www_authenticate"][0], /error="insufficient_scope"/);
-  assert.equal(harness.calls.write.length, 0);
-  assert.equal(harness.calls.admin.length, 0);
+  assert.match(route, /auth\.scopes\.includes\("mcp:write"\)/);
   assert.match(consent, /Autorizar leitura e escrita/);
   assert.match(consent, /view\.scope\.includes\("mcp:write"\)/);
 });

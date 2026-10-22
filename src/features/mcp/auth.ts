@@ -45,14 +45,8 @@ export function isAllowedMcpOrigin(request: Request) {
   return isAllowedOrigin(request.headers.get("origin"), getSiteUrl(), process.env.MCP_ALLOWED_ORIGINS);
 }
 
-export function mcpAuthenticateHeader(options: {
-  error?: "invalid_token" | "insufficient_scope";
-  scopes?: string[];
-  description?: string;
-} = {}) {
+export function mcpAuthenticateHeader() {
   const metadataUrl = `${getMcpIssuer()}/.well-known/oauth-protected-resource/api/mcp`;
-  const scope = (options.scopes ?? getMcpScopes()).filter((item) => item !== "offline_access").join(" ");
-  const error = options.error ?? "invalid_token";
-  const description = options.description ?? "Conecte sua conta Hub VZ para usar o MCP";
-  return `Bearer resource_metadata="${metadataUrl}", scope="${scope}", error="${error}", error_description="${description}"`;
+  const scope = getMcpScopes().filter((item) => item !== "offline_access").join(" ");
+  return `Bearer resource_metadata="${metadataUrl}", scope="${scope}", error="invalid_token", error_description="Conecte sua conta Hub VZ para usar o MCP"`;
 }
