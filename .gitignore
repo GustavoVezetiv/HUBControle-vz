@@ -25,3 +25,7 @@ Thumbs.db
 # Codex local hook state
 .codex/backups/
 .codex/state/
+
+# Private import backups and generated previews
+/tmp/
+/supabase/.temp/

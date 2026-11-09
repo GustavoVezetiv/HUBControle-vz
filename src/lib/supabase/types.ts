@@ -423,7 +423,7 @@ export type ImportBatch = UserOwnedRow & {
   module: string;
   target_type: string | null;
   file_name: string;
-  file_type: "csv" | "xlsx";
+  file_type: "csv" | "xlsx" | "json";
   status: string;
   total_rows: number;
   valid_rows: number;
@@ -705,6 +705,14 @@ export type Database = {
     };
     Views: Record<string, never>;
     Functions: {
+        pluggy_inbox_ready: { Args: Record<string, never>; Returns: boolean };
+        stage_pluggy_rows: { Args: { p_rows: Json }; Returns: Json };
+        review_pluggy_row: { Args: { p_source_key: string; p_review: Json; p_expected_updated_at: string }; Returns: Json };
+        save_pluggy_rule: { Args: { p_rule: Json }; Returns: string };
+      organizze_reconciliation_ready: { Args: Record<string, never>; Returns: boolean };
+      confirm_organizze_reconciliation: { Args: { p_rows: Json; p_period: Json }; Returns: Json };
+      organizze_import_ready: { Args: Record<string, never>; Returns: boolean };
+      confirm_organizze_import: { Args: { p_rows: Json; p_period: Json; p_ownership: string }; Returns: Json };
       create_default_categories_for_current_user: {
         Args: Record<string, never>;
         Returns: void;

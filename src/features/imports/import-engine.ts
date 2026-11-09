@@ -96,8 +96,9 @@ export function rowCounts(rows: PreviewRow[]) {
   };
 }
 
-export function buildInsertPayload(target: ImportTarget, userId: string, mapped: Mapped) {
-  if (!isActiveImportTarget(target) && !isSystemFinalTarget(target)) {
+export function buildInsertPayload(target: ImportTarget, userId: string, mapped: Mapped, linkedCardImport = false) {
+  const linkedTarget = linkedCardImport && ["credit_cards", "credit_card_invoices", "credit_card_transactions"].includes(target);
+  if (!isActiveImportTarget(target) && !isSystemFinalTarget(target) && !linkedTarget) {
     throw new Error("Importação deste módulo ainda não está disponível.");
   }
 

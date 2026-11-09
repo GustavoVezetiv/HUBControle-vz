@@ -17,7 +17,12 @@
     "validate:weekly-review-baseline": "node scripts/validate-weekly-review-baseline.mjs",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "test:organizze": "node --test tests/organizze-preview.test.mjs",
+    "test:organizze:db": "node --test tests/organizze-import-db.test.mjs",
+    "test:pluggy": "node --test tests/pluggy-preview.test.mjs",
+    "sync:pluggy": "node scripts/sync-pluggy.mjs",
+    "extract:organizze": "node scripts/extract-organizze.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.3",
