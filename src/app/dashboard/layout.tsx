@@ -46,6 +46,7 @@ async function ProtectedDashboardLayout({ children }: { children: React.ReactNod
   return (
     <AppShell
       userEmail={user.email ?? null}
+      userId={user.id}
       visualStyle={normalizeVisualStyle(profile?.visual_style)}
       density={normalizeInterfaceDensity(profile?.interface_density)}
       categoryBadgeStyle={normalizeCategoryBadgeStyle(profile?.category_badge_style)}

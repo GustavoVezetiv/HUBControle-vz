@@ -6,6 +6,8 @@ import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
 import { DashboardFavoriteShortcuts } from "@/features/dashboard/components/dashboard-favorite-shortcuts";
 import { DashboardAiBriefing } from "@/features/dashboard/components/dashboard-ai-briefing";
+import { DashboardInboxPreview } from "@/features/dashboard/components/dashboard-inbox-preview";
+import { pluggyConfig } from "@/features/pluggy/config";
 import { DashboardViewPreferences } from "@/features/dashboard/components/dashboard-view-preferences";
 import type { DashboardLayoutMode } from "@/features/dashboard/components/dashboard-view-preferences";
 import { MonthlyCashCalendar } from "@/features/cash-flow/components/monthly-cash-calendar";
@@ -285,6 +287,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       />
 
       <DashboardViewPreferences initialPeriod={period} />
+
+      {user.id === pluggyConfig().ownerId ? <DashboardInboxPreview start={period.startDate} end={period.endDate} periodLabel={formatPeriodLabel(period)} /> : null}
 
       <SectionCard
         title="Resumo curto"
