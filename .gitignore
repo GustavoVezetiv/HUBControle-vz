@@ -26,9 +26,11 @@ Thumbs.db
 .codex/backups/
 .codex/state/
 
+# Private import backups and generated previews
+/tmp/
+/supabase/.temp/
 .vercel
 
 # Local MCP diagnostics and generated artifacts
-/tmp/
 /.codex-dev-server*.log
 /tsconfig.tsbuildinfo

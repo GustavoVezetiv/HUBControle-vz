@@ -18,7 +18,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -26,6 +26,12 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      - name: MCP contract and authentication regression tests
+        run: npm run test:mcp
+
+      - name: Reimbursement date and filter regression tests
+        run: npm run test:reimbursements:usability
 
       - name: Build
         run: npm run build

@@ -4,6 +4,14 @@ Atualização local de 22/10/2026, preparada na branch
 `codex/organizze-migration-preview`, preservando as alterações Organizze que já
 estavam na cópia local. Sem deploy, push, migration ou alteração de dados reais.
 
+## Reconciliação com o main — 12/11/2026
+
+As alterações locais foram preservadas em backup e reconciliadas com o main
+que inclui a correção MCP do PR #58. Pluggy e Organizze já publicados foram
+mantidos. O lint e o TypeScript ignoram `tmp/**`, que contém cópias e assets temporários.
+O relatório de validação real Organizze continua local, fora dos commits.
+Nenhuma migration ou alteração de dados reais foi executada na reconciliação.
+
 ## Data prevista
 
 Ao abrir **Novo reembolso** ou **Lançamento agrupado**, o formulário sugere o
