@@ -759,3 +759,12 @@ export type Database = {
         Args: { p_user_id: string; p_invoice_id: string; p_allow_paid?: boolean };
         Returns: Json;
       };
+      create_default_categories_for_current_user: {
+        Args: Record<string, never>;
+        Returns: void;
+      };
+    };
+    Enums: Record<string, never>;
+    CompositeTypes: Record<string, never>;
+  };
+};

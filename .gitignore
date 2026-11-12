@@ -32,6 +32,5 @@ Thumbs.db
 .vercel
 
 # Local MCP diagnostics and generated artifacts
-/tmp/
 /.codex-dev-server*.log
 /tsconfig.tsbuildinfo
