@@ -26,7 +26,9 @@
     "test:organizze:db": "node --test tests/organizze-import-db.test.mjs",
     "test:pluggy": "node --test tests/pluggy-preview.test.mjs",
     "sync:pluggy": "node scripts/sync-pluggy.mjs",
-    "extract:organizze": "node scripts/extract-organizze.mjs"
+    "extract:organizze": "node scripts/extract-organizze.mjs",
+    "test:reimbursements:usability": "node --test tests/reimbursement-usability.test.mjs",
+    "preview:reimbursements": "node scripts/preview-reimbursements.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.3",

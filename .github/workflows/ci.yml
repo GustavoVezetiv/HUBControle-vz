@@ -30,5 +30,8 @@ jobs:
       - name: MCP contract and authentication regression tests
         run: npm run test:mcp
 
+      - name: Reimbursement date and filter regression tests
+        run: npm run test:reimbursements:usability
+
       - name: Build
         run: npm run build
