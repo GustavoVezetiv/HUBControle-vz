@@ -217,7 +217,7 @@ supabase/migrations/202609020001_reimbursement_bulk_receipt_carryover.sql
 
 This migration adds the `carried_over` reimbursement status used when a selected reimbursement was partially paid through a single bulk payment and its remaining balance was transferred to a new title. This is not treated as renegotiation.
 
-No pagamento único parcial de vários reembolsos da mesma pessoa, o saldo restante sempre gera um novo título com vencimento no quinto dia útil do mês seguinte à data do recebimento. Nesta regra, dia útil considera segunda a sexta-feira; feriados locais e nacionais não são inferidos automaticamente.
+No pagamento único parcial de vários reembolsos da mesma pessoa, o saldo restante sempre gera um novo título com vencimento no quinto dia útil do mês seguinte à data do recebimento. O cálculo desconta fins de semana e feriados nacionais brasileiros; feriados locais e pontos facultativos não entram nesse calendário. Novos reembolsos individuais ou agrupados também sugerem essa data, que pode ser editada. Consulte [os detalhes dos campos e filtros](docs/REIMBURSEMENTS_USABILITY.md).
 
 Em `Reembolsos`, o resumo `Saldo devedor por pessoa` possui a opção `Incluir pendências anteriores`. Quando ativada, ela inclui títulos ainda abertos com vencimento anterior ao início do período selecionado nos cards, na tabela e no PDF, sem duplicar títulos já transferidos para uma nova cobrança. Ao passar o mouse sobre uma pessoa, um painel externo lista data, descrição e valor de cada pendência anterior. Em Configurações, escolha se esse painel acompanha o mouse ou fica fixo à direita.
 
@@ -1444,3 +1444,32 @@ Toda resposta nova da IA nessas telas permite:
 
 Migration necessária antes de testar no Supabase:
 - `supabase/migrations/202606200001_profile_ai_preferences.sql`
+
+## Organizze — migração do histórico
+
+Em **Importações → Organizze**, extraia por GET, carregue/baixe o backup JSON,
+confira categorias, duplicatas e vínculos de cartões e confirme a importação.
+IDs e tags são preservados no histórico de importações; reembolsos existentes
+não são alterados. A migration Organizze foi testada localmente e aplicada ao
+Supabase oficial em 22/10/2026 com autorização expressa. A revisão seguinte
+mantém todo o histórico fora dos totais por padrão e exige decisões por registro
+(vincular, novo com titularidade/natureza explícitas ou somente referência).
+A nova migration `20261022212106_organizze_reconciliation.sql` foi preparada
+para revisão, sem aplicação à produção; a confirmação local fica bloqueada
+até sua aprovação e aplicação. Nenhum dado Organizze foi importado.
+Configuração privada, limites e validação em
+[docs/ORGANIZZE_MIGRATION_PREVIEW.md](docs/ORGANIZZE_MIGRATION_PREVIEW.md).
+
+## Meu Pluggy — cinco bancos e conciliação
+
+Em **Importações → Meu Pluggy**, configure os proxies Nubank, XP Banking,
+Sicredi, Caixa e Mercado Pago na mesma aplicação demo. Consulte contas, cartões,
+faturas, movimentos e investimentos disponíveis, com backup JSON local.
+A caixa de entrada recebe movimentos fora dos totais e permite classificá-los
+ou vinculá-los aos IDs existentes, preservando reembolsos e assinaturas.
+Regras confirmadas podem preencher categoria; titularidade permanece pendente
+por padrão. A nova migration de persistência foi preparada, sem aplicação em produção.
+Há atualização ao abrir a tela a cada 24h e rotina local opcional `npm run sync:pluggy`.
+**Histórico Organizze → somente referência** consulta categorias, tags e IDs
+preservados independentemente da migration pendente. Configuração privada,
+limites e revisão da migration em [docs/MEU_PLUGGY.md](docs/MEU_PLUGGY.md).

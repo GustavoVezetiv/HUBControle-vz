@@ -5,10 +5,12 @@ import { useEffect, useMemo, useState } from "react";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
 import { navigationGroups, type NavigationGroupId } from "@/lib/navigation";
+import { SystemPreferencesProvider } from "@/features/settings/preferences-context";
 
 type AppShellProps = {
   children: React.ReactNode;
   userEmail?: string | null;
+  userId?: string | null;
   visualStyle?: string;
   density?: string;
   categoryBadgeStyle?: string;
@@ -26,6 +28,7 @@ type NavigationPreferences = {
 export function AppShell({
   children,
   userEmail,
+  userId,
   visualStyle = "classic",
   density = "comfortable",
   categoryBadgeStyle = "solid",
@@ -103,6 +106,7 @@ export function AppShell({
   }
 
   return (
+    <SystemPreferencesProvider userId={userId}>
     <div
       className="hub-shell min-h-screen lg:flex"
       data-visual-style={visualStyle}
@@ -144,5 +148,6 @@ export function AppShell({
         </main>
       </div>
     </div>
+    </SystemPreferencesProvider>
   );
 }

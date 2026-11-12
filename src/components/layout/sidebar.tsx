@@ -13,6 +13,7 @@ import {
   FileText,
   HandCoins,
   History,
+  Inbox,
   Landmark,
   ListTodo,
   Map,
@@ -38,6 +39,7 @@ import {
 } from "lucide-react";
 
 import type { NavigationGroup, NavigationGroupId, NavigationIcon, NavigationItem } from "@/lib/navigation";
+import { isNavigationItemActive } from "@/lib/navigation";
 
 type SidebarProps = {
   groups: NavigationGroup[];
@@ -64,6 +66,7 @@ type SidebarContentProps = {
 
 const navigationIcons: Record<NavigationIcon, LucideIcon> = {
   dashboard: LayoutDashboard,
+  "financial-inbox": Inbox,
   accounts: Receipt,
   income: TrendingUp,
   cards: CreditCard,
@@ -304,6 +307,7 @@ function NavigationLink({
   return (
     <Link
       href={item.href}
+      aria-current={active ? "page" : undefined}
       onClick={onNavigate}
       className={[
         "hub-nav-item flex items-center rounded-md text-sm font-medium transition",
@@ -332,7 +336,5 @@ function NavigationLink({
 }
 
 function isItemActive(item: NavigationItem, pathname: string) {
-  return item.href === "/dashboard"
-    ? pathname === item.href
-    : pathname === item.href || pathname.startsWith(`${item.href}/`);
+  return isNavigationItemActive(item, pathname);
 }

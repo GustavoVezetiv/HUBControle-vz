@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
@@ -191,6 +192,10 @@ export function ImportsWorkbench() {
 
   async function handleReview(batch: ImportBatch) {
     if (!userId) return;
+    if (batch.target_type?.startsWith("pluggy_")) {
+      setFeedback({ type: "error", message: "Revise este lote em Importações → Meu Pluggy. Dados de origem não devem passar pela importação financeira genérica." });
+      return;
+    }
     setWorkingAction("review");
     setFeedback(null);
     try {
@@ -613,9 +618,9 @@ export function ImportsWorkbench() {
                     <td className="px-4 py-3 text-ink-600">{batch.invalid_rows}</td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-2">
-                        <ActionButton type="button" variant="secondary" disabled={working} onClick={() => void handleReview(batch)}>
+                        {batch.target_type?.startsWith("pluggy_") ? <Link className="rounded-md border px-4 py-2 text-sm" href="/dashboard/imports/pluggy">Abrir Meu Pluggy</Link> : batch.module === "organizze" ? <Link className="rounded-md border px-4 py-2 text-sm" href="/dashboard/imports/organizze">Abrir Organizze</Link> : <ActionButton type="button" variant="secondary" disabled={working} onClick={() => void handleReview(batch)}>
                           {workingAction === "review" ? "Carregando..." : "Revisar"}
-                        </ActionButton>
+                        </ActionButton>}
                         {batch.status === "confirmed" && ["system_goals_purchases", "goals", "planned_purchases"].includes(batch.target_type ?? batch.module) ? (
                           <ActionButton type="button" variant="danger" disabled={working} onClick={() => void handleUndo(batch)}>
                             {workingAction === "undo" ? "Desfazendo..." : "Desfazer"}

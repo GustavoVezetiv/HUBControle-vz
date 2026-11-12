@@ -1,5 +1,6 @@
 export type NavigationIcon =
   | "dashboard"
+  | "financial-inbox"
   | "accounts"
   | "income"
   | "cards"
@@ -50,6 +51,7 @@ export const navigationGroups: NavigationGroup[] = [
     label: "Financeiro",
     items: [
       { label: "Dashboard", href: "/dashboard", icon: "dashboard" },
+      { label: "Caixa de entrada", href: "/dashboard/imports/pluggy", icon: "financial-inbox" },
       { label: "Contas", href: "/dashboard/accounts", icon: "accounts" },
       { label: "Receitas", href: "/dashboard/income", icon: "income" },
       { label: "Cartões", href: "/dashboard/cards", icon: "cards" },
@@ -103,10 +105,12 @@ export const navigationItems: NavigationItem[] = navigationGroups.flatMap((group
 
 export function getActiveNavigationGroup(pathname: string) {
   return navigationGroups.find((group) =>
-    group.items.some((item) =>
-      item.href === "/dashboard"
-        ? pathname === item.href
-        : pathname === item.href || pathname.startsWith(`${item.href}/`),
-    ),
+    group.items.some((item) => isNavigationItemActive(item, pathname)),
   );
+}
+
+export function isNavigationItemActive(item: NavigationItem, pathname: string) {
+  const matches = navigationItems.filter(candidate => candidate.href === "/dashboard" ? pathname === candidate.href : pathname === candidate.href || pathname.startsWith(`${candidate.href}/`));
+  const nearest = matches.reduce<NavigationItem | null>((best, candidate) => !best || candidate.href.length > best.href.length ? candidate : best, null);
+  return nearest?.href === item.href;
 }

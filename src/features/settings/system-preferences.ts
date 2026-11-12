@@ -4,6 +4,7 @@ import { clearViewPreference, loadViewPreference, saveViewPreference, type ViewP
 
 export type InitialScreenRoute =
   | "/dashboard"
+  | "/dashboard/imports/pluggy"
   | "/dashboard/weekly-review"
   | "/dashboard/invoices"
   | "/dashboard/reimbursements"
@@ -14,6 +15,7 @@ export type InitialScreenRoute =
 export type WeeklyReviewDefaultTab = "summary" | "completed" | "priorities" | "pending" | "kanban" | "month";
 export type ShortcutId =
   | "new-account"
+  | "financial-inbox"
   | "new-income"
   | "new-reimbursement"
   | "new-purchase"
@@ -27,6 +29,7 @@ export type ShortcutId =
 export type ModuleViewMode = "list" | "kanban";
 export type DashboardMode = "simple" | "full";
 export type ReimbursementDebtSummaryPopoverMode = "cursor" | "fixed";
+export type PaginationScroll = "top" | "bottom" | "keep";
 
 export type SystemPreferences = {
   initialScreen: InitialScreenRoute;
@@ -37,10 +40,12 @@ export type SystemPreferences = {
   placeViewMode: ModuleViewMode;
   dashboardMode: DashboardMode;
   reimbursementDebtSummaryPopoverMode: ReimbursementDebtSummaryPopoverMode;
+  paginationScroll: PaginationScroll;
 };
 
 export const initialScreenOptions: Array<{ value: InitialScreenRoute; label: string }> = [
   { value: "/dashboard", label: "Dashboard" },
+  { value: "/dashboard/imports/pluggy", label: "Caixa de Entrada Financeira" },
   { value: "/dashboard/weekly-review", label: "Revisão semanal" },
   { value: "/dashboard/invoices", label: "Faturas" },
   { value: "/dashboard/reimbursements", label: "Reembolsos" },
@@ -59,6 +64,7 @@ export const weeklyReviewTabOptions: Array<{ value: WeeklyReviewDefaultTab; labe
 ];
 
 export const shortcutOptions: Array<{ id: ShortcutId; label: string; description: string; href: string }> = [
+  { id: "financial-inbox", label: "Caixa de entrada financeira", description: "Revisar movimentações dos bancos", href: "/dashboard/imports/pluggy" },
   { id: "new-account", label: "Nova conta", description: "Abrir Contas", href: "/dashboard/accounts" },
   { id: "new-income", label: "Nova receita", description: "Abrir Receitas", href: "/dashboard/income" },
   { id: "new-reimbursement", label: "Novo reembolso", description: "Abrir Reembolsos", href: "/dashboard/reimbursements" },
@@ -87,6 +93,7 @@ export const defaultSystemPreferences: SystemPreferences = {
   placeViewMode: "list",
   dashboardMode: "simple",
   reimbursementDebtSummaryPopoverMode: "cursor",
+  paginationScroll: "top",
 };
 
 function systemPreferencesKey(userId?: string | null) {
@@ -112,6 +119,7 @@ export function saveSystemPreferences(userId: string | null | undefined, value: 
 
   try {
     window.localStorage.setItem(systemPreferencesKey(userId), JSON.stringify(normalizeSystemPreferences(value)));
+    window.dispatchEvent(new CustomEvent("hubvz:preferences-updated", { detail: { userId } }));
     return true;
   } catch (error) {
     console.error("Erro técnico ao salvar preferências do sistema:", error);
@@ -124,6 +132,7 @@ export function clearSystemPreferences(userId?: string | null) {
 
   try {
     window.localStorage.removeItem(systemPreferencesKey(userId));
+    window.dispatchEvent(new CustomEvent("hubvz:preferences-updated", { detail: { userId } }));
     return true;
   } catch (error) {
     console.error("Erro técnico ao restaurar preferências do sistema:", error);
@@ -159,6 +168,7 @@ function normalizeSystemPreferences(value: unknown): SystemPreferences {
     : defaultSystemPreferences.favoriteShortcuts;
 
   return {
+    paginationScroll: record.paginationScroll === "bottom" || record.paginationScroll === "keep" ? record.paginationScroll : "top",
     initialScreen: isInitialScreenRoute(record.initialScreen) ? record.initialScreen : defaultSystemPreferences.initialScreen,
     weeklyReviewDefaultTab: isWeeklyReviewTab(record.weeklyReviewDefaultTab)
       ? record.weeklyReviewDefaultTab

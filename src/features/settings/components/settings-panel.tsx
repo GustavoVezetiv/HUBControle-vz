@@ -332,6 +332,14 @@ export function SettingsPanel() {
                   </select>
                   <p className="mt-2 text-xs text-ink-600">Usado no saldo devedor por pessoa em Reembolsos.</p>
                 </FieldShell>
+                <FieldShell label="Ao trocar página de uma lista">
+                  <select className={inputClassName} value={systemPreferences.paginationScroll} onChange={event => setSystemPreferences(current => ({ ...current, paginationScroll: event.target.value as SystemPreferences["paginationScroll"] }))}>
+                    <option value="top">Ir para o início da lista</option>
+                    <option value="bottom">Ir para o rodapé da lista</option>
+                    <option value="keep">Manter minha posição</option>
+                  </select>
+                  <p className="mt-2 text-xs text-ink-600">Ao usar Anterior/Próxima nas listas de importações e histórico. A escolha vale para sua conta neste navegador.</p>
+                </FieldShell>
               </div>
 
               <div className="mt-6">
