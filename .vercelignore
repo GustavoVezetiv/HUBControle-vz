@@ -1,2 +1,4 @@
 tmp/
 supabase/.temp/
+.codex-dev-server*.log
+tsconfig.tsbuildinfo

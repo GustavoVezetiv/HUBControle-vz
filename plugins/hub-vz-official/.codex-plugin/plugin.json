@@ -1,0 +1,27 @@
+{
+  "interface": {
+    "capabilities": ["Interactive"],
+    "category": "Productivity",
+    "composerIcon": "./assets/icon.svg",
+    "defaultPrompt": [
+      "Mostre meu resumo financeiro no Hub VZ.",
+      "Liste minhas faturas, assinaturas e reembolsos pendentes.",
+      "Registre uma despesa no Hub VZ conforme eu informar."
+    ],
+    "developerName": "Gustavo Vezetiv",
+    "displayName": "Hub VZ - Oficial",
+    "logo": "./assets/icon.svg",
+    "longDescription": "Consulte e mantenha contas, receitas, lancamentos, cartoes, faturas, assinaturas, parcelamentos, reembolsos, compras planejadas, metas, lugares, notas, planos de pagamento e revisoes no Hub VZ oficial, com autenticacao, RLS, auditoria e idempotencia.",
+    "shortDescription": "Organize suas financas"
+  },
+  "name": "hub-vz-official",
+  "version": "1.1.0",
+  "description": "Consulta e CRUD autenticado dos modulos financeiros e pessoais do Hub VZ oficial.",
+  "author": {
+    "name": "Gustavo Vezetiv",
+    "email": "gustavovezetiv8@gmail.com"
+  },
+  "keywords": [],
+  "skills": "./skills",
+  "mcpServers": "./.mcp.json"
+}
