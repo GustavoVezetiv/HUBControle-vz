@@ -28,6 +28,7 @@ import { OrganizzeHistory } from "@/features/organizze/components/organizze-hist
 import { usePaginationScroll } from "@/features/shared/use-pagination-scroll";
 import { InboxCompositionChart } from "./inbox-composition-chart";
 import styles from "./inbox-visuals.module.css";
+import { RestoreSourceBackups } from "@/features/imports/components/restore-source-backups";
 
 const today = () =>
   new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Cuiaba" }).format(new Date());
@@ -289,11 +290,11 @@ export function FinancialInbox({
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <Link
-            href="/dashboard/imports"
+            href="/dashboard/imports/manual"
             className="mb-2 inline-flex items-center gap-1 text-xs text-ink-600 hover:underline"
           >
             <ArrowLeft className="h-3 w-3" />
-            Importações / Meu Pluggy
+            Importar planilha CSV/XLSX
           </Link>
           <h1 className="text-2xl font-semibold">Caixa de Entrada Financeira</h1>
           <p className="mt-1 text-sm text-ink-600">
@@ -798,6 +799,7 @@ export function FinancialInbox({
           />
         </details>
       ) : null}
+      <RestoreSourceBackups />
     </div>
   );
 }

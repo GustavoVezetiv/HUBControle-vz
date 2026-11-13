@@ -14,8 +14,12 @@ export async function GET() {
     user.data.user.id !== process.env.ORGANIZZE_HUB_USER_ID
   )
     return json({ error: "Entre como proprietário da integração." }, 401);
-  const backup = await latestOrganizzeBackup(user.data.user.id);
-  return backup
-    ? json(organizzeHistory(backup.snapshot))
-    : json({ error: "Nenhum backup local do Organizze disponível." }, 404);
+  try {
+    const backup = await latestOrganizzeBackup(user.data.user.id);
+    return backup
+      ? json(organizzeHistory(backup.snapshot))
+      : json({ error: "Nenhum histórico do Organizze disponível nesta conta." }, 404);
+  } catch {
+    return json({ error: "Não foi possível consultar o histórico preservado. Tente novamente." }, 502);
+  }
 }
