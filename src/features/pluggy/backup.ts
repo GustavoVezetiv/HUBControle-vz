@@ -1,4 +1,5 @@
 import "server-only";
+import { usesRemoteImportBackups, remoteSnapshotStorage, ImportBackupStorageError } from "../imports/backup-storage";
 import { mkdir, readdir, readFile, writeFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -65,6 +66,10 @@ export async function savePluggyBackup(snapshot: PluggySnapshot) {
   const content = JSON.stringify(snapshot);
   if (Buffer.byteLength(content) > 80 * 1024 * 1024)
     throw new Error("Backup excede 80 MiB.");
+  if (usesRemoteImportBackups()) {
+    await (await remoteSnapshotStorage("pluggy", snapshot.ownerId)).write(id, content);
+    return id;
+  }
   await mkdir(join(folder, id), { recursive: true });
   await writeFile(join(folder, id, "pluggy-backup.json"), content, {
     flag: "wx",
@@ -73,18 +78,20 @@ export async function savePluggyBackup(snapshot: PluggySnapshot) {
   return id;
 }
 export async function latestPluggyBackup(owner: string, item: string) {
-  const names = await readdir(folder).catch(() => [] as string[]);
+  const remote = usesRemoteImportBackups() ? await remoteSnapshotStorage("pluggy", owner) : null;
+  const names = remote ? await remote.list() : await readdir(folder).catch(() => [] as string[]);
   for (const id of names
     .filter((name) => pattern.test(name))
     .sort()
     .reverse()) {
     try {
       const file = join(folder, id, "pluggy-backup.json");
-      if ((await stat(file)).size > 80 * 1024 * 1024) continue;
-      const snapshot: unknown = JSON.parse(await readFile(file, "utf8"));
+      if (!remote && (await stat(file)).size > 80 * 1024 * 1024) continue;
+      const snapshot: unknown = JSON.parse(remote ? await remote.read(id) : await readFile(file, "utf8"));
       validatePluggySnapshot(snapshot, owner, item);
       return { backupId: id, snapshot };
-    } catch {
+    } catch (error) {
+      if (error instanceof ImportBackupStorageError) throw error;
       /* Never expose another user's or an incomplete backup. */
     }
   }
@@ -92,7 +99,8 @@ export async function latestPluggyBackup(owner: string, item: string) {
 }
 
 export async function accumulatedPluggyBackup(owner: string, item: string) {
-  const names = (await readdir(folder).catch(() => [] as string[]))
+  const remote = usesRemoteImportBackups() ? await remoteSnapshotStorage("pluggy", owner) : null;
+  const names = (remote ? await remote.list() : await readdir(folder).catch(() => [] as string[]))
     .filter((name) => pattern.test(name))
     .sort();
   let latest: { backupId: string; snapshot: PluggySnapshot } | null = null;
@@ -103,8 +111,8 @@ export async function accumulatedPluggyBackup(owner: string, item: string) {
   for (const id of names) {
     try {
       const file = join(folder, id, "pluggy-backup.json");
-      if ((await stat(file)).size > 80 * 1024 * 1024) continue;
-      const s: unknown = JSON.parse(await readFile(file, "utf8"));
+      if (!remote && (await stat(file)).size > 80 * 1024 * 1024) continue;
+      const s: unknown = JSON.parse(remote ? await remote.read(id) : await readFile(file, "utf8"));
       validatePluggySnapshot(s, owner, item);
       // Preserve old movements when the next run uses an overlapping/recent
       // window. Update identical IDs in place; never infer deletions from absence.
@@ -124,7 +132,8 @@ export async function accumulatedPluggyBackup(owner: string, item: string) {
       firstDay = s.period.start < firstDay ? s.period.start : firstDay;
       lastDay = s.period.end > lastDay ? s.period.end : lastDay;
       latest = { backupId: id, snapshot: s };
-    } catch {
+    } catch (error) {
+      if (error instanceof ImportBackupStorageError) throw error;
       /* Ignore invalid/other-owner copies, retaining complete valid ones. */
     }
   }

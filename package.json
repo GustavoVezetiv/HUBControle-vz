@@ -28,7 +28,8 @@
     "sync:pluggy": "node scripts/sync-pluggy.mjs",
     "extract:organizze": "node scripts/extract-organizze.mjs",
     "test:reimbursements:usability": "node --test tests/reimbursement-usability.test.mjs",
-    "preview:reimbursements": "node scripts/preview-reimbursements.mjs"
+    "preview:reimbursements": "node scripts/preview-reimbursements.mjs",
+    "test:imports": "node --test tests/pluggy-preview.test.mjs tests/organizze-preview.test.mjs tests/import-backup-storage.test.mjs tests/import-backup-restore.test.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.3",

@@ -33,5 +33,8 @@ jobs:
       - name: Reimbursement date and filter regression tests
         run: npm run test:reimbursements:usability
 
+      - name: Import routes, reconciliation and private backup regression tests
+        run: npm run test:imports
+
       - name: Build
         run: npm run build

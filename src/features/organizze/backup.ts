@@ -1,4 +1,5 @@
 import "server-only";
+import { usesRemoteImportBackups, remoteSnapshotStorage, ImportBackupStorageError } from "../imports/backup-storage";
 import { mkdir, readdir, readFile, writeFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -29,6 +30,10 @@ export function validateSnapshot(value: unknown, owner: string): asserts value i
 export async function saveOrganizzeBackup(snapshot: Snapshot, owner: string) {
   validateSnapshot(snapshot, owner);
   const id = `${new Date().toISOString().replace(/[:.]/g, "-")}-${randomUUID()}`;
+  if (usesRemoteImportBackups()) {
+    await (await remoteSnapshotStorage("organizze", owner)).write(id, JSON.stringify({ snapshot, selectedKeys: [] }));
+    return id;
+  }
   await mkdir(join(folder, id), { recursive: true });
   await writeFile(join(folder, id, "organizze-backup.json"), JSON.stringify({ snapshot, selectedKeys: [] }), { flag: "wx", mode: 0o600 });
   return id;
@@ -36,15 +41,17 @@ export async function saveOrganizzeBackup(snapshot: Snapshot, owner: string) {
 export async function readOrganizzeBackup(id: string, owner: string) {
   if (!namePattern.test(id)) throw new Error("Identificador de backup inválido.");
   const file = join(folder, id, "organizze-backup.json");
-  if ((await stat(file)).size > 80 * 1024 * 1024) throw new Error("Backup excede 80 MiB.");
-  const value = JSON.parse(await readFile(file, "utf8"));
+  const remote = usesRemoteImportBackups() ? await remoteSnapshotStorage("organizze", owner) : null;
+  if (!remote && (await stat(file)).size > 80 * 1024 * 1024) throw new Error("Backup excede 80 MiB.");
+  const value = JSON.parse(remote ? await remote.read(id) : await readFile(file, "utf8"));
   validateSnapshot(value.snapshot, owner);
   return value.snapshot as Snapshot;
 }
 export async function latestOrganizzeBackup(owner: string) {
-  const names = await readdir(folder).catch(() => [] as string[]);
+  const remote = usesRemoteImportBackups() ? await remoteSnapshotStorage("organizze", owner) : null;
+  const names = remote ? await remote.list() : await readdir(folder).catch(() => [] as string[]);
   for (const id of names.filter(name => namePattern.test(name)).sort().reverse()) {
-    try { return { backupId: id, snapshot: await readOrganizzeBackup(id, owner) }; } catch { /* Other owner, incomplete write or invalid backup: do not expose it. */ }
+    try { return { backupId: id, snapshot: await readOrganizzeBackup(id, owner) }; } catch (error) { if (error instanceof ImportBackupStorageError) throw error; /* Other owner, incomplete write or invalid backup: do not expose it. */ }
   }
   return null;
 }
