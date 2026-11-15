@@ -1,6 +1,24 @@
 import type { PluggyDashboard } from "./service";
 
 export type InboxMovement = PluggyDashboard["movements"][number];
+
+export function pendingBankSummary(rows: InboxMovement[]) {
+  const pending = rows.filter(
+    (row) =>
+      row.bankStatus === "PENDING" &&
+      !["ignored", "reconciliation"].includes(movementDisposition(row).section),
+  );
+  return {
+    count: pending.length,
+    cards: pending.filter((row) => row.accountType === "CREDIT").length,
+    latest:
+      pending
+        .map((row) => row.date)
+        .filter(Boolean)
+        .sort()
+        .at(-1) ?? null,
+  };
+}
 export type InboxSection = "inbox" | "reconciliation" | "pending" | "ignored";
 export type InboxDisposition = {
   section: InboxSection;
@@ -10,6 +28,23 @@ export type InboxDisposition = {
   automatic: boolean;
   canPrepare: boolean;
 };
+
+export function bankStatusLabel(row: InboxMovement) {
+  if (row.bankStatus === "POSTED") return "Confirmado pelo banco";
+  if (row.bankStatus === "PENDING")
+    return row.accountType === "CREDIT"
+      ? "Fatura aberta / parcela futura"
+      : "Em processamento / agendado";
+  return "Situação bancária a conferir";
+}
+
+export function canClassifyMovement(row: InboxMovement) {
+  return (
+    ["POSTED", "PENDING"].includes(row.bankStatus) &&
+    ["expense", "income"].includes(row.kind) &&
+    row.review.state !== "reconciled" && movementDisposition(row).section !== "ignored"
+  );
+}
 
 export function movementDisposition(row: InboxMovement): InboxDisposition {
   const result = (
@@ -47,12 +82,12 @@ export function movementDisposition(row: InboxMovement): InboxDisposition {
       "Você manteve este item em revisão para conferir depois.",
       "Revisão manual",
     );
-  if (row.bankStatus !== "POSTED")
+  if (!["POSTED", "PENDING"].includes(row.bankStatus))
     return result(
       "pending",
-      row.bankStatus === "PENDING" ? "Aguardando liquidação" : "Revisar situação",
-      "O banco ainda não confirmou a liquidação. Aguarde antes de classificar como despesa ou receita.",
-      "Pendente no banco",
+      "Revisar situação",
+      "A origem não informa uma situação bancária reconhecida.",
+      "Situação desconhecida",
     );
   if (row.kind === "invoice_payment")
     return result(
@@ -119,8 +154,9 @@ export function movementDisposition(row: InboxMovement): InboxDisposition {
       "Revisão de dados",
     );
   if (
-    row.candidates.some((item) => item.confidence?.score >= 85) ||
-    row.historical.some((item) => item.confidence?.score >= 85)
+    row.bankStatus === "POSTED" &&
+    (row.candidates.some((item) => item.confidence?.score >= 85) ||
+      row.historical.some((item) => item.confidence?.score >= 85))
   )
     return result(
       "reconciliation",
@@ -154,8 +190,8 @@ export function movementDisposition(row: InboxMovement): InboxDisposition {
     );
   const type = row.kind === "income" ? "Receita / crédito" : "Compra / despesa";
   if (
-    row.candidates.length ||
-    row.historical.some((item) => item.confidence?.score >= 85)
+    row.bankStatus === "POSTED" &&
+    (row.candidates.length || row.historical.some((item) => item.confidence?.score >= 85))
   )
     return result(
       "reconciliation",
@@ -172,10 +208,14 @@ export function movementDisposition(row: InboxMovement): InboxDisposition {
         : "Classificado",
     row.classification.ambiguous
       ? "Revise as regras que atribuem classificações diferentes."
-      : "Disponível para revisão. A importação financeira ainda não foi aplicada.",
+      : row.bankStatus === "PENDING"
+        ? row.accountType === "CREDIT"
+          ? "Compra recebida em fatura aberta ou parcela futura. Você pode organizar a categoria agora; o status do banco e os totais financeiros não serão alterados."
+          : "O banco ainda está processando ou agendou este movimento. Você pode organizar a categoria, sem tratá-lo como dinheiro liquidado."
+        : "Disponível para revisão. A importação financeira ainda não foi aplicada.",
     type,
     false,
-    true,
+    row.bankStatus === "POSTED",
   );
 }
 
@@ -185,9 +225,9 @@ export function inboxSummary(rows: InboxMovement[]) {
       const item = movementDisposition(row);
       counts[item.section]++;
       if (item.automatic) counts.automatic++;
-      if (item.canPrepare && !row.review.reviewed) counts.new++;
+      if (item.section === "inbox" && !row.review.reviewed) counts.new++;
       if (
-        (item.canPrepare || item.section === "reconciliation") &&
+        (item.section === "inbox" || item.section === "reconciliation") &&
         row.review.state !== "reconciled" &&
         (!row.selectedCategoryId ||
           !row.selectedOwnership ||

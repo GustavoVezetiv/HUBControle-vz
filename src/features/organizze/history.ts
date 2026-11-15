@@ -58,7 +58,8 @@ export function organizzeHistory(snapshot: Snapshot) {
         accounts.get(
           `${row.raw.credit_card_id || row.raw.account_type === "CreditCard" ? "card" : "account"}:${row.raw.credit_card_id ?? row.raw.account_id}`,
         ) ?? "Sem conta/cartão correspondente",
-    }));
+    }))
+    .sort((a, b) => b.date.localeCompare(a.date) || a.sourceKey.localeCompare(b.sourceKey));
   return {
     source: "organizze" as const,
     period: snapshot.period,

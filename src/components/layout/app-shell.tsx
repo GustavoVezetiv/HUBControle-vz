@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
@@ -40,6 +40,7 @@ export function AppShell({
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [openGroups, setOpenGroups] = useState<NavigationGroupId[]>([]);
+  const closeMobileSidebar = useCallback(() => setMobileSidebarOpen(false), []);
 
   const contentWidthClass =
     contentWidth === "compact"
@@ -128,7 +129,7 @@ export function AppShell({
         collapsed={sidebarCollapsed}
         mobileOpen={mobileSidebarOpen}
         openGroups={openGroups}
-        onCloseMobile={() => setMobileSidebarOpen(false)}
+        onCloseMobile={closeMobileSidebar}
         onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
         onToggleGroup={toggleGroup}
         onOpenGroup={openGroupFromCollapsed}

@@ -36,7 +36,11 @@ const fixture = {
     { id: "income", name: "Salário", type: "income", parent_category_id: null },
   ],
   rules: [],
-  proposals: [],
+  proposals: [
+    { pattern: "mercado", category: "Alimentação", categoryId: "food", count: 6, tags: ["Família"], kind: "expense", conflicts: false, firstDate: "2026-09-01", lastDate: today },
+    { pattern: "salario de novembro", category: "Salário", categoryId: "income", count: 2, tags: [], kind: "income", conflicts: false, firstDate: "2025-11-01", lastDate: today },
+    { pattern: "compra de exemplo", category: "Alimentação", categoryId: "food", count: 3, tags: [], kind: "expense", conflicts: false, firstDate: "2026-09-01", lastDate: today },
+  ],
   ready: true,
   history: { total: 1956, categories: 110, tags: 20 },
   missingCredentials: [],
@@ -130,7 +134,7 @@ fixture.movements = [
     ],
   }),
   movement(6, "PIX enviado", { operationType: "PIX", accountType: "BANK" }),
-  movement(7, "Compra em processamento", { bankStatus: "PENDING" }),
+  movement(7, "Compra em processamento", { bankStatus: "PENDING", review: { state: "pending", categoryId: null, ownership: null, reviewed: false, updatedAt: "2026-11-09T12:00:00Z" } }),
   movement(8, "Pagamento da fatura", {
     kind: "invoice_payment",
     operationType: "PAGAMENTO_FATURA",
@@ -177,8 +181,11 @@ await writeFile(
 );
 await writeFile(
   resolve(folder, "entry.jsx"),
-  `import {createRoot} from "react-dom/client"; import {FinancialInbox} from "@/features/pluggy/components/financial-inbox"; import {DashboardInboxPreview} from "@/features/dashboard/components/dashboard-inbox-preview"; import {SystemPreferencesProvider} from "@/features/settings/preferences-context"; createRoot(document.getElementById("root")).render(<SystemPreferencesProvider userId="fixture-user"><main className="hub-shell mx-auto max-w-screen-2xl p-5"><p className="mb-4 text-xs text-ink-600">Prévia local · dados fictícios</p>{location.search.includes("dashboard=1") ? <DashboardInboxPreview start="${today.slice(0, 7)}-01" end="${today}" periodLabel="Período fictício" /> : <FinancialInbox/>}</main></SystemPreferencesProvider>);`,
+  `import {createRoot} from "react-dom/client"; import {useState,useCallback} from "react"; import {Sidebar} from "@/components/layout/sidebar"; import {navigationGroups} from "@/lib/navigation"; import {FinancialInbox} from "@/features/pluggy/components/financial-inbox"; import {DashboardInboxPreview} from "@/features/dashboard/components/dashboard-inbox-preview"; import {SystemPreferencesProvider} from "@/features/settings/preferences-context";
+  function SidebarFixture(){const [mobileOpen,setMobileOpen]=useState(false); const [collapsed,setCollapsed]=useState(true); const [openGroups,setOpenGroups]=useState([]); const close=useCallback(()=>setMobileOpen(false),[]); return <div className="hub-shell lg:flex" data-navigation-motion="enabled"><Sidebar groups={navigationGroups} collapsed={collapsed} mobileOpen={mobileOpen} openGroups={openGroups} onToggleGroup={id=>setOpenGroups(old=>old.includes(id)?old.filter(value=>value!==id):[...old,id])} onOpenGroup={id=>{setCollapsed(false);setOpenGroups([id])}} onToggleCollapsed={()=>setCollapsed(!collapsed)} onCloseMobile={close}/><main className="p-6"><button className="border p-3" onClick={()=>setMobileOpen(true)}>Abrir menu de teste</button><p>Prévia fictícia da navegação</p></main></div>}
+  createRoot(document.getElementById("root")).render(<SystemPreferencesProvider userId="fixture-user">{location.search.includes("sidebar=1") ? <SidebarFixture/> : <main className="hub-shell mx-auto max-w-screen-2xl p-5"><p className="mb-4 text-xs text-ink-600">Prévia local · dados fictícios</p>{location.search.includes("dashboard=1") ? <DashboardInboxPreview start="${today.slice(0, 7)}-01" end="${today}" periodLabel="Período fictício" /> : <FinancialInbox/>}</main>}</SystemPreferencesProvider>);`,
 );
+await writeFile(resolve(folder, "navigation.js"), 'export const usePathname=()=>"/dashboard/imports";');
 await writeFile(
   resolve(folder, "loader.cjs"),
   `const ts=require(${JSON.stringify(require.resolve("typescript"))});module.exports=function(source){return ts.transpileModule(source,{fileName:this.resourcePath,compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2020,esModuleInterop:true}}).outputText}`,
@@ -199,7 +206,7 @@ await new Promise((ok, fail) => {
     output: { path: folder, filename: "bundle.js" },
     resolve: {
       extensions: [".tsx", ".ts", ".js", ".mjs"],
-      alias: { "next/link": resolve(folder, "link.jsx"), "@": resolve(root, "src") },
+      alias: { "next/link": resolve(folder, "link.jsx"), "next/navigation": resolve(folder, "navigation.js"), "@": resolve(root, "src") },
     },
     module: {
       rules: [
@@ -230,6 +237,7 @@ await writeFile(resolve(folder, "styles.css"), css.css);
 const html =
   '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Hub VZ - prévia fictícia Pluggy</title><link rel="stylesheet" href="/styles.css"></head><body><div id="root"></div><script src="/bundle.js"></script></body></html>';
 const actions = [];
+let rejectRule = "";
 const server = createServer(async (request, response) => {
   try {
     const url = new URL(request.url, "http://localhost");
@@ -244,6 +252,15 @@ const server = createServer(async (request, response) => {
       for await (const chunk of request) raw += chunk;
       const body = raw ? JSON.parse(raw) : {};
       actions.push({ ...body, method: request.method });
+      if (body.action === "sync" && request.headers.accept?.includes("application/x-ndjson")) {
+        response.writeHead(200, { "Content-Type": "application/x-ndjson" });
+        response.write(JSON.stringify({ type: "progress", progress: { phase: "accounts", percent: 12, message: "Consultando contas fictícias" } }) + "\n");
+        await new Promise(ok => setTimeout(ok, 300));
+        response.write(JSON.stringify({ type: "progress", progress: { phase: "transactions", percent: 60, message: "Movimentações fictícias: página 1" } }) + "\n");
+        await new Promise(ok => setTimeout(ok, 1000));
+        response.end(JSON.stringify({ type: "result", data: fixture }) + "\n");
+        return;
+      }
       if (body.action === "review") {
         const row = fixture.movements.find((row) => row.sourceKey === body.sourceKey);
         assert.equal(body.confirm, true);
@@ -254,6 +271,16 @@ const server = createServer(async (request, response) => {
           reviewed: true,
           updatedAt: new Date().toISOString(),
         };
+      }
+      if (body.action === "rule") {
+        if (body.rule.pattern === rejectRule) {
+          response.writeHead(409, { "Content-Type": "application/json" }).end(JSON.stringify({ error: "Falha fictícia ao salvar regra" }));
+          return;
+        }
+        assert.equal(body.confirm, true);
+        assert.equal(body.rule.ownership, null);
+        assert.equal(fixture.rules.some(rule => rule.pattern === body.rule.pattern), false);
+        fixture.rules.push({ ...body.rule, id: `rule-${fixture.rules.length}` });
       }
       response
         .writeHead(200, { "Content-Type": "application/json" })
@@ -306,10 +333,14 @@ else {
       );
     }
     for (const theme of ["light", "dark"]) {
+      await page.emulateMedia({ colorScheme: theme === "dark" ? "light" : "dark" });
       await page.evaluate(
         (theme) => document.documentElement.classList.toggle("dark", theme === "dark"),
         theme,
       );
+      await page.waitForFunction(() => document.getAnimations().every(animation => animation.playState !== "running"));
+      const linkColor = await page.getByRole("button", { name: "Aproveitar categorias do Organizze" }).evaluate(element => getComputedStyle(element).color);
+      assert.equal(linkColor, theme === "dark" ? "rgb(125, 211, 252)" : "rgb(3, 105, 161)");
       for (const width of [1440, 390]) {
         await page.setViewportSize({ width, height: 1000 });
         await page.screenshot({
@@ -338,7 +369,7 @@ else {
       actions.find((item) => item.action === "review").review.targetId,
       "existing",
     );
-    await page.getByRole("tab", { name: /Pendentes/ }).click();
+    await page.getByRole("tab", { name: /^Revisar/ }).click();
     await page.getByText("PIX enviado", { exact: true }).waitFor();
     await page.getByRole("tab", { name: /Ignorados/ }).click();
     await page.getByText("Pagamento da fatura", { exact: true }).waitFor();
@@ -370,7 +401,7 @@ else {
         window.matchMedia = () => ({ matches: true });
       }, mode);
       await page.getByRole("button", { name: "Próxima", exact: true }).click();
-      await page.getByText("21–26 de 26", { exact: true }).waitFor();
+      await page.getByText("21–27 de 27", { exact: true }).waitFor();
       if (mode === "top") {
         const position = await page
           .getByRole("heading", { name: "O que chegou" })
@@ -401,8 +432,25 @@ else {
       await page.getByRole("button", { name: "Anterior", exact: true }).click();
       await page.getByText("Mercado do bairro", { exact: true }).waitFor();
     }
-    await page.getByRole("tab", { name: "Regras", exact: true }).click();
-    await page.getByText("Regras simples de classificação", { exact: true }).waitFor();
+    await page.getByRole("tab", { name: "Classificar em lote", exact: true }).click();
+    await page.getByRole("heading", { name: "Aproveitar o Organizze", exact: true }).waitFor();
+    await page.getByRole("checkbox", { name: "Selecionar regra mercado", exact: true }).check();
+    await page.getByRole("button", { name: "Salvar 1 regras", exact: true }).click();
+    await page.getByText(/1 de 1 regras salvas/).waitFor();
+    assert.equal(actions.filter(item => item.action === "rule").length, 1);
+    assert.equal(await page.getByRole("checkbox", { name: "Selecionar regra mercado", exact: true }).isDisabled(), true);
+    await page.screenshot({ path: resolve(folder, "rules-batch-dark.png"), fullPage: true });
+    await page.getByRole("checkbox", { name: "Selecionar regra salario de novembro", exact: true }).check();
+    await page.getByRole("checkbox", { name: "Selecionar regra compra de exemplo", exact: true }).check();
+    rejectRule = "compra de exemplo";
+    await page.getByRole("button", { name: "Salvar 2 regras", exact: true }).click();
+    await page.getByText(/1 de 2 regras salvas/).waitFor();
+    assert.equal(fixture.rules.length, 2);
+    rejectRule = "";
+    await page.getByRole("button", { name: "Salvar 1 regras", exact: true }).click();
+    await page.getByText(/1 de 1 regras salvas/).waitFor();
+    assert.equal(fixture.rules.length, 3);
+    assert.equal(new Set(fixture.rules.map(rule => rule.pattern)).size, 3);
     actions.length = 0;
     await page.goto(`${url}/?dashboard=1`);
     await page.getByRole("region", { name: "Composição dos itens a revisar" }).waitFor();
@@ -422,9 +470,65 @@ else {
         fullPage: true,
       });
     }
+    await page.goto(url);
+    await page.getByText("Compra em processamento", { exact: true }).waitFor();
+    assert.equal(await page.getByText("PIX enviado", { exact: true }).count(), 0);
+    const pendingRow = page.getByRole("article").filter({ hasText: "Compra em processamento" });
+    await pendingRow.getByRole("button", { name: "Revisar", exact: true }).click();
+    assert.equal(await pendingRow.getByRole("combobox", { name: "Categoria Hub", exact: true }).isDisabled(), false);
+    assert.equal(await pendingRow.getByRole("link", { name: "Preparar cadastro no Hub" }).count(), 0);
+    await pendingRow.getByRole("combobox", { name: "Categoria Hub", exact: true }).fill("Alimentação");
+    await page.getByRole("option", { name: "Alimentação", exact: true }).click();
+    await pendingRow.getByRole("button", { name: "Salvar classificação", exact: true }).click();
+    await pendingRow.getByRole("button", { name: "Revisar", exact: true }).waitFor();
+    const pendingSave = actions.findLast(item => item.action === "review");
+    assert.equal(pendingSave.review.state, "new");
+    assert.equal(pendingSave.review.categoryId, "food");
+    assert.equal(pendingSave.review.ownership, null);
+    await page.getByRole("tab", { name: /^Caixa de entrada/ }).click();
+    await page.getByRole("combobox").nth(0).selectOption("xp");
+    await page.getByRole("button", { name: "Sincronizar novamente", exact: true }).click();
+    await page.waitForFunction(() => document.querySelector("progress")?.value === 60);
+    assert.equal(await page.getByRole("button", { name: "Sincronizar novamente", exact: true }).isDisabled(), true);
+    await page.screenshot({ path: resolve(folder, "sync-progress.png"), fullPage: true });
+    await page.getByText(/Consulta concluída: 0 novos movimentos/).waitFor();
+    await page.getByRole("progressbar").waitFor({ state: "hidden" });
+
+    await page.setViewportSize({ width: 390, height: 640 });
+    await page.goto(`${url}/?sidebar=1`);
+    const opener = page.getByRole("button", { name: "Abrir menu de teste" });
+    await opener.click();
+    const drawer = page.getByRole("dialog", { name: "Menu de navegação" });
+    await drawer.waitFor();
+    assert.equal(await page.evaluate(() => document.body.style.overflow), "hidden");
+    for (const group of ["Financeiro", "Planejamento", "Rotina e pessoal", "Lazer e lugares", "Sistema"]) await drawer.getByRole("button", { name: group, exact: true }).click();
+    await page.waitForFunction(() => [...document.querySelectorAll('[role="dialog"] .hub-sidebar-panel')].every(element => getComputedStyle(element).opacity === "1"));
+    assert.equal(await drawer.evaluate(element => element.scrollHeight > element.clientHeight), true);
+    await drawer.getByRole("link", { name: "Sistema • Configurações", exact: true }).scrollIntoViewIfNeeded();
+    assert.equal(await drawer.getByRole("button", { name: "Fechar menu", exact: true }).evaluate(element => { const rect = element.getBoundingClientRect(); return rect.top >= 0 && rect.bottom <= innerHeight; }), true);
+    for (const theme of ["light", "dark"]) {
+      await page.evaluate(theme => document.documentElement.classList.toggle("dark", theme === "dark"), theme);
+      await page.waitForFunction(() => document.getAnimations().every(animation => animation.playState !== "running"));
+      const textColor = await drawer.getByRole("link", { name: "Sistema • Configurações", exact: true }).evaluate(element => getComputedStyle(element).color);
+      const channels = textColor.match(/\d+/g).slice(0, 3).map(Number);
+      assert.ok(theme === "dark" ? Math.min(...channels) >= 180 : Math.max(...channels) <= 130);
+      await page.screenshot({ path: resolve(folder, `sidebar-mobile-${theme}.png`) });
+    }
+    await drawer.getByRole("link", { name: "Sistema • Configurações", exact: true }).focus();
+    await page.keyboard.press("Tab");
+    assert.equal(await drawer.getByRole("button", { name: "Fechar menu", exact: true }).evaluate(element => element === document.activeElement), true);
+    await page.keyboard.press("Shift+Tab");
+    assert.equal(await drawer.getByRole("link", { name: "Sistema • Configurações", exact: true }).evaluate(element => element === document.activeElement), true);
+    await page.keyboard.press("Escape");
+    await drawer.waitFor({ state: "hidden" });
+    assert.equal(await page.evaluate(() => document.body.style.overflow), "");
+    assert.equal(await opener.evaluate(element => element === document.activeElement), true);
+    await opener.click();
+    await drawer.getByRole("link", { name: "Financeiro • Importações", exact: true }).click();
+    await drawer.waitFor({ state: "hidden" });
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: 4 widths, light/dark screenshots, tabs, comparison, explicit selection, existing review payload, no external requests or financial mutations.",
+      "PASS: 4 widths, app themes independent of OS, pending purchase classification, streamed progress, rule batch partial failure/retry without duplicates, mobile drawer scroll/Escape/focus/navigation, no external requests or financial mutations.",
     );
   } finally {
     await browser?.close();

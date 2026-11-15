@@ -140,6 +140,7 @@ export async function accumulatedPluggyBackup(owner: string, item: string) {
   if (!latest) return null;
   return {
     ...latest,
+    latestPeriod: latest.snapshot.period,
     snapshot: {
       ...latest.snapshot,
       accounts: [...accounts.values()],

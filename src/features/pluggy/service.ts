@@ -11,6 +11,7 @@ import { matchRules, suggestRules } from "./reconciliation";
 import type { AppSupabaseClient } from "../shared/types";
 import type { Institution } from "./types";
 import type { Period } from "../organizze/types";
+import type { SyncProgress } from "./sync-progress";
 
 export const pluggyToday = () =>
   new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Cuiaba" }).format(new Date());
@@ -39,6 +40,7 @@ export async function syncPluggyBank(
   institution: Institution,
   period: Period,
   onlyIfDue = false,
+  onProgress?: (progress: SyncProgress) => void,
 ) {
   const config = pluggyConfig();
   const bank = config.items.find((bank) => bank.id === institution);
@@ -47,6 +49,7 @@ export async function syncPluggyBank(
   const key = `${config.ownerId}:${bank.itemId}`;
   const running = active.get(key);
   if (running) {
+    onProgress?.({ phase: "connection", message: "Aguardando a consulta desta conexão que já está em andamento", percent: 2 });
     await running;
     return { skipped: true };
   }
@@ -56,6 +59,7 @@ export async function syncPluggyBank(
       onlyIfDue &&
       old &&
       Date.now() - Date.parse(old.snapshot.fetchedAt) < 24 * 60 * 60 * 1000
+      && old.snapshot.period.start <= period.start && old.snapshot.period.end >= period.end
     )
       return { skipped: true };
     const snapshot = await configuredPluggyReader({
@@ -63,7 +67,8 @@ export async function syncPluggyBank(
       itemId: bank.itemId,
       institution,
       includeInvestments: true,
-    }).sync(period);
+    }).sync(period, onProgress);
+    onProgress?.({ phase: "saving", message: "Preservando os dados de origem, sem criar lançamentos", percent: 92 });
     await savePluggyBackup(snapshot);
     return { skipped: false };
   })();
@@ -133,6 +138,10 @@ export async function pluggyDashboard(
       configured: config.credentialsPresent && bank.valid,
       fetchedAt: snapshot?.fetchedAt ?? null,
       lastUpdatedAt: snapshot?.item.lastUpdatedAt ?? null,
+      collectedPeriod: backups[index]?.latestPeriod ?? snapshot?.period ?? null,
+      latestMovement: view?.movements.map((row) => row.date).filter(Boolean).sort().at(-1) ?? null,
+      latestCardMovement: view?.movements.filter((row) => row.accountType === "CREDIT").map((row) => row.date).filter(Boolean).sort().at(-1) ?? null,
+      bankPending: view?.movements.filter((row) => row.bankStatus === "PENDING").length ?? 0,
       summary: view?.summary ?? null,
       warnings: snapshot?.warnings ?? [],
       unavailable: snapshot?.unavailable ?? [],
@@ -217,6 +226,8 @@ export async function pluggyDashboard(
           total: history.total,
           categories: history.categories.length,
           tags: history.tags.length,
+          period: history.period,
+          fetchedAt: history.fetchedAt,
         }
       : null,
     missingCredentials: ["PLUGGY_CLIENT_ID", "PLUGGY_CLIENT_SECRET"].filter(

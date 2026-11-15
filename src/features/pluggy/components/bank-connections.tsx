@@ -11,9 +11,15 @@ const states: Record<string, string> = {
   missing_proxy: "Autorização pendente",
   invalid_proxy: "Conexão inválida",
   not_validated: "Aguardando primeira consulta",
-  available: "Dados disponíveis",
+  available: "Origem consultada",
   partial: "Dados parciais",
   needs_attention: "Revisar conexão",
+};
+const updatedLabel = (value: unknown) => {
+  const date = typeof value === "string" ? new Date(value) : null;
+  return date && Number.isFinite(date.getTime())
+    ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Cuiaba" }).format(date)
+    : "Não informada";
 };
 
 export function BankConnections({
@@ -31,6 +37,7 @@ export function BankConnections({
 }) {
   return (
     <div className="mt-4 divide-y divide-ink-950/10">
+      <p className="pb-4 text-sm text-ink-600">Consultar novamente busca os movimentos disponíveis no proxy. Se uma compra ainda não foi disponibilizada, confira a conexão original no <a className="font-semibold underline" href="https://meu.pluggy.ai" target="_blank" rel="noreferrer">Meu Pluggy</a>; atualizar a consulta do Hub não renova consentimento nem força sincronização bancária.</p>
       {data.banks.map((bank) => (
         <section key={bank.id} className="py-4 text-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -69,6 +76,12 @@ export function BankConnections({
               </button>
             </div>
           </div>
+          <dl className="mt-3 grid gap-3 text-xs sm:grid-cols-3">
+            <div><dt className="text-ink-600">Atualização informada pelo provedor</dt><dd className="mt-1 font-medium">{updatedLabel(bank.lastUpdatedAt)}</dd></div>
+            <div><dt className="text-ink-600">Último movimento de cartão recebido</dt><dd className="mt-1 font-medium">{bank.latestCardMovement ? dateLabel(bank.latestCardMovement) : "Nenhum recebido"}</dd></div>
+            <div><dt className="text-ink-600">PENDING · fatura aberta / processamento</dt><dd className="mt-1 font-medium">{bank.bankPending ?? 0} movimentos</dd></div>
+          </dl>
+          {bank.collectedPeriod ? <p className="mt-2 text-xs text-ink-600">Última consulta solicitada: {dateLabel(bank.collectedPeriod.start)} a {dateLabel(bank.collectedPeriod.end)}. Data de consulta e data dos movimentos são informações diferentes.</p> : null}
           {errors[bank.id] ? (
             <p role="alert" className="mt-2 text-amber-700 dark:text-amber-300">
               {errors[bank.id]}

@@ -36,6 +36,9 @@ function harness(overrides = {}, env = {}, globals = {}) {
       Response,
       Request,
       Headers,
+      ReadableStream,
+      TextEncoder,
+      TextDecoder,
       AbortSignal,
       Buffer,
       structuredClone,
@@ -228,7 +231,8 @@ test("financial inbox keeps settled purchases and income separate from unsafe mo
     movementDisposition({ ...row, description: "Pagamento de fatura" }).section,
     "pending",
   );
-  assert.equal(movementDisposition({ ...row, bankStatus: "PENDING" }).section, "pending");
+  assert.equal(movementDisposition({ ...row, bankStatus: "PENDING" }).section, "inbox");
+  assert.equal(movementDisposition({ ...row, bankStatus: "PENDING" }).canPrepare, false);
   assert.equal(movementDisposition({ ...row, kind: "card_credit" }).section, "pending");
   for (const change of [
     { currency: "USD" },
@@ -423,7 +427,7 @@ test("Dashboard period links validate dates and the financial inbox has one acti
     ).length,
     1,
   );
-  assert.equal(nav.getActiveNavigationGroup("/dashboard/imports/organizze").id, "system");
+  assert.equal(nav.getActiveNavigationGroup("/dashboard/imports/organizze").id, "financial");
   assert.equal(nav.getActiveNavigationGroup("/dashboard").id, "financial");
 });
 
@@ -490,13 +494,13 @@ test("inbox counts and comparisons preserve linked items and never infer ownersh
     { ...row, kind: "invoice_payment" },
   ];
   const counts = inboxSummary(rows);
-  assert.equal(counts.inbox, 1);
+  assert.equal(counts.inbox, 2);
   assert.equal(counts.reconciliation, 2);
-  assert.equal(counts.pending, 1);
+  assert.equal(counts.pending, 0);
   assert.equal(counts.ignored, 1);
   assert.equal(counts.matches, 1);
-  assert.equal(counts.new, 1);
-  assert.equal(counts.classification, 2);
+  assert.equal(counts.new, 2);
+  assert.equal(counts.classification, 3);
   assert.equal(counts.automatic, 1);
   assert.equal(movementDisposition(linked).label, "Origem alterada");
   assert.equal(row.selectedOwnership, null);
@@ -1445,5 +1449,144 @@ test("accumulated backups retain overlapping history and do not regress a newer 
   assert.equal(result.snapshot.transactions.find((row) => row.id === tx).amount, -12);
   assert.equal(result.snapshot.accounts.length, 2);
   assert.equal(result.snapshot.previousAccountIds[0], card);
+  assert.equal(result.latestPeriod.end, period.end);
   assert.equal(await accumulatedPluggyBackup(bank, itemId), null);
+});
+
+test("recent bank-pending purchases are in the inbox without becoming settled expenses", async () => {
+  const { pendingBankSummary } = load("src/features/pluggy/inbox.ts");
+  const posted = await inboxFixture({ date: "2026-11-03" });
+  const pending = { ...posted, date: "2026-11-14", bankStatus: "PENDING", accountType: "CREDIT" };
+  assert.equal(movementDisposition(pending).section, "inbox");
+  assert.equal(movementDisposition(pending).canPrepare, false);
+  const summary = pendingBankSummary([posted, pending]);
+  assert.equal(summary.count, 1);
+  assert.equal(summary.cards, 1);
+  assert.equal(summary.latest, "2026-11-14");
+  assert.equal(pending.bankStatus, "PENDING");
+});
+
+test("bank status is independent of classification and pending purchases cannot be reconciled", async () => {
+  const { bankStatusLabel, canClassifyMovement } = load("src/features/pluggy/inbox.ts");
+  const { validateReview } = load("src/features/pluggy/reconciliation.ts");
+  const row = await inboxFixture({ bankStatus: "PENDING", accountType: "CREDIT" });
+  assert.equal(canClassifyMovement(row), true);
+  assert.match(bankStatusLabel(row), /Fatura aberta/);
+  assert.equal(validateReview(row, { state: "new", categoryId: "food", ownership: null, target: null, targetId: null }, ["food"]).categoryId, "food");
+  assert.throws(() => validateReview(row, { state: "reconciled", categoryId: null, ownership: null, target: "credit_card_transactions", targetId: "existing" }, []), /pendência/);
+  assert.equal(movementDisposition({ ...row, operationType: "PIX" }).section, "pending");
+  assert.equal(movementDisposition({ ...row, operationType: "PAGAMENTO_FATURA", kind: "invoice_payment" }).section, "ignored");
+});
+
+test("historical rule batch requires repeated compatible categories, detects conflicts and preserves ownership", async () => {
+  const { suggestRules } = load("src/features/pluggy/reconciliation.ts");
+  const { historicalRuleOptions, previewClassificationRule } = load("src/features/pluggy/rule-preview.ts");
+  const categories = [{ id: "services", name: "Serviços", type: "expense" }, { id: "income", name: "Serviços", type: "income" }];
+  const history = { movements: [
+    { description: "Microsoft", kind: "expense", category: "Serviços", date: "2026-10-06", tags: ["Família"] },
+    { description: "Microsoft", kind: "expense", category: "Serviços", date: "2026-11-06", tags: [] },
+  ] };
+  const row = await inboxFixture({ description: "Microsoft 365", bankStatus: "PENDING" });
+  const proposals = suggestRules(history, categories);
+  const data = { rules: [], categories, proposals, movements: [row, { ...row, review: { ...row.review, reviewed: true } }] };
+  const original = JSON.stringify(data);
+  const options = historicalRuleOptions(data);
+  assert.equal(options[0].eligible, true);
+  assert.equal(options[0].preview.matched, 1);
+  assert.equal(options[0].firstDate, "2026-10-06");
+  assert.equal(options[0].lastDate, "2026-11-06");
+  assert.equal(JSON.stringify(data), original);
+  const rule = { pattern: "Microsoft", categoryId: "services", ownership: null };
+  assert.equal(previewClassificationRule({ ...data, rules: [{ ...rule, pattern: "microsoft", id: "saved", active: true }] }, rule).existing, true);
+  assert.equal(historicalRuleOptions({ ...data, proposals: [{ ...proposals[0], categoryId: null }] })[0].eligible, false);
+  assert.equal(historicalRuleOptions({ ...data, proposals: [{ ...proposals[0], count: 1 }] })[0].eligible, false);
+  const mixed = suggestRules({ movements: [...history.movements, { ...history.movements[0], kind: "income" }] }, categories);
+  assert.equal(mixed[0].conflicts, true);
+  assert.equal(historicalRuleOptions({ ...data, proposals: mixed })[0].eligible, false);
+});
+
+test("batch suggestions block overlapping patterns with different categories and unknown destinations", async () => {
+  const { historicalRuleOptions } = load("src/features/pluggy/rule-preview.ts");
+  const row = await inboxFixture({ description: "Microsoft 365" });
+  const data = {
+    movements: [row], rules: [], categories: [{ id: "a", type: "expense" }, { id: "b", type: "expense" }],
+    proposals: [
+      { pattern: "microsoft", categoryId: "a", count: 3, kind: "expense", conflicts: false },
+      { pattern: "microsoft 365", categoryId: "b", count: 2, kind: "expense", conflicts: false },
+    ],
+  };
+  assert.ok(historicalRuleOptions(data).every(item => !item.eligible && item.combinedConflict));
+  assert.equal(historicalRuleOptions({ ...data, proposals: [{ ...data.proposals[0], categoryId: "foreign" }] })[0].eligible, false);
+});
+
+test("reader reports actual retrieval stages and pages, without claiming financial imports or a completed save", async () => {
+  const api = transport();
+  const events = [];
+  const snapshot = await createPluggyReader(config, api.fetch).sync(period, value => events.push(value));
+  assert.equal(snapshot.complete, true);
+  assert.equal(events[0].phase, "connection");
+  assert.ok(events.some(event => event.phase === "accounts"));
+  assert.ok(events.some(event => event.phase === "transactions" && event.message.includes("página")));
+  assert.ok(events.some(event => event.phase === "bills"));
+  assert.ok(events.every((event, i) => event.percent < 100 && (!i || event.percent >= events[i - 1].percent)));
+  assert.equal(JSON.stringify(events).includes(itemId), false);
+  assert.equal(api.calls.filter(call => call.options.method !== "GET" && call.url.pathname !== "/auth").length, 0);
+});
+
+test("automatic daily read cannot skip a period not covered by the recent backup", async () => {
+  let reads = 0, saves = 0;
+  let covered = false;
+  const snapshot = await createPluggyReader(config, transport().fetch).sync(period);
+  const service = harness({
+    "./config": { pluggyConfig: () => ({ credentialsPresent: true, ownerId: owner, items: [{ id: "nubank", itemId, valid: true }] }) },
+    "./backup": { latestPluggyBackup: async () => ({ snapshot: { ...snapshot, fetchedAt: new Date().toISOString(), period: { ...period, end: covered ? period.end : "2026-09-29" } } }), savePluggyBackup: async () => { saves++; } },
+    "./client": { configuredPluggyReader: () => ({ sync: async () => { reads++; return snapshot; } }) },
+  })("src/features/pluggy/service.ts");
+  assert.equal((await service.syncPluggyBank("nubank", period, true)).skipped, false);
+  assert.equal(reads, 1); assert.equal(saves, 1);
+  covered = true;
+  assert.equal((await service.syncPluggyBank("nubank", period, true)).skipped, true);
+  assert.equal(reads, 1);
+});
+
+test("authenticated sync streams real progress and a final dashboard; foreign sessions and origins stay blocked", async () => {
+  let signedIn = owner, fails = false, syncs = 0;
+  const fixture = { financialWrites: 0, movements: [] };
+  const route = harness({
+    "@/lib/supabase/server": { createClient: async () => ({ auth: { getUser: async () => ({ data: { user: { id: signedIn } }, error: null }) } }) },
+    "@/features/pluggy/service": {
+      syncPluggyBank: async (_id, _period, _due, emit) => { syncs++; emit({ phase: "transactions", message: "Página recebida", percent: 30 }); if (fails) throw new Error("PRIVATE_PROVIDER_BODY"); },
+      pluggyDashboard: async () => fixture,
+      pluggyMessage: () => "Consulta interrompida; backup preservado.",
+    },
+  }, { PLUGGY_HUB_USER_ID: owner, PLUGGY_CLIENT_ID: "fixture", PLUGGY_CLIENT_SECRET: "fixture", PLUGGY_NUBANK_ITEM_ID: itemId })("src/app/api/pluggy/dashboard/route.ts");
+  const request = (origin = "http://localhost") => new Request("http://localhost/api/pluggy/dashboard", { method: "POST", headers: { origin, Accept: "application/x-ndjson" }, body: JSON.stringify({ action: "sync", institution: "nubank", period }) });
+  const { readSyncResponse } = load("src/features/pluggy/sync-progress.ts");
+  assert.equal((await route.POST(request("https://evil.invalid"))).status, 403);
+  signedIn = bank;
+  assert.equal((await route.POST(request())).status, 401);
+  assert.equal(syncs, 0);
+  signedIn = owner;
+  const events = [];
+  const response = await route.POST(request());
+  assert.match(response.headers.get("content-type"), /x-ndjson/);
+  const result = await readSyncResponse(response, value => events.push(value));
+  assert.equal(result.financialWrites, 0);
+  assert.equal(events.at(-1).percent, 100);
+  fails = true;
+  const failedEvents = [];
+  await assert.rejects(readSyncResponse(await route.POST(request()), value => failedEvents.push(value)), /backup preservado/);
+  assert.equal(failedEvents.some(event => event.percent === 100), false);
+});
+
+test("stream client handles fragmented UTF-8, JSON compatibility, interrupted responses and provider errors", async () => {
+  const { readSyncResponse } = load("src/features/pluggy/sync-progress.ts");
+  const content = new TextEncoder().encode(JSON.stringify({ type: "progress", progress: { phase: "accounts", percent: 10, message: "Conexão" } }) + "\n" + JSON.stringify({ type: "result", data: { count: 2 } }) + "\n");
+  const response = new Response(new ReadableStream({ start(controller) { for (const byte of content) controller.enqueue(new Uint8Array([byte])); controller.close(); } }), { headers: { "Content-Type": "application/x-ndjson" } });
+  const events = [];
+  assert.equal((await readSyncResponse(response, value => events.push(value))).count, 2);
+  assert.equal(events[0].message, "Conexão");
+  assert.equal((await readSyncResponse(Response.json({ count: 3 }), () => {})).count, 3);
+  await assert.rejects(readSyncResponse(new Response('{"type":"progress","progress":{"percent":10}}\n', { headers: { "Content-Type": "application/x-ndjson" } }), () => {}), /interrompida/);
+  await assert.rejects(readSyncResponse(Response.json({ error: "Entre no Hub" }, { status: 401 }), () => {}), /Entre no Hub/);
 });

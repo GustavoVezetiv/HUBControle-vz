@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { RefreshCw, History, Tags, FolderTree } from "lucide-react";
 import { ActionButton, inputClassName } from "@/features/shared/crud-ui";
@@ -72,6 +73,7 @@ export function OrganizzeHistory({ embedded = false }: { embedded?: boolean }) {
           {busy ? "Carregando…" : "Atualizar leitura do backup"}
         </ActionButton>
       </header>
+      <p className="text-sm text-ink-600">Esta aba lê o arquivo já preservado. Para buscar alterações diretamente na API Organizze, use <Link className="font-semibold underline" href="/dashboard/imports/organizze">Extrair histórico do Organizze</Link>. Comparações com o mesmo banco, data e valor são sugestões; nenhuma conciliação é aplicada sozinha.</p>
       {message ? (
         <p role="alert" className="border-l-2 border-amber-400 pl-3 text-sm">
           {message} O histórico não é baixado novamente dos bancos ao abrir esta aba.
