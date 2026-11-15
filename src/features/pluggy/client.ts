@@ -2,6 +2,7 @@ import "server-only";
 import type { Period, Raw } from "../organizze/types";
 import type { PluggySnapshot, Institution } from "./types";
 import { validatePeriod } from "../organizze/extraction";
+import type { SyncProgress } from "./sync-progress";
 
 const base = "https://api.pluggy.ai";
 export const isUuid = (value: unknown): value is string =>
@@ -120,8 +121,9 @@ export function createPluggyReader(
       throw new PluggyError("invalid_response");
     }
   }
-  async function sync(period: Period): Promise<PluggySnapshot> {
+  async function sync(period: Period, onProgress?: (progress: SyncProgress) => void): Promise<PluggySnapshot> {
     validatePeriod(period);
+    onProgress?.({ phase: "connection", message: "Conferindo conexão e consentimento no Meu Pluggy", percent: 3 });
     const snapshot: PluggySnapshot = {
       version: 1,
       source: "pluggy",
@@ -162,6 +164,7 @@ export function createPluggyReader(
       snapshot.warnings.push(
         "A conexão ainda não informa atualização concluída. Confira consentimento e estado no Meu Pluggy.",
       );
+    onProgress?.({ phase: "accounts", message: "Consultando contas e cartões disponíveis", percent: 12 });
     const numbered = async (
       resource: string,
       query: URLSearchParams,
@@ -227,7 +230,7 @@ export function createPluggyReader(
       "accounts",
       new URLSearchParams({ itemId: config.itemId }),
     );
-    for (const account of snapshot.accounts) {
+    for (const [accountIndex, account] of snapshot.accounts.entries()) {
       if (
         account.itemId !== config.itemId ||
         !["BANK", "CREDIT"].includes(String(account.type))
@@ -254,6 +257,7 @@ export function createPluggyReader(
           snapshot.transactions.push(row);
         }
         snapshot.receipts.push({ resource: "transactions", count: body.results.length });
+        onProgress?.({ phase: "transactions", message: `Movimentações: conta/cartão ${accountIndex + 1} de ${snapshot.accounts.length} · página ${page} · ${snapshot.transactions.length} registros recebidos`, percent: 20 + Math.floor(50 * accountIndex / Math.max(1, snapshot.accounts.length)) });
         if (body.next === null) break;
         const next = body.next as string;
         if (!next.startsWith("?") || next.includes("#") || next.length > 12000)
@@ -277,7 +281,8 @@ export function createPluggyReader(
           throw new PluggyError("unsafe_cursor");
         query = next; // Opaque cursor is forwarded exactly as provided by the official API.
       }
-      if (account.type === "CREDIT")
+      if (account.type === "CREDIT") {
+        onProgress?.({ phase: "bills", message: `Conferindo faturas do cartão ${accountIndex + 1} de ${snapshot.accounts.length}`, percent: 20 + Math.floor(50 * accountIndex / Math.max(1, snapshot.accounts.length)) });
         for (const raw of await numbered(
           "bills",
           new URLSearchParams({ accountId }),
@@ -287,15 +292,19 @@ export function createPluggyReader(
             throw new PluggyError("bill_scope_mismatch");
           snapshot.bills.push({ accountId, raw });
         }
+      }
+      onProgress?.({ phase: "transactions", message: `Conta/cartão ${accountIndex + 1} de ${snapshot.accounts.length} consultado`, percent: 20 + Math.floor(50 * (accountIndex + 1) / Math.max(1, snapshot.accounts.length)) });
     }
     if (config.includeInvestments) {
+      onProgress?.({ phase: "investments", message: "Consultando investimentos de referência", percent: 75 });
       snapshot.investments = await numbered(
         "investments",
         new URLSearchParams({ itemId: config.itemId }),
         true,
       );
       snapshot.investmentTransactions = [];
-      for (const investment of snapshot.investments) {
+      for (const [index, investment] of snapshot.investments.entries()) {
+        onProgress?.({ phase: "investments", message: `Movimentações de investimentos: ${index + 1} de ${snapshot.investments.length}`, percent: 80 + Math.floor(10 * index / Math.max(1, snapshot.investments.length)) });
         if (investment.itemId !== config.itemId)
           throw new PluggyError("investment_scope_mismatch");
         const investmentId = String(investment.id);

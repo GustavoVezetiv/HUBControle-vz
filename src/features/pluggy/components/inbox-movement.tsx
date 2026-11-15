@@ -6,7 +6,13 @@ import { ChevronDown, Link2, ArrowUpRight, Ban, Check, Info } from "lucide-react
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ActionButton, inputClassName } from "@/features/shared/crud-ui";
 import { SearchableSelect } from "@/features/shared/searchable-select";
-import { candidateConfidence, movementDisposition, type InboxMovement } from "../inbox";
+import {
+  bankStatusLabel,
+  canClassifyMovement,
+  candidateConfidence,
+  movementDisposition,
+  type InboxMovement,
+} from "../inbox";
 import type { PluggyDashboard } from "../service";
 import type { InboxReview, Ownership } from "../types";
 import { BankBadge } from "./bank-badge";
@@ -44,7 +50,11 @@ export function InboxMovementRow({
   const [expanded, setExpanded] = useState(false);
   const [category, setCategory] = useState(row.selectedCategoryId ?? "");
   const [ownership, setOwnership] = useState<Ownership | "">(row.selectedOwnership ?? "");
-  const [state, setState] = useState<InboxReview["state"]>(row.review.state);
+  const [state, setState] = useState<InboxReview["state"]>(
+    !row.review.reviewed && movementDisposition(row).section === "inbox"
+      ? "new"
+      : row.review.state,
+  );
   const [selected, setSelected] = useState("");
   const [createNew, setCreateNew] = useState(false);
   const disposition = movementDisposition(row);
@@ -93,7 +103,15 @@ export function InboxMovementRow({
           {row.kind === "expense" ? "− " : row.kind === "income" ? "+ " : ""}
           {money(row.amount === null ? null : Math.abs(row.amount), row.currency)}
         </span>
-        <span className="text-xs text-ink-600">{disposition.type}</span>
+        <div className="text-xs text-ink-600">
+          <span>{disposition.type}</span>
+          <span
+            className="mt-1 block"
+            title="Situação informada pelo banco, independente da categoria no Hub"
+          >
+            {bankStatusLabel(row)}
+          </span>
+        </div>
         <div className="min-w-0">
           <StatusBadge
             tone={
@@ -129,9 +147,6 @@ export function InboxMovementRow({
           />
         </button>
       </div>
-      {disposition.section === "pending" || disposition.section === "ignored" ? (
-        <p className="px-4 pb-3 text-xs leading-5 text-ink-600">{disposition.reason}</p>
-      ) : null}
       {expanded ? (
         <div
           id={id}
@@ -141,27 +156,32 @@ export function InboxMovementRow({
             <Info aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
             {disposition.reason}
           </p>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div>
-              <p className="text-xs text-ink-600">Categoria do banco</p>
-              <p className="mt-1 font-medium">{row.category}</p>
+          <details>
+            <summary className="cursor-pointer text-xs font-medium text-ink-600">
+              Classificação atual e origem
+            </summary>
+            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+              <div>
+                <p className="text-xs text-ink-600">Categoria do banco</p>
+                <p className="mt-1 font-medium">{row.category}</p>
+              </div>
+              <div>
+                <p className="text-xs text-ink-600">Categoria no Hub</p>
+                <p className="mt-1 font-medium">
+                  {categories.find((item) => item.id === row.selectedCategoryId)?.name ??
+                    "Categoria pendente"}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-ink-600">Titularidade</p>
+                <p className="mt-1 font-medium">
+                  {row.selectedOwnership
+                    ? ownerships[row.selectedOwnership]
+                    : "Titularidade pendente"}
+                </p>
+              </div>
             </div>
-            <div>
-              <p className="text-xs text-ink-600">Categoria no Hub</p>
-              <p className="mt-1 font-medium">
-                {categories.find((item) => item.id === row.selectedCategoryId)?.name ??
-                  "Categoria pendente"}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-ink-600">Titularidade</p>
-              <p className="mt-1 font-medium">
-                {row.selectedOwnership
-                  ? ownerships[row.selectedOwnership]
-                  : "Titularidade pendente"}
-              </p>
-            </div>
-          </div>
+          </details>
           {fixed ? (
             <Link
               href={linked}
@@ -305,7 +325,7 @@ export function InboxMovementRow({
                 onChange={(event) => setState(event.target.value as InboxReview["state"])}
               >
                 <option value="new">Manter na caixa de entrada</option>
-                <option value="pending">Manter em revisão</option>
+                <option value="pending">Revisar depois</option>
                 <option value="historical">Ignorar / somente referência</option>
                 <option value="own_transfer">Transferência própria confirmada</option>
                 <option value="invoice_payment">Pagamento de fatura confirmado</option>
@@ -318,7 +338,7 @@ export function InboxMovementRow({
                 label="Categoria Hub"
                 value={category}
                 onChange={setCategory}
-                disabled={disabled || fixed || !eligible}
+                disabled={disabled || fixed || !canClassifyMovement(row)}
                 placeholder="Categoria pendente"
                 options={categories
                   .filter((item) => item.type === row.kind)
@@ -346,7 +366,7 @@ export function InboxMovementRow({
             <div className="flex flex-wrap gap-2">
               <ActionButton disabled={disabled} onClick={() => void save(state)}>
                 <Check className="mr-2 h-4 w-4" />
-                Salvar revisão
+                Salvar classificação
               </ActionButton>
               {disposition.canPrepare ? (
                 <Link

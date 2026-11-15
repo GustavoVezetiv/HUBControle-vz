@@ -17,6 +17,9 @@ export function suggestRules(
       count: number;
       tags: string[];
       conflicts: boolean;
+      kind: string;
+      firstDate: string;
+      lastDate: string;
     }
   >();
   for (const row of history?.movements ?? []) {
@@ -45,7 +48,11 @@ export function suggestRules(
     const found = grouped.get(pattern);
     if (found) {
       found.count++;
-      found.conflicts ||= found.category !== historicalCategory;
+      found.conflicts ||=
+        normalizeDescription(found.category) !==
+          normalizeDescription(historicalCategory) || found.kind !== row.kind;
+      found.firstDate = [found.firstDate, row.date].filter(Boolean).sort()[0] ?? "";
+      found.lastDate = [found.lastDate, row.date].filter(Boolean).sort().at(-1) ?? "";
       found.tags = [...new Set([...found.tags, ...row.tags])];
     } else
       grouped.set(pattern, {
@@ -55,9 +62,12 @@ export function suggestRules(
         count: 1,
         tags: row.tags,
         conflicts: false,
+        kind: row.kind,
+        firstDate: row.date,
+        lastDate: row.date,
       });
   }
-  return [...grouped.values()].sort((a, b) => b.count - a.count).slice(0, 100);
+  return [...grouped.values()].sort((a, b) => b.count - a.count);
 }
 
 export function matchRules(

@@ -52,6 +52,7 @@ export const navigationGroups: NavigationGroup[] = [
     items: [
       { label: "Dashboard", href: "/dashboard", icon: "dashboard" },
       { label: "Caixa de entrada", href: "/dashboard/imports/pluggy", icon: "financial-inbox" },
+      { label: "Importações", href: "/dashboard/imports", icon: "imports" },
       { label: "Contas", href: "/dashboard/accounts", icon: "accounts" },
       { label: "Receitas", href: "/dashboard/income", icon: "income" },
       { label: "Cartões", href: "/dashboard/cards", icon: "cards" },
@@ -94,7 +95,6 @@ export const navigationGroups: NavigationGroup[] = [
       { label: "Diagnóstico financeiro", href: "/dashboard/diagnostics", icon: "diagnostics" },
       { label: "Histórico", href: "/dashboard/history", icon: "history" },
       { label: "Arquivados", href: "/dashboard/archived", icon: "archived" },
-      { label: "Importações", href: "/dashboard/imports", icon: "imports" },
       { label: "Aprovações MCP", href: "/dashboard/mcp-approvals", icon: "mcp-approvals" },
       { label: "Configurações", href: "/dashboard/settings", icon: "settings" },
     ],

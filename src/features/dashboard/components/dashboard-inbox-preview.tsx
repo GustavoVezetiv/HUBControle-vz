@@ -60,6 +60,7 @@ export function DashboardInboxPreview({
           Revisar movimentações
           <ArrowRight className="h-4 w-4" aria-hidden />
         </Link>
+        <Link className="text-sm font-medium underline" href="/dashboard/imports">Importações e histórico</Link>
       </div>
       {data ? (
         <InboxCompositionChart rows={rows} compact />

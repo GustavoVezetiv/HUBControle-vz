@@ -10,6 +10,7 @@ import { normalizeDescription } from "@/features/imports/reconciliation";
 import { validatePeriod } from "@/features/organizze/extraction";
 import { accumulatedPluggyBackup } from "@/features/pluggy/backup";
 import type { Json } from "@/lib/supabase/types";
+import type { SyncProgress } from "@/features/pluggy/sync-progress";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const json = (body: unknown, status = 200) =>
@@ -95,6 +96,35 @@ export async function POST(request: Request) {
         validatePeriod(body.period);
       } catch {
         return json({ error: "Período inválido." }, 400);
+      }
+      if (request.headers.get("accept")?.includes("application/x-ndjson")) {
+        let disconnected = false;
+        const encoder = new TextEncoder();
+        return new Response(new ReadableStream({
+          async start(controller) {
+            const send = (event: unknown) => {
+              if (!disconnected) controller.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
+            };
+            const progress = (value: SyncProgress) => send({ type: "progress", progress: value });
+            try {
+              await syncPluggyBank(bank.id, body.period, body.onlyIfDue === true, progress);
+              progress({ phase: "review", message: "Comparando com o histórico Organizze e com os registros existentes no Hub", percent: 96 });
+              const data = await pluggyDashboard(auth.client, auth.owner, true);
+              progress({ phase: "complete", message: "Consulta concluída; lançamentos financeiros preservados", percent: 100 });
+              send({ type: "result", data });
+            } catch (error) {
+              send({ type: "error", error: pluggyMessage(error) });
+            } finally {
+              if (!disconnected) controller.close();
+            }
+          },
+          cancel() { disconnected = true; },
+        }), { headers: {
+          "Content-Type": "application/x-ndjson; charset=utf-8",
+          "Cache-Control": "no-store, private, no-transform",
+          "X-Content-Type-Options": "nosniff",
+          "X-Accel-Buffering": "no",
+        } });
       }
       await syncPluggyBank(bank.id, body.period, body.onlyIfDue === true);
       return json(await pluggyDashboard(auth.client, auth.owner, true));

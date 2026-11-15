@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useRef } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -35,6 +36,7 @@ import {
   Upload,
   Users,
   Wrench,
+  X,
   type LucideIcon,
 } from "lucide-react";
 
@@ -111,6 +113,26 @@ export function Sidebar({
   onCloseMobile,
 }: SidebarProps) {
   const pathname = usePathname();
+  const mobilePanel = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    mobilePanel.current?.querySelector<HTMLButtonElement>('button[aria-label="Fechar menu"]')?.focus();
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); onCloseMobile(); return; }
+      if (event.key !== "Tab") return;
+      const elements = Array.from(mobilePanel.current?.querySelectorAll<HTMLElement>('a[href],button:not([disabled]),[tabindex="0"]') ?? []).filter((element) => !element.closest("[inert]") && element.getClientRects().length);
+      const first = elements[0], last = elements.at(-1);
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    document.addEventListener("keydown", keydown);
+    const resize = () => { if (window.innerWidth >= 1024) onCloseMobile(); };
+    window.addEventListener("resize", resize);
+    return () => { document.body.style.overflow = overflow; document.removeEventListener("keydown", keydown); window.removeEventListener("resize", resize); previous?.focus(); };
+  }, [mobileOpen, onCloseMobile]);
 
   return (
     <>
@@ -134,15 +156,20 @@ export function Sidebar({
 
         <div
           className={[
-            "fixed inset-0 z-40 bg-ink-950/45 transition-opacity duration-300 lg:hidden",
+            "fixed inset-0 z-50 bg-ink-950/55 transition-opacity duration-300 motion-reduce:transition-none lg:hidden",
             mobileOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
           ].join(" ")}
           onClick={onCloseMobile}
           aria-hidden={!mobileOpen}
+          inert={!mobileOpen}
         >
           <aside
+            ref={mobilePanel}
+            role="dialog"
+            aria-modal={mobileOpen ? true : undefined}
+            aria-label="Menu de navegação"
             className={[
-              "hub-sidebar hub-sidebar-motion absolute left-0 top-0 h-full w-[88vw] max-w-sm border-r px-3 py-5 shadow-2xl transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
+              "hub-sidebar hub-sidebar-motion absolute left-0 top-0 h-dvh w-[min(88vw,22rem)] overflow-y-auto overscroll-contain border-r px-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
               mobileOpen ? "translate-x-0" : "-translate-x-full",
             ].join(" ")}
             onClick={(event) => event.stopPropagation()}
@@ -177,7 +204,7 @@ function SidebarContent({
 }: SidebarContentProps) {
   return (
     <>
-      <div className={collapsed ? "px-1" : "px-3"}>
+      <div className={`${collapsed ? "px-1" : "px-3"} ${mobile ? "sticky top-0 z-10 bg-[var(--hub-surface)] pb-3 pt-[max(1.25rem,env(safe-area-inset-top))]" : ""}`}>
         <div className="flex items-start justify-between gap-3">
           <div className={collapsed ? "flex w-full justify-center" : ""}>
             <div className={collapsed ? "text-center" : ""}>
@@ -187,7 +214,7 @@ function SidebarContent({
               >
                 <div className="min-h-0 overflow-hidden">
                   <h2 className="mt-2 text-lg font-semibold text-ink-950 dark:text-slate-100">Central</h2>
-                  <p className="mt-1 text-sm text-ink-600 dark:text-slate-300">Módulos agrupados por área, com foco no que você usa todo dia.</p>
+                  {!mobile ? <p className="mt-1 text-sm text-ink-600 dark:text-slate-300">Módulos agrupados por área, com foco no que você usa todo dia.</p> : null}
                 </div>
               </div>
             </div>
@@ -205,16 +232,16 @@ function SidebarContent({
             <button
               type="button"
               onClick={onToggleCollapsed}
-              className="hub-action hub-action-secondary inline-flex rounded-md border px-2 py-2 text-ink-700 lg:hidden dark:text-slate-200"
+              className="hub-action hub-action-secondary inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border text-ink-700 lg:hidden dark:text-slate-200"
               aria-label="Fechar menu"
             >
-              <PanelLeftClose className="h-4 w-4" />
+              <X className="h-5 w-5" />
             </button>
           ) : null}
         </div>
       </div>
 
-      <nav className="mt-7 space-y-3" aria-label="Navegação principal">
+      <nav className={`${mobile ? "mt-4" : "mt-7"} space-y-3`} aria-label="Navegação principal">
         {groups.map((group) => {
           const isOpen = collapsed ? false : openGroups.includes(group.id);
           const hasActiveItem = group.items.some((item) => isItemActive(item, pathname));
@@ -233,7 +260,7 @@ function SidebarContent({
                 type="button"
                 onClick={() => (collapsed ? onOpenGroup(group.id) : onToggleGroup(group.id))}
                 className={[
-                  "hub-nav-group flex w-full items-center rounded-md text-left text-sm font-semibold transition-all duration-400 ease-out",
+                  "hub-nav-group flex min-h-11 w-full items-center rounded-md text-left text-sm font-semibold transition-all duration-400 ease-out",
                   collapsed ? "justify-center px-2 py-3 hover:scale-[1.04]" : "gap-3 px-3 py-2 hover:translate-x-0.5",
                   hasActiveItem ? "hub-nav-group-active shadow-soft" : "",
                 ].join(" ")}
@@ -259,6 +286,7 @@ function SidebarContent({
 
               <div
                 aria-hidden={!isOpen}
+                inert={!isOpen}
                 className={[
                   "hub-sidebar-panel grid transition-[grid-template-rows,opacity,transform] duration-400 ease-[cubic-bezier(0.22,1,0.36,1)]",
                   isOpen ? "grid-rows-[1fr] translate-y-0 opacity-100" : "grid-rows-[0fr] -translate-y-1 opacity-0",
@@ -310,7 +338,7 @@ function NavigationLink({
       aria-current={active ? "page" : undefined}
       onClick={onNavigate}
       className={[
-        "hub-nav-item flex items-center rounded-md text-sm font-medium transition",
+        "hub-nav-item flex min-h-11 items-center rounded-md text-sm font-medium transition",
         collapsed ? "justify-center px-2 py-3.5" : "justify-between gap-3 px-3 py-2.5",
         active ? "hub-nav-item-active shadow-soft" : "",
       ].join(" ")}

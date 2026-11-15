@@ -81,6 +81,130 @@ só podem ser confirmados depois de consultar as cinco conexões com credenciais
 
 ## Caixa de entrada e preservação
 
+### Entrada unificada e classificação em lote (15/11/2026)
+
+A Caixa de entrada passa a mostrar compras e receitas tanto POSTED quanto PENDING,
+sem misturar o status do banco com a decisão do usuário. Uma compra em fatura aberta
+pode receber categoria antes do fechamento. PENDING continua sem permissão de
+preparar lançamento ou vincular um registro financeiro; não muda os totais do Hub.
+Transferências ambíguas, créditos/estornos, dados incompletos e itens adiados ficam
+em **Revisar**. Pagamentos de fatura e operações internas identificadas continuam
+em **Ignorados**. O motivo completo aparece ao expandir, sem repetir avisos em cada linha.
+
+O topo foi reduzido a três indicadores. Filtros extras e fontes/arquivos começam
+recolhidos. Banco, busca, período atual e composição da seleção continuam acessíveis.
+No detalhe, a classificação existente fica recolhida; categoria, titularidade e
+destinação são salvas sem alterar os lançamentos oficiais.
+O Tailwind passa a usar `darkMode: "class"`, igual ao seletor de tema existente do
+Hub. Antes, variantes `dark:` seguiam o sistema operacional e podiam divergir do
+tema escolhido no app. A validação visual usa inclusive preferências opostas do SO.
+
+**Classificar em lote** apresenta os padrões do histórico Organizze, categoria de
+origem, intervalo de datas, frequência, tags e exemplos atuais alcançados. Sugestões
+com pelo menos duas ocorrências, categoria compatível e única no Hub e sem conflitos
+podem ser selecionadas (até 20 regras por execução). Não há seleção inicial nem
+criação silenciosa. Cada regra usa o endpoint `action=rule` e a RPC `save_pluggy_rule`
+já existentes, sequencialmente. A restrição única por usuário/padrão impede duplicação;
+uma falha interrompe o restante e informa quantas regras já foram salvas. A unidade
+atômica é cada regra, não o lote inteiro. Nenhuma migration nova é necessária.
+
+As regras confirmadas sugerem categoria nos itens ainda não revisados, inclusive
+nas próximas consultas. Não sobrescrevem revisões manuais nem atribuem titularidade
+por tags do Organizze. Categoria conflitante, tipo receita/despesa divergente,
+equivalência ausente, padrão sem repetição e sobreposição conflitante exigem ajuste.
+Uma cobrança Microsoft recorrente pode compartilhar classificação, mas permanece
+um registro distinto; mesma descrição/valor não autoriza conciliação automática.
+
+Categorias do banco e do Organizze permanecem referências distintas da categoria do
+Hub. Equivalências usam o caminho hierárquico e o tipo. Categorias ausentes não são
+criadas por esse lote: há acesso ao cadastro existente de Categorias para criação
+ou ajuste antes de salvar a regra. Esta entrega não adiciona ferramentas MCP para
+editar a caixa de entrada; a classificação em lote aqui é pela interface do Hub.
+
+As fontes de integração desta tela são Pluggy (movimentos bancários atuais) e
+Organizze (histórico e padrões). CSV/XLSX continua sendo uma alternativa manual.
+Ler o histórico já preservado não exige reativar a extração na API Organizze.
+
+### Diagnóstico de atualização e progresso (15/11/2026)
+
+Uma consulta real e autenticada no Hub oficial confirmou que a visualização
+principal parava em 03/11 porque mostrava apenas a fila de movimentos POSTED
+aptos à revisão. A origem XP já continha movimentos de cartão até 14/11,
+exibidos em Pendentes. Uma nova consulta com término em 15/11 retornou 265
+movimentos de cartão: 198 POSTED e 67 PENDING. Não foram criados lançamentos
+financeiros para essa verificação; somente a coleta existente de origem foi usada.
+Não é possível afirmar que dados posteriores já estejam disponíveis na API.
+
+No cartão, PENDING pode representar compra em fatura ainda aberta ou parcela
+futura, não falha de sincronização nem inexistência da compra. A entrada unificada
+descrita acima torna essas compras visíveis na fila principal e separa o status do
+provedor das revisões que dependem do usuário.
+Nada converte PENDING em POSTED ou em nova despesa automaticamente.
+
+O botão de sincronização percorre contas/cartões, páginas de movimentações,
+faturas e investimentos disponíveis para o período solicitado. Ele relê o proxy
+Meu Pluggy; não faz PATCH no item e não força a atualização da conexão original
+no banco. O guia pessoal da Pluggy informa atualização diária da conexão original.
+As datas de consulta no Hub, atualização informada pelo provedor, último movimento
+de cartão e período da consulta são apresentadas separadamente.
+
+`POST /api/pluggy/dashboard` com `action=sync` mantém a resposta JSON compatível.
+Quando o cliente envia `Accept: application/x-ndjson`, retorna eventos por linha:
+
+```json
+{"type":"progress","progress":{"phase":"transactions","message":"Movimentações: conta/cartão 1 de 3 · página 1 · 20 registros recebidos","percent":20}}
+{"type":"result","data":{"financialWrites":0}}
+```
+
+O objeto `data` real é a mesma projeção completa já retornada em JSON. Erros
+intermediários retornam `type=error` com mensagem sanitizada; não produzem um
+resultado de sucesso. O progresso mede etapas concluídas, não tempo restante,
+quantidade de bytes ou novos lançamentos. Cada conexão é consultada em sequência.
+A autenticação proprietária e a checagem de origem acontecem antes de abrir o
+stream. O parser suporta fragmentação UTF-8 e rejeita término sem resultado.
+
+A consulta diária só pode ser pulada quando o backup recente cobre todo o período
+solicitado; uma coleta de ontem não satisfaz automaticamente o intervalo de hoje.
+O período padrão de 45 dias foi mantido, agora com atalhos Este mês e Últimos 45
+dias. O resultado discrimina movimentos novos/atualizados da origem e preservação
+dos registros já existentes; consultar não significa importar para o financeiro.
+
+O histórico Organizze oficial possui 1.555 movimentações, 110 categorias e 20 tags,
+com período solicitado até 22/10/2026. Ele é lido do arquivo, agora com os registros
+mais recentes primeiro. A consulta real a `/api/organizze/preview?action=extract`
+para `/categories` retornou configuração ausente em produção: são necessárias
+ORGANIZZE_EMAIL, ORGANIZZE_API_KEY e ORGANIZZE_USER_AGENT no servidor. A leitura
+do arquivo não depende dessas credenciais, mas uma nova extração depende.
+Nenhum segredo foi exibido ou alterado nesta verificação. A própria aba possui
+acesso explícito à extração existente; sugestões de conciliação não vinculam nem
+duplicam títulos por conta própria.
+
+As credenciais locais existentes foram conferidas separadamente com uma única
+requisição GET `/categories`, usando o leitor já implementado: 110 categorias
+retornadas, sem paginação pendente e zero gravações financeiras. Assim, o acesso
+local à API foi comprovado, mas não substitui a configuração ausente no servidor
+oficial. As credenciais não foram publicadas nem exibidas.
+
+Importações fica no grupo Financeiro e também é acessível pelo resumo já existente
+no Dashboard. O menu mobile ganhou rolagem interna com altura dinâmica, áreas
+seguras, bloqueio do fundo, Escape, retorno/contenção do foco e itens recolhidos
+inertes. Tocar em uma rota fecha o drawer, preservando a navegação existente.
+O cabeçalho de fechamento permanece visível mesmo quando a lista do menu rola.
+
+Validação final desta revisão: 48 testes Pluggy, 35 Organizze, 5 de armazenamento
+e 4 de restauração aprovados (92), executados sequencialmente com heap limitado.
+`npm run lint` e `npm run build` aprovados. O build foi concluído com um trabalhador
+(`CIRCLE_NODE_TOTAL=2`) e heap máximo de 768 MiB, após encerrar as prévias locais.
+Playwright usa componentes reais e fixtures, quatro larguras, temas claro/escuro
+independentes do SO, stream de progresso, classificação de compras PENDING,
+falha parcial/repetição de lote de regras sem duplicação e drawer mobile.
+Nenhum teste cria lançamentos reais ou acessa os bancos; os servidores de prévia
+são encerrados ao terminar. Nenhuma migration ou dependência foi adicionada.
+
+Fontes: [guia Meu Pluggy](https://meu.pluggy.ai/api-guide),
+[ciclo de compras e parcelas de cartão](https://docs.pluggy.ai/en/docs/products/credit-card-installments),
+[status de transação](https://docs.pluggy.ai/en/reference/transaction/transactions-retrieve).
+
 ### Resumo visual e acessos
 
 A caixa de entrada usa acentos vivos em verde, azul, rosa e âmbar, com cores
@@ -124,9 +248,9 @@ continuam com tratamento próprio. Nenhum crédito é automaticamente renda livr
 
 Os filtros **Entradas na conta**, **Saídas** e **Créditos de cartão** contam os
 itens da fila visível. **Ver todas as filas** reúne os recebidos no mesmo período,
-preservando a situação e o motivo de cada um. Pendentes significa aguardar a
-liquidação bancária ou revisão de natureza/dados; ignorados são referências
-separadas, não itens excluídos. O motivo aparece na própria linha.
+preservando a situação e o motivo de cada um. A antiga fila Pendentes foi substituída
+por Revisar conforme a organização acima; ignorados são referências separadas, não
+itens excluídos. O motivo detalhado aparece ao expandir o item.
 
 As tags de banco são apenas apresentação: cores de XP, Caixa, Sicredi, Nubank,
 Mercado Pago e outros bancos, com ícones distintos para conta e cartão. O produto
