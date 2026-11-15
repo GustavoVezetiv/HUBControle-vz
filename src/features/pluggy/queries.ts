@@ -1,4 +1,5 @@
 import type { AppSupabaseClient } from "../shared/types";
+import { isDeepStrictEqual } from "node:util";
 import type { Json } from "@/lib/supabase/types";
 import { allReferencePages } from "../organizze/references";
 import { matchRules } from "./reconciliation";
@@ -50,6 +51,10 @@ export async function loadPluggyLedger(client: AppSupabaseClient, owner: string)
     const metadata = record(row.mapped_data);
     return {
       sourceKey: String(metadata.source_key),
+      origin: {
+        institution: String(metadata.institution), itemId: String(metadata.item_id),
+        accountId: String(metadata.account_id), accountType: String(metadata.account_type),
+      },
       raw: record(record(row.raw_data).raw),
       latest: record(metadata.latest_raw),
       linkedRaw: metadata.linked_raw ? record(metadata.linked_raw) : undefined,
@@ -84,6 +89,7 @@ export function stageRows(
   rules: ClassificationRule[],
   categories: HubCategory[],
 ) {
+  const rawByKey = new Map(snapshot.transactions.map((raw) => [`${raw.accountId}:${raw.id}`, raw]));
   return preview.movements.map((row) => {
     const classification = matchRules(row.description, row.kind, rules, categories);
     return {
@@ -93,9 +99,7 @@ export function stageRows(
       accountId: row.accountId,
       accountType: row.accountType,
       fetchedAt: snapshot.fetchedAt,
-      raw: snapshot.transactions.find(
-        (raw) => raw.id === row.id && raw.accountId === row.accountId,
-      ),
+      raw: rawByKey.get(`${row.accountId}:${row.id}`),
       categoryId: classification.categoryId,
       ownership: classification.ownership,
       ruleIds: classification.ruleIds,
@@ -106,10 +110,24 @@ export function stageRows(
     };
   });
 }
+
+export function unstagedRows(rows: ReturnType<typeof stageRows>, ledger: Map<string, LedgerEntry>) {
+  return rows.filter((row) => {
+    const entry = ledger.get(row.sourceKey);
+    // Match the existing RPC's update conditions; it remains authoritative and
+    // still validates ownership/links under its transaction lock.
+    return !entry || !entry.review.updatedAt ||
+      entry.origin?.institution !== row.institution || entry.origin.itemId !== row.itemId ||
+      entry.origin.accountId !== row.accountId || entry.origin.accountType !== row.accountType ||
+      !isDeepStrictEqual(entry.latest, row.raw) ||
+      (!entry.review.reviewed && (entry.review.categoryId !== row.categoryId || entry.review.ownership !== row.ownership));
+  });
+}
 export async function stagePluggy(
   client: AppSupabaseClient,
   rows: ReturnType<typeof stageRows>,
 ) {
+  if (!rows.length) return { created: 0, changed: 0 };
   const response = await client.rpc("stage_pluggy_rows", {
     p_rows: rows as unknown as Json,
   });

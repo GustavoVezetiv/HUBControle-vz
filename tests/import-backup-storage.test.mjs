@@ -8,7 +8,7 @@ const require = createRequire(import.meta.url);
 const owner = "11111111-1111-4111-8111-111111111111";
 const id = "2026-11-13T10-00-00-000Z-22222222-2222-4222-8222-222222222222";
 function harness(options = {}) {
-  const paths = [], writes = [];
+  const paths = [], writes = [], checks = [];
   let ready = !options.missing;
   const bucket = {
     list: async (prefix, paging) => {
@@ -21,7 +21,7 @@ function harness(options = {}) {
   };
   const client = { storage: {
     from: () => bucket,
-    getBucket: async () => ready ? { data: { public: Boolean(options.public) } } : { error: { statusCode: "404" } },
+    getBucket: async () => { checks.push(true); return ready ? { data: { public: Boolean(options.public) } } : { error: { statusCode: "404" } }; },
     createBucket: async (name, opts) => { assert.equal(opts.public, false); ready = true; return {}; },
   } };
   const mod = { exports: {} };
@@ -31,7 +31,7 @@ function harness(options = {}) {
   vm.runInNewContext(`(function(require,module,exports){${code}\n})`, { Buffer, process: { env: options.env ?? {} } })(
     (name) => name === "server-only" ? {} : require(name), mod, mod.exports,
   );
-  return { ...mod.exports, client, paths, writes };
+  return { ...mod.exports, client, paths, writes, checks };
 }
 test("production always uses remote backups, local defaults to filesystem", () => {
   assert.equal(harness().usesRemoteImportBackups(), false);
@@ -63,4 +63,23 @@ test("snapshots are immutable private JSON uploads", async () => {
   assert.equal(h.writes[0].opts.upsert, false);
   assert.equal(h.writes[0].opts.contentType, "application/json");
   assert.equal(h.writes[0].bytes.toString(), "{}");
+});
+
+test("bucket validation is shared only by the current store and failed checks can retry", async () => {
+  const h = harness();
+  const store = h.createSnapshotStorage(h.client, "pluggy", owner);
+  await store.list();
+  await Promise.all([store.read(id), store.read(id)]);
+  assert.equal(h.checks.length, 1);
+  await h.createSnapshotStorage(h.client, "pluggy", owner).read(id);
+  assert.equal(h.checks.length, 2, "new requests must validate again");
+
+  const options = { public: true };
+  const blocked = harness(options);
+  const blockedStore = blocked.createSnapshotStorage(blocked.client, "pluggy", owner);
+  await assert.rejects(blockedStore.read(id));
+  assert.equal(blocked.paths.length, 0);
+  options.public = false;
+  await blockedStore.read(id);
+  assert.equal(blocked.checks.length, 2);
 });

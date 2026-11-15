@@ -143,6 +143,8 @@ export async function POST(request: Request) {
         409,
       );
     if (body.action === "review") {
+      if (dashboard.stagingPending)
+        return json({ error: "A origem mudou. Atualize a caixa de entrada antes de salvar a revisão." }, 409);
       const row = dashboard.movements.find((row) => row.sourceKey === body.sourceKey);
       if (!row || typeof body.expectedUpdatedAt !== "string")
         return json(

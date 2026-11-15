@@ -130,8 +130,13 @@ export function FinancialInbox({
     async function load() {
       setBusy("Carregando caixa de entrada…");
       try {
-        let result = await call({ action: "refresh" }, controller.signal);
+        let result = await call(undefined, controller.signal);
         setData(result);
+        if (result.stagingPending) {
+          setBusy("Atualizando revisões da caixa de entrada…");
+          result = await call({ action: "refresh" }, controller.signal);
+          setData(result);
+        }
         const due = result.banks.filter(
           (item) =>
             item.configured &&
@@ -869,7 +874,7 @@ export function FinancialInbox({
                         key={`${row.sourceKey}:${row.review.updatedAt ?? "preview"}`}
                         row={row}
                         categories={data.categories}
-                        disabled={Boolean(busy) || !data.ready || !row.review.updatedAt}
+                        disabled={Boolean(busy) || !data.ready || data.stagingPending || !row.review.updatedAt}
                         onSave={(review: InboxReview) =>
                           save({
                             action: "review",
@@ -949,7 +954,7 @@ export function FinancialInbox({
           {tab === "rules" && data ? (
             <RulesPanel
               data={data}
-              disabled={Boolean(busy) || !data.ready}
+              disabled={Boolean(busy) || !data.ready || data.stagingPending}
               onSave={(rule) => save({ action: "rule", confirm: true, rule })}
             />
           ) : null}

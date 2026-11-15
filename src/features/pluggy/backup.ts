@@ -99,21 +99,58 @@ export async function latestPluggyBackup(owner: string, item: string) {
 }
 
 export async function accumulatedPluggyBackup(owner: string, item: string) {
+  return (await accumulatedPluggyBackups(owner, [item])).get(item) ?? null;
+}
+
+type AccumulatedBackup = {
+  backupId: string;
+  latestPeriod: PluggySnapshot["period"];
+  snapshot: PluggySnapshot;
+};
+
+// All connections share a folder. Read each immutable snapshot once per request,
+// not once per bank. No raw financial data is cached between requests/users.
+export async function accumulatedPluggyBackups(owner: string, items: string[]) {
+  const requested = new Set(items);
+  const results = new Map<string, AccumulatedBackup>();
+  if (!requested.size) return results;
   const remote = usesRemoteImportBackups() ? await remoteSnapshotStorage("pluggy", owner) : null;
   const names = (remote ? await remote.list() : await readdir(folder).catch(() => [] as string[]))
     .filter((name) => pattern.test(name))
     .sort();
-  let latest: { backupId: string; snapshot: PluggySnapshot } | null = null;
-  const movements = new Map<string, PluggySnapshot["transactions"][number]>();
-  const accounts = new Map<string, PluggySnapshot["accounts"][number]>();
-  let firstDay = "2100-12-31";
-  let lastDay = "2000-01-01";
-  for (const id of names) {
+  const accumulated = new Map<string, {
+    latest: { backupId: string; snapshot: PluggySnapshot };
+    movements: Map<string, PluggySnapshot["transactions"][number]>;
+    accounts: Map<string, PluggySnapshot["accounts"][number]>;
+    firstDay: string;
+    lastDay: string;
+  }>();
+  async function read(id: string) {
     try {
       const file = join(folder, id, "pluggy-backup.json");
-      if (!remote && (await stat(file)).size > 80 * 1024 * 1024) continue;
+      if (!remote && (await stat(file)).size > 80 * 1024 * 1024) return null;
       const s: unknown = JSON.parse(remote ? await remote.read(id) : await readFile(file, "utf8"));
+      const item = s && typeof s === "object" && "itemId" in s ? s.itemId : null;
+      if (typeof item !== "string" || !requested.has(item)) return null;
       validatePluggySnapshot(s, owner, item);
+      return { backupId: id, snapshot: s };
+    } catch (error) {
+      if (error instanceof ImportBackupStorageError) throw error;
+      return null;
+    }
+  }
+  // At most two downloads in flight; merge in timestamp order regardless of
+  // response order, and release intermediate snapshots after each small batch.
+  for (let offset = 0; offset < names.length; offset += 2) {
+    const batch = await Promise.all(names.slice(offset, offset + 2).map(read));
+    for (const backup of batch) {
+      if (!backup) continue;
+      const s = backup.snapshot;
+      const state = accumulated.get(s.itemId) ?? {
+        latest: backup, movements: new Map(), accounts: new Map(),
+        firstDay: s.period.start, lastDay: s.period.end,
+      };
+      const { movements, accounts } = state;
       // Preserve old movements when the next run uses an overlapping/recent
       // window. Update identical IDs in place; never infer deletions from absence.
       for (const row of s.transactions) {
@@ -129,26 +166,25 @@ export async function accumulatedPluggyBackup(owner: string, item: string) {
         movements.set(key, row);
       }
       for (const row of s.accounts) accounts.set(String(row.id), row);
-      firstDay = s.period.start < firstDay ? s.period.start : firstDay;
-      lastDay = s.period.end > lastDay ? s.period.end : lastDay;
-      latest = { backupId: id, snapshot: s };
-    } catch (error) {
-      if (error instanceof ImportBackupStorageError) throw error;
-      /* Ignore invalid/other-owner copies, retaining complete valid ones. */
+      state.firstDay = s.period.start < state.firstDay ? s.period.start : state.firstDay;
+      state.lastDay = s.period.end > state.lastDay ? s.period.end : state.lastDay;
+      state.latest = backup;
+      accumulated.set(s.itemId, state);
     }
   }
-  if (!latest) return null;
-  return {
-    ...latest,
-    latestPeriod: latest.snapshot.period,
-    snapshot: {
-      ...latest.snapshot,
-      accounts: [...accounts.values()],
-      previousAccountIds: [...accounts.keys()].filter(
-        (id) => !latest.snapshot.accounts.some((row) => row.id === id),
-      ),
-      transactions: [...movements.values()],
-      period: { start: firstDay, end: lastDay },
-    },
-  };
+  for (const [item, { latest, accounts, movements, firstDay, lastDay }] of accumulated) {
+    const currentAccounts = new Set(latest.snapshot.accounts.map((row) => row.id));
+    results.set(item, {
+      ...latest,
+      latestPeriod: latest.snapshot.period,
+      snapshot: {
+        ...latest.snapshot,
+        accounts: [...accounts.values()],
+        previousAccountIds: [...accounts.keys()].filter((id) => !currentAccounts.has(id)),
+        transactions: [...movements.values()],
+        period: { start: firstDay, end: lastDay },
+      },
+    });
+  }
+  return results;
 }
