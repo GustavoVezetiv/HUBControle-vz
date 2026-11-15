@@ -24,7 +24,9 @@ export function createSnapshotStorage(
     throw new ImportBackupStorageError("Proprietário ou origem de backup inválido.");
   const prefix = `${owner}/${source}`;
   const bucket = client.storage.from(IMPORT_BACKUP_BUCKET);
-  async function privateBucket() {
+  // Reuse only within this short-lived store, never across requests or owners.
+  let bucketCheck: Promise<void> | undefined;
+  async function checkPrivateBucket() {
     let { data, error } = await client.storage.getBucket(IMPORT_BACKUP_BUCKET);
     if (String(error?.statusCode) === "404") {
       await client.storage.createBucket(IMPORT_BACKUP_BUCKET, {
@@ -34,6 +36,12 @@ export function createSnapshotStorage(
     }
     if (error || !data || data.public)
       throw new ImportBackupStorageError("Armazenamento privado de importações indisponível.");
+  }
+  function privateBucket() {
+    return bucketCheck ??= checkPrivateBucket().catch((error) => {
+      bucketCheck = undefined;
+      throw error;
+    });
   }
   function path(id: string) {
     if (!BACKUP_ID.test(id)) throw new ImportBackupStorageError("Backup inválido.");

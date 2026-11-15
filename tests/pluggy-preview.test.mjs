@@ -1342,6 +1342,10 @@ test("dashboard API checks owner/CSRF, refuses arbitrary items and requires expl
     (await route.POST(request({ action: "review", confirm: false }))).status,
     400,
   );
+  fixture.stagingPending = true;
+  assert.equal((await route.POST(request({ action: "review", confirm: true }))).status, 409);
+  assert.equal(calls.rpc, 0, "a stale preview cannot review an older stored source");
+  fixture.stagingPending = false;
   assert.equal(
     (
       await route.POST(
@@ -1451,6 +1455,113 @@ test("accumulated backups retain overlapping history and do not regress a newer 
   assert.equal(result.snapshot.previousAccountIds[0], card);
   assert.equal(result.latestPeriod.end, period.end);
   assert.equal(await accumulatedPluggyBackup(bank, itemId), null);
+});
+
+test("five banks share one history scan, bounded downloads and strict owner isolation", async () => {
+  const snapshot = await createPluggyReader(config, transport().fetch).sync(period);
+  const items = [itemId, bank, card, tx, tx2];
+  const sources = items.map((item, index) => ({
+    ...structuredClone(snapshot), itemId: item,
+    accounts: snapshot.accounts.map(row => ({ ...row, itemId: item })),
+    institution: ["nubank", "xp", "sicredi", "caixa", "mercado_pago"][index],
+  }));
+  const values = [...sources, ...sources, { ...sources[0], ownerId: bank }, { ...sources[0], complete: false }];
+  const names = values.map((_, index) => `2026-11-${String(index + 1).padStart(2, "0")}T12-00-00-000Z-${owner}`);
+  let lists = 0, reads = 0, active = 0, peak = 0;
+  let fail = false;
+  class StorageFailure extends Error {}
+  const storage = {
+    list: async () => { lists++; return [...names].reverse(); },
+    read: async id => {
+      reads++; active++; peak = Math.max(peak, active);
+      try {
+        await new Promise(resolve => setTimeout(resolve, id === names[0] ? 5 : 1));
+        if (fail) throw new StorageFailure("Read failed");
+        return JSON.stringify(values[names.indexOf(id)]);
+      } finally { active--; }
+    },
+  };
+  const { accumulatedPluggyBackups } = harness({
+    "../imports/backup-storage": {
+      usesRemoteImportBackups: () => true,
+      remoteSnapshotStorage: async (source, user) => { assert.equal(source, "pluggy"); assert.equal(user, owner); return storage; },
+      ImportBackupStorageError: StorageFailure,
+    },
+  })("src/features/pluggy/backup.ts");
+  const result = await accumulatedPluggyBackups(owner, items);
+  assert.equal(result.size, 5);
+  assert.equal(lists, 1);
+  assert.equal(reads, names.length, "12 snapshots, not 60 downloads for five banks");
+  assert.equal(peak, 2, "bounded I/O, not one worker per snapshot");
+  for (const [index, item] of items.entries()) {
+    assert.equal(result.get(item).backupId, names[index + 5]);
+    assert.equal(result.get(item).snapshot.ownerId, owner);
+    assert.equal(result.get(item).snapshot.transactions.length, snapshot.transactions.length);
+  }
+  const before = reads;
+  assert.equal((await accumulatedPluggyBackups(owner, [])).size, 0);
+  assert.equal(reads, before);
+  fail = true;
+  await assert.rejects(accumulatedPluggyBackups(owner, items), StorageFailure);
+});
+
+test("incremental staging skips unchanged JSON and preserves explicit reviews and links", async () => {
+  const { unstagedRows, stagePluggy } = load("src/features/pluggy/queries.ts");
+  const row = {
+    sourceKey: "source", institution: "xp", itemId, accountId: bank, accountType: "BANK",
+    raw: { amount: -12, id: tx, nested: { status: "POSTED", date: "2026-11-15" } },
+    categoryId: "food", ownership: null, ruleIds: [], fetchedAt: "new-date",
+  };
+  const entry = {
+    sourceKey: row.sourceKey,
+    origin: { institution: "xp", itemId, accountId: bank, accountType: "BANK" },
+    latest: { nested: { date: "2026-11-15", status: "POSTED" }, id: tx, amount: -12 },
+    review: { updatedAt: "previous-date", reviewed: false, categoryId: "food", ownership: null },
+  };
+  const check = (value = entry) => unstagedRows([row], new Map([[row.sourceKey, value]]));
+  assert.equal(check().length, 0, "JSONB object order does not change the source");
+  assert.equal(unstagedRows([row], new Map()).length, 1);
+  assert.equal(check({ ...entry, latest: { ...entry.latest, amount: -20 } }).length, 1);
+  assert.equal(check({ ...entry, origin: { ...entry.origin, institution: "caixa" } }).length, 1);
+  assert.equal(check({ ...entry, review: { ...entry.review, categoryId: "other" } }).length, 1);
+  const reviewed = { ...entry, review: { ...entry.review, reviewed: true, categoryId: "manual", ownership: "family", state: "reconciled", targetId: "canonical" } };
+  const before = JSON.stringify(reviewed);
+  assert.equal(check(reviewed).length, 0);
+  assert.equal(JSON.stringify(reviewed), before);
+  await stagePluggy({ rpc: () => { throw new Error("Empty batches must not write"); } }, []);
+});
+
+test("opening dashboard is read-only; refresh stages only changed rows and avoids a redundant ledger read", async () => {
+  const snapshot = await createPluggyReader(config, transport().fetch).sync(period);
+  const calls = { scan: 0, ledger: 0, stage: [] };
+  let changed = true;
+  const service = harness({
+    "./config": { pluggyConfig: () => ({ ownerId: owner, credentialsPresent: true, items: [{ id: "nubank", name: "Nubank", itemId, valid: true }] }) },
+    "./backup": { accumulatedPluggyBackups: async (user, items) => {
+      assert.equal(user, owner); assert.equal(items[0], itemId); calls.scan++;
+      return new Map([[itemId, { snapshot, latestPeriod: period }]]);
+    } },
+    "../organizze/backup": { latestOrganizzeBackup: async () => null },
+    "../organizze/references": { loadOrganizzeReferences: async () => refs },
+    "./queries": {
+      loadPluggyLedger: async () => { calls.ledger++; return { ledger: [], rules: [], ready: true }; },
+      stageRows: () => [{ sourceKey: "fixture" }],
+      unstagedRows: rows => changed ? rows : [],
+      stagePluggy: async (client, rows) => { calls.stage.push(rows.length); },
+    },
+  })("src/features/pluggy/service.ts");
+  await assert.rejects(service.pluggyDashboard({}, bank));
+  assert.equal(calls.scan, 0);
+  assert.equal((await service.pluggyDashboard({}, owner)).stagingPending, true);
+  assert.equal(calls.ledger, 1);
+  assert.equal(calls.stage.length, 0);
+  assert.equal((await service.pluggyDashboard({}, owner, true)).stagingPending, false);
+  assert.deepEqual(calls.stage, [1]);
+  assert.equal(calls.ledger, 3);
+  changed = false;
+  await service.pluggyDashboard({}, owner, true);
+  assert.equal(calls.ledger, 4, "unchanged refresh loads ledger only once");
+  assert.equal(calls.stage.length, 1);
 });
 
 test("recent bank-pending purchases are in the inbox without becoming settled expenses", async () => {

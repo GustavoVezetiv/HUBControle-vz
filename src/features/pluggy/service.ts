@@ -1,12 +1,12 @@
 import "server-only";
 import { pluggyConfig } from "./config";
 import { configuredPluggyReader, PluggyError } from "./client";
-import { accumulatedPluggyBackup, latestPluggyBackup, savePluggyBackup } from "./backup";
+import { accumulatedPluggyBackups, latestPluggyBackup, savePluggyBackup } from "./backup";
 import { latestOrganizzeBackup } from "../organizze/backup";
 import { organizzeHistory } from "../organizze/history";
 import { loadOrganizzeReferences } from "../organizze/references";
 import { buildPluggyPreview } from "./preview";
-import { loadPluggyLedger, stageRows, stagePluggy } from "./queries";
+import { loadPluggyLedger, stageRows, stagePluggy, unstagedRows } from "./queries";
 import { matchRules, suggestRules } from "./reconciliation";
 import type { AppSupabaseClient } from "../shared/types";
 import type { Institution } from "./types";
@@ -87,32 +87,28 @@ export async function pluggyDashboard(
 ) {
   const config = pluggyConfig();
   if (config.ownerId !== owner) throw new Error("Outro proprietário.");
-  const [backups, historyBackup, references, initialLedger] = await Promise.all([
-    Promise.all(
-      config.items.map((bank) =>
-        bank.valid ? accumulatedPluggyBackup(owner, bank.itemId) : null,
-      ),
-    ),
+  const [backupByItem, historyBackup, references, initialLedger] = await Promise.all([
+    accumulatedPluggyBackups(owner, config.items.filter((bank) => bank.valid).map((bank) => bank.itemId)),
     latestOrganizzeBackup(owner),
     loadOrganizzeReferences(client, owner, { start: "2000-01-01", end: pluggyToday() }),
     loadPluggyLedger(client, owner),
   ]);
+  const backups = config.items.map((bank) => bank.valid ? backupByItem.get(bank.itemId) ?? null : null);
   const history = historyBackup ? organizzeHistory(historyBackup.snapshot) : null;
   const views = backups.map((backup) =>
     backup ? buildPluggyPreview(backup.snapshot, references, history) : null,
   );
-  if (stage && initialLedger.ready)
-    for (let index = 0; index < backups.length; index++) {
-      const backup = backups[index];
-      const preview = views[index];
-      if (backup && preview)
-        await stagePluggy(
-          client,
-          stageRows(backup.snapshot, preview, initialLedger.rules, references.categories),
-        );
-    }
-  const data =
-    stage && initialLedger.ready ? await loadPluggyLedger(client, owner) : initialLedger;
+  const initialByKey = new Map(initialLedger.ledger.map((entry) => [entry.sourceKey, entry]));
+  const pendingBatches = backups.map((backup, index) => {
+    const preview = views[index];
+    return backup && preview && initialLedger.ready
+      ? unstagedRows(stageRows(backup.snapshot, preview, initialLedger.rules, references.categories), initialByKey)
+      : [];
+  });
+  const needsStaging = pendingBatches.some((rows) => rows.length > 0);
+  if (stage && needsStaging)
+    for (const rows of pendingBatches) await stagePluggy(client, rows);
+  const data = stage && needsStaging ? await loadPluggyLedger(client, owner) : initialLedger;
   const banks = config.items.map((bank, index) => {
     const view = views[index];
     const snapshot = backups[index]?.snapshot;
@@ -221,6 +217,7 @@ export async function pluggyDashboard(
     rules: data.rules,
     proposals: suggestRules(history, references.categories),
     ready: data.ready,
+    stagingPending: !stage && needsStaging,
     history: history
       ? {
           total: history.total,

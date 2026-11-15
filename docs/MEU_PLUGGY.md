@@ -4,6 +4,32 @@
 Instituições: Nubank, XP Banking, Sicredi, Caixa Econômica Federal e Mercado Pago.
 Uma aplicação demo e um item proxy diferente para cada banco, sem novas dependências.
 
+## Carregamento da caixa de entrada (15/11/2026)
+
+- A abertura usa `GET /api/pluggy/dashboard`, somente leitura. Os valores salvos
+  aparecem antes de qualquer atualização de revisões ou consulta diária ao proxy.
+- `stagingPending` indica origens novas/alteradas ou classificações ainda não
+  persistidas. Somente nesse caso a tela chama `POST action=refresh` em seguida,
+  mantendo os valores visíveis e bloqueando a edição até a atualização terminar.
+  A API também rejeita revisão sobre origem desatualizada; falhas não limpam a tela.
+- Os cinco bancos compartilham uma varredura dos backups privados: cada arquivo
+  é baixado uma vez, com no máximo dois downloads simultâneos, preservando ordem,
+  histórico acumulado, versão mais recente de cada movimento e isolamento de usuário.
+- A checagem de bucket privado é reutilizada apenas dentro da instância de leitura
+  da requisição. Não existe cache global de dados financeiros ou de autorização.
+  Uma falha no Storage continua sendo erro, nunca um histórico vazio de sucesso.
+- `stage_pluggy_rows` recebe somente linhas diferentes do ledger. Linhas idênticas
+  não são regravadas nem provocam uma segunda leitura do ledger; revisões manuais,
+  vínculos, RLS, verificação de versão e transação da RPC existente são preservados.
+- Não há nova migration, dependência, importação financeira ou mudança nas regras.
+
+Validação local: fixture de cinco bancos com 12 snapshots exige 12 downloads,
+em vez das 60 leituras do caminho anterior. Isso mede chamadas evitadas, não uma
+promessa de tempo de resposta em produção. Os testes de interface seguram a resposta
+de atualização e verificam os valores já visíveis; uma nova abertura sem alterações
+faz somente GET. Executar `node scripts/preview-pluggy-inbox.mjs --check` com
+Playwright disponível, além das suítes de importação, lint e build.
+
 ## Configuração local
 
 Os consentimentos do Data Passport e os proxies da aplicação são passos distintos.

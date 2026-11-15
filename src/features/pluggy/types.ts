@@ -33,6 +33,7 @@ export type ClassificationRule = {
 };
 export type LedgerEntry = {
   sourceKey: string;
+  origin?: { institution: string; itemId: string; accountId: string; accountType: string };
   review: InboxReview;
   raw: Raw;
   latest: Raw;

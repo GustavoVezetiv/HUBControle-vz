@@ -42,6 +42,7 @@ const fixture = {
     { pattern: "compra de exemplo", category: "Alimentação", categoryId: "food", count: 3, tags: [], kind: "expense", conflicts: false, firstDate: "2026-09-01", lastDate: today },
   ],
   ready: true,
+  stagingPending: false,
   history: { total: 1956, categories: 110, tags: 20 },
   missingCredentials: [],
   financialWrites: 0,
@@ -238,6 +239,8 @@ const html =
   '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Hub VZ - prévia fictícia Pluggy</title><link rel="stylesheet" href="/styles.css"></head><body><div id="root"></div><script src="/bundle.js"></script></body></html>';
 const actions = [];
 let rejectRule = "";
+let releaseStaging;
+let stagingGate;
 const server = createServer(async (request, response) => {
   try {
     const url = new URL(request.url, "http://localhost");
@@ -252,6 +255,7 @@ const server = createServer(async (request, response) => {
       for await (const chunk of request) raw += chunk;
       const body = raw ? JSON.parse(raw) : {};
       actions.push({ ...body, method: request.method });
+      if (body.action === "refresh" && stagingGate) await stagingGate;
       if (body.action === "sync" && request.headers.accept?.includes("application/x-ndjson")) {
         response.writeHead(200, { "Content-Type": "application/x-ndjson" });
         response.write(JSON.stringify({ type: "progress", progress: { phase: "accounts", percent: 12, message: "Consultando contas fictícias" } }) + "\n");
@@ -319,8 +323,22 @@ else {
     await page.route("**/*", (route) =>
       new URL(route.request().url()).origin === url ? route.continue() : route.abort(),
     );
+    fixture.stagingPending = true;
+    stagingGate = new Promise(resolve => { releaseStaging = resolve; });
     await page.goto(url);
     await page.getByText("Mercado do bairro", { exact: true }).waitFor();
+    await page.getByText("Atualizando revisões da caixa de entrada…", { exact: true }).waitFor();
+    assert.equal(actions[0].method, "GET", "opening must not wait for a write");
+    assert.equal(actions[1].action, "refresh");
+    assert.equal(await page.getByRole("button", { name: "Sincronizar novamente", exact: true }).isDisabled(), true);
+    fixture.stagingPending = false;
+    releaseStaging();
+    stagingGate = null;
+    await page.getByText("Atualizando revisões da caixa de entrada…", { exact: true }).waitFor({ state: "hidden" });
+    const afterStaging = actions.length;
+    await page.reload();
+    await page.getByText("Mercado do bairro", { exact: true }).waitFor();
+    assert.deepEqual(actions.slice(afterStaging).map(action => action.method), ["GET"], "unchanged opening is read-only");
     await page.getByRole("region", { name: "Composição dos itens a revisar" }).waitFor();
     assert.equal(await page.locator("#pluggy-connections").getAttribute("open"), null);
     assert.equal(await page.getByText("Pagamento da fatura", { exact: true }).count(), 0);
@@ -528,9 +546,10 @@ else {
     await drawer.waitFor({ state: "hidden" });
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: 4 widths, app themes independent of OS, pending purchase classification, streamed progress, rule batch partial failure/retry without duplicates, mobile drawer scroll/Escape/focus/navigation, no external requests or financial mutations.",
+      "PASS: saved values visible before staging finishes, unchanged opening GET only, 4 widths, app themes independent of OS, pending purchase classification, streamed progress, rule batch partial failure/retry without duplicates, mobile drawer scroll/Escape/focus/navigation, no external requests or financial mutations.",
     );
   } finally {
+    releaseStaging?.();
     await browser?.close();
     await new Promise((ok) => server.close(ok));
   }
