@@ -4,6 +4,38 @@
 Instituições: Nubank, XP Banking, Sicredi, Caixa Econômica Federal e Mercado Pago.
 Uma aplicação demo e um item proxy diferente para cada banco, sem novas dependências.
 
+## Recuperação e usabilidade (15/11/2026)
+
+- `Tentar novamente` e o ícone `Atualizar tela` reutilizam a leitura dos dados
+  salvos e a preparação das revisões pendentes. Não disparam nova consulta bancária.
+  A sincronização continua sendo uma ação separada; revisões ficam bloqueadas
+  enquanto sua preparação falha, sem esconder os valores já carregados.
+- O retorno da preparação confere novamente as linhas persistidas. Uma resposta
+  de sucesso da RPC não desbloqueia a revisão se a origem ainda estiver divergente.
+- Falhas exibem recuperação no próprio aviso, inclusive quando já há dados na
+  tela. Sucesso remove o aviso antigo. Respostas HTML, JSON incompleto, erros de
+  conexão e sessão indisponível não exibem mensagens técnicas do parser.
+- Resposta 401 interrompe a sequência de bancos, oculta os registros em memória
+  e oferece login. Não há tentativa de contornar autenticação ou RLS. A leitura
+  do histórico Organizze também deixa de exibir os registros após 401.
+- O progresso só aparece durante sincronização. Não reaparece ao salvar revisão
+  ou atualizar a tela. Requisições da caixa são canceladas ao sair da página;
+  cancelar a espera não desfaz uma revisão que o servidor já tenha confirmado.
+- O aviso de conexão abre o painel correspondente, move o foco e respeita a
+  preferência de movimento reduzido. Datas inválidas não derrubam a interface.
+- A busca inclui a categoria confirmada no Hub e desconsidera acentos. Trocar
+  de aba limpa os filtros específicos de tipo/situação; filtros restantes têm
+  ação visível de limpeza. Lista vazia filtrada não afirma que tudo foi revisado.
+- Intervalo invertido de datas recebe aviso explícito. Selecionar um tipo não
+  mantém um filtro incompatível de entrada/saída escondido.
+
+Teste de regressão: no script `preview-pluggy-inbox.mjs --check`, simular falha
+no primeiro GET, falha de refresh com valores já visíveis, nova tentativa,
+sincronização seguida de salvamento, banco indisponível, sessão expirada e data
+inválida. Todas as respostas são fixtures locais; nenhuma origem bancária ou
+tabela financeira real é alterada. As suítes existentes cobrem autenticação,
+isolamento, conciliação e backups. Nenhuma migration ou dependência adicionada.
+
 ## Carregamento da caixa de entrada (15/11/2026)
 
 - A abertura usa `GET /api/pluggy/dashboard`, somente leitura. Os valores salvos

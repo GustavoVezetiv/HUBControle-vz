@@ -217,7 +217,9 @@ export async function pluggyDashboard(
     rules: data.rules,
     proposals: suggestRules(history, references.categories),
     ready: data.ready,
-    stagingPending: !stage && needsStaging,
+    stagingPending: stage && needsStaging
+      ? pendingBatches.some((rows) => unstagedRows(rows, ledgerByKey).length > 0)
+      : needsStaging,
     history: history
       ? {
           total: history.total,

@@ -7,6 +7,11 @@ import { usePaginationScroll } from "@/features/shared/use-pagination-scroll";
 import { BankBadge } from "@/features/pluggy/components/bank-badge";
 import { dateLabel, money } from "@/features/pluggy/components/inbox-movement";
 import type { OrganizzeHistory as HistoryData } from "../history";
+import {
+  ImportHttpError,
+  importErrorMessage,
+  readImportJson,
+} from "@/features/imports/http-response";
 
 export function OrganizzeHistory({ embedded = false }: { embedded?: boolean }) {
   const [history, setHistory] = useState<HistoryData | null>(null);
@@ -17,26 +22,28 @@ export function OrganizzeHistory({ embedded = false }: { embedded?: boolean }) {
   const [page, setPage] = useState(0);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [loginRequired, setLoginRequired] = useState(false);
   const { topRef, bottomRef, changePage } = usePaginationScroll(page);
   const load = useCallback(async (signal?: AbortSignal) => {
     setBusy(true);
     setMessage("");
+    setLoginRequired(false);
     try {
       const response = await fetch("/api/organizze/history", {
         cache: "no-store",
         signal,
       });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error || "Histórico indisponível.");
+      const body = await readImportJson<HistoryData>(response);
       setHistory(body);
       setPage(0);
     } catch (error) {
-      if (!signal?.aborted)
-        setMessage(
-          error instanceof Error
-            ? error.message
-            : "Não foi possível consultar o histórico.",
-        );
+      if (!signal?.aborted) {
+        if (error instanceof ImportHttpError && error.status === 401) {
+          setHistory(null);
+          setLoginRequired(true);
+        }
+        setMessage(importErrorMessage(error));
+      }
     } finally {
       if (!signal?.aborted) setBusy(false);
     }
@@ -73,10 +80,23 @@ export function OrganizzeHistory({ embedded = false }: { embedded?: boolean }) {
           {busy ? "Carregando…" : "Atualizar leitura do backup"}
         </ActionButton>
       </header>
-      <p className="text-sm text-ink-600">Esta aba lê o arquivo já preservado. Para buscar alterações diretamente na API Organizze, use <Link className="font-semibold underline" href="/dashboard/imports/organizze">Extrair histórico do Organizze</Link>. Comparações com o mesmo banco, data e valor são sugestões; nenhuma conciliação é aplicada sozinha.</p>
+      <p className="text-sm text-ink-600">
+        Esta aba lê o arquivo já preservado. Para buscar alterações diretamente na API
+        Organizze, use{" "}
+        <Link className="font-semibold underline" href="/dashboard/imports/organizze">
+          Extrair histórico do Organizze
+        </Link>
+        . Comparações com o mesmo banco, data e valor são sugestões; nenhuma conciliação é
+        aplicada sozinha.
+      </p>
       {message ? (
         <p role="alert" className="border-l-2 border-amber-400 pl-3 text-sm">
-          {message} O histórico não é baixado novamente dos bancos ao abrir esta aba.
+          {message}
+          {loginRequired ? (
+            <Link className="ml-2 font-semibold underline" href="/login">
+              Entrar novamente
+            </Link>
+          ) : null}
         </p>
       ) : null}
       {history ? (
