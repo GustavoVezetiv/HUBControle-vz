@@ -34,6 +34,7 @@ const fixture = {
   categories: [
     { id: "food", name: "Alimentação", type: "expense", parent_category_id: null },
     { id: "income", name: "Salário", type: "income", parent_category_id: null },
+    { id: "services", name: "Serviços digitais", type: "expense", parent_category_id: null },
   ],
   rules: [],
   proposals: [
@@ -108,7 +109,8 @@ fixture.movements = [
     institutionId: "xp",
     bank: "XP Banking",
     account: "XP Visa Infinite",
-    selectedCategoryId: "food",
+    category: "Software",
+    selectedCategoryId: "services",
     selectedOwnership: "shared",
   }),
   movement(
@@ -241,10 +243,20 @@ const actions = [];
 let rejectRule = "";
 let releaseStaging;
 let stagingGate;
+let failedReads = 0;
+let failedRefreshes = 0;
+let sessionExpired = false;
+let failSync = false;
+let releaseReview;
+let reviewGate;
 const server = createServer(async (request, response) => {
   try {
     const url = new URL(request.url, "http://localhost");
     if (url.pathname === "/api/organizze/history") {
+      if (sessionExpired) {
+        response.writeHead(401, { "Content-Type": "application/json" }).end(JSON.stringify({ error: "Sessão fictícia expirada" }));
+        return;
+      }
       response
         .writeHead(200, { "Content-Type": "application/json" })
         .end(JSON.stringify(historyFixture));
@@ -255,17 +267,33 @@ const server = createServer(async (request, response) => {
       for await (const chunk of request) raw += chunk;
       const body = raw ? JSON.parse(raw) : {};
       actions.push({ ...body, method: request.method });
+      if (sessionExpired) {
+        response.writeHead(401, { "Content-Type": "application/json" }).end(JSON.stringify({ error: "Sessão fictícia expirada" }));
+        return;
+      }
+      if (request.method === "GET" && failedReads > 0) {
+        failedReads--;
+        response.writeHead(502, { "Content-Type": "application/json" }).end(JSON.stringify({ error: "Leitura fictícia indisponível." }));
+        return;
+      }
+      if (body.action === "refresh" && failedRefreshes > 0) {
+        failedRefreshes--;
+        response.writeHead(502, { "Content-Type": "application/json" }).end(JSON.stringify({ error: "Atualização fictícia indisponível." }));
+        return;
+      }
       if (body.action === "refresh" && stagingGate) await stagingGate;
+      if (body.action === "refresh") fixture.stagingPending = false;
       if (body.action === "sync" && request.headers.accept?.includes("application/x-ndjson")) {
         response.writeHead(200, { "Content-Type": "application/x-ndjson" });
         response.write(JSON.stringify({ type: "progress", progress: { phase: "accounts", percent: 12, message: "Consultando contas fictícias" } }) + "\n");
         await new Promise(ok => setTimeout(ok, 300));
         response.write(JSON.stringify({ type: "progress", progress: { phase: "transactions", percent: 60, message: "Movimentações fictícias: página 1" } }) + "\n");
         await new Promise(ok => setTimeout(ok, 1000));
-        response.end(JSON.stringify({ type: "result", data: fixture }) + "\n");
+        response.end(JSON.stringify(failSync ? { type: "error", error: "Banco fictício indisponível." } : { type: "result", data: fixture }) + "\n");
         return;
       }
       if (body.action === "review") {
+        if (reviewGate) await reviewGate;
         const row = fixture.movements.find((row) => row.sourceKey === body.sourceKey);
         assert.equal(body.confirm, true);
         assert.equal(body.expectedUpdatedAt, row.review.updatedAt);
@@ -339,6 +367,48 @@ else {
     await page.reload();
     await page.getByText("Mercado do bairro", { exact: true }).waitFor();
     assert.deepEqual(actions.slice(afterStaging).map(action => action.method), ["GET"], "unchanged opening is read-only");
+    failedReads = 1;
+    fixture.stagingPending = true;
+    await page.reload();
+    await page.getByRole("alert").filter({ hasText: "Leitura fictícia indisponível." }).waitFor();
+    const beforeRetry = actions.length;
+    await page.getByRole("button", { name: "Tentar novamente", exact: true }).click();
+    await page.getByText("Mercado do bairro", { exact: true }).waitFor();
+    await page.waitForFunction(() => ![...document.querySelectorAll('button')].find(button => button.textContent.includes('Sincronizar novamente'))?.disabled);
+    assert.deepEqual(actions.slice(beforeRetry).map(action => action.action ?? action.method), ["GET", "refresh"], "retry must stage new sources before unlocking reviews");
+    assert.equal(await page.getByRole("alert").count(), 0, "successful recovery clears old errors");
+    const beforeRefreshFailure = actions.length;
+    fixture.stagingPending = true;
+    failedRefreshes = 1;
+    await page.getByRole("button", { name: "Atualizar tela", exact: true }).click();
+    await page.getByRole("alert").filter({ hasText: "Atualização fictícia indisponível." }).waitFor();
+    assert.equal(await page.getByText("Mercado do bairro", { exact: true }).isVisible(), true);
+    const failedRefreshRow = page.getByRole("article").filter({ hasText: "Mercado do bairro" });
+    await failedRefreshRow.getByRole("button", { name: "Revisar", exact: true }).click();
+    assert.equal(await failedRefreshRow.getByRole("button", { name: "Salvar classificação", exact: true }).isDisabled(), true);
+    await page.getByRole("button", { name: "Tentar novamente", exact: true }).click();
+    await page.getByRole("alert").waitFor({ state: "hidden" });
+    await page.waitForFunction(() => ![...document.querySelectorAll('button')].find(button => button.textContent.includes('Sincronizar novamente'))?.disabled);
+    assert.equal(await failedRefreshRow.getByRole("button", { name: "Salvar classificação", exact: true }).isDisabled(), false);
+    assert.equal(actions.slice(beforeRefreshFailure).some(action => action.action === "sync"), false, "recovery does not start bank synchronization");
+    await failedRefreshRow.getByRole("button", { name: "Revisar", exact: true }).click();
+    await page.getByRole("textbox", { name: "Buscar movimentação", exact: true }).fill("servicos digitais");
+    await page.getByText("Microsoft Family · renovação mensal", { exact: true }).waitFor();
+    assert.equal(await page.getByRole("article").count(), 1, "search includes Hub category without accents");
+    await page.getByRole("textbox", { name: "Buscar movimentação", exact: true }).fill("nenhum item correspondente");
+    await page.getByText("Nenhum resultado para os filtros", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Limpar filtros ativos", exact: true }).click();
+    await page.getByText("Mercado do bairro", { exact: true }).waitFor();
+    await page.getByRole("button", { name: /Entradas na conta/ }).click();
+    await page.getByRole("tab", { name: /Ignorados/ }).click();
+    await page.getByText("Pagamento da fatura", { exact: true }).waitFor();
+    await page.getByRole("tab", { name: /Caixa de entrada/ }).click();
+    await page.getByRole("button", { name: "Mais filtros", exact: true }).click();
+    await page.getByLabel("De", { exact: true }).fill("2099-12-31");
+    await page.getByRole("alert").filter({ hasText: "A data inicial deve ser anterior ou igual à data final." }).waitFor();
+    assert.equal(await page.getByRole("button", { name: "Sincronizar novamente", exact: true }).isDisabled(), true);
+    await page.getByRole("button", { name: "Limpar filtros", exact: true }).click();
+    await page.getByRole("button", { name: "Recolher filtros", exact: true }).click();
     await page.getByRole("region", { name: "Composição dos itens a revisar" }).waitFor();
     assert.equal(await page.locator("#pluggy-connections").getAttribute("open"), null);
     assert.equal(await page.getByText("Pagamento da fatura", { exact: true }).count(), 0);
@@ -397,6 +467,13 @@ else {
     await page.getByRole("button", { name: "Alimentação", exact: true }).waitFor();
     await page.getByRole("button", { name: "Tags", exact: true }).click();
     await page.getByRole("button", { name: /#Família/ }).click();
+    await page.getByText("Mercado no histórico", { exact: true }).waitFor();
+    sessionExpired = true;
+    await page.getByRole("button", { name: "Atualizar leitura do backup", exact: true }).click();
+    await page.getByRole("link", { name: "Entrar novamente", exact: true }).waitFor();
+    assert.equal(await page.getByText("Mercado no histórico", { exact: true }).count(), 0);
+    sessionExpired = false;
+    await page.getByRole("button", { name: "Atualizar leitura do backup", exact: true }).click();
     await page.getByText("Mercado no histórico", { exact: true }).waitFor();
     await page.getByRole("tab", { name: /Caixa de entrada/ }).click();
     await page.getByRole("button", { name: /Entradas na conta/ }).click();
@@ -512,6 +589,38 @@ else {
     await page.getByText(/Consulta concluída: 0 novos movimentos/).waitFor();
     await page.getByRole("progressbar").waitFor({ state: "hidden" });
 
+    reviewGate = new Promise(resolve => { releaseReview = resolve; });
+    const afterSyncRow = page.getByRole("article").filter({ hasText: "Microsoft Family" });
+    await afterSyncRow.getByRole("button", { name: "Revisar", exact: true }).click();
+    await afterSyncRow.getByRole("button", { name: "Salvar classificação", exact: true }).click();
+    await page.getByText("Salvando revisão…", { exact: true }).waitFor();
+    assert.equal(await page.getByRole("progressbar").count(), 0, "a completed sync must not reappear while saving");
+    releaseReview(); reviewGate = null;
+    await page.getByText("Salvando revisão…", { exact: true }).waitFor({ state: "hidden" });
+    failSync = true;
+    await page.getByRole("button", { name: "Sincronizar novamente", exact: true }).click();
+    await page.getByRole("alert").filter({ hasText: /conexão\(ões\) falharam/ }).waitFor();
+    await page.getByRole("button", { name: /conexão\(ões\) precisam de atenção/ }).click();
+    assert.equal(await page.locator("#pluggy-connections").getAttribute("open"), "");
+    assert.equal(await page.getByText("Banco fictício indisponível.", { exact: true }).isVisible(), true);
+    assert.equal(await page.getByRole("progressbar").count(), 0);
+    await page.screenshot({ path: resolve(folder, "connection-error.png"), fullPage: true });
+    failSync = false;
+    await page.getByRole("button", { name: "Sincronizar XP Banking", exact: true }).click();
+    await page.getByText(/Consulta concluída: 0 novos movimentos/).waitFor();
+    assert.equal(await page.getByRole("button", { name: /conexão\(ões\) precisam de atenção/ }).count(), 0);
+
+    sessionExpired = true;
+    await page.getByRole("button", { name: "Atualizar tela", exact: true }).click();
+    await page.getByRole("link", { name: "Entrar novamente", exact: true }).waitFor();
+    assert.equal(await page.getByRole("article").count(), 0, "an expired session does not keep financial rows visible");
+    sessionExpired = false;
+    fixture.banks[0].fetchedAt = "invalid historical date";
+    await page.getByRole("button", { name: "Atualizar tela", exact: true }).click();
+    await page.getByText("Microsoft Family · renovação mensal", { exact: true }).waitFor();
+    assert.deepEqual(errors, [], "a malformed historical timestamp cannot crash the screen");
+    fixture.banks[0].fetchedAt = new Date().toISOString();
+
     await page.setViewportSize({ width: 390, height: 640 });
     await page.goto(`${url}/?sidebar=1`);
     const opener = page.getByRole("button", { name: "Abrir menu de teste" });
@@ -546,10 +655,11 @@ else {
     await drawer.waitFor({ state: "hidden" });
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: saved values visible before staging finishes, unchanged opening GET only, 4 widths, app themes independent of OS, pending purchase classification, streamed progress, rule batch partial failure/retry without duplicates, mobile drawer scroll/Escape/focus/navigation, no external requests or financial mutations.",
+      "PASS: initial/review refresh failures recover without bank sync, category search and filter reset, sync progress isolation, actionable bank errors, expired session recovery, invalid timestamp handling, saved values visible before staging, 4 widths, both themes, pending classification, rule batch retries, mobile navigation, no external requests or financial mutations.",
     );
   } finally {
     releaseStaging?.();
+    releaseReview?.();
     await browser?.close();
     await new Promise((ok) => server.close(ok));
   }

@@ -45,7 +45,7 @@ export function BankConnections({
               <h3 className="font-semibold">{bank.name}</h3>
               <p className="mt-1 text-xs text-ink-600">
                 {bank.fetchedAt
-                  ? `Coleta: ${new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Cuiaba" }).format(new Date(bank.fetchedAt))}`
+                  ? `Coleta: ${updatedLabel(bank.fetchedAt)}`
                   : "Sem coleta disponível"}
               </p>
             </div>

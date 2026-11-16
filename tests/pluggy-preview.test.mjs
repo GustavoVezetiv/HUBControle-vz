@@ -1535,6 +1535,7 @@ test("opening dashboard is read-only; refresh stages only changed rows and avoid
   const snapshot = await createPluggyReader(config, transport().fetch).sync(period);
   const calls = { scan: 0, ledger: 0, stage: [] };
   let changed = true;
+  let persisted = true;
   const service = harness({
     "./config": { pluggyConfig: () => ({ ownerId: owner, credentialsPresent: true, items: [{ id: "nubank", name: "Nubank", itemId, valid: true }] }) },
     "./backup": { accumulatedPluggyBackups: async (user, items) => {
@@ -1547,7 +1548,7 @@ test("opening dashboard is read-only; refresh stages only changed rows and avoid
       loadPluggyLedger: async () => { calls.ledger++; return { ledger: [], rules: [], ready: true }; },
       stageRows: () => [{ sourceKey: "fixture" }],
       unstagedRows: rows => changed ? rows : [],
-      stagePluggy: async (client, rows) => { calls.stage.push(rows.length); },
+      stagePluggy: async (client, rows) => { calls.stage.push(rows.length); if (persisted) changed = false; },
     },
   })("src/features/pluggy/service.ts");
   await assert.rejects(service.pluggyDashboard({}, bank));
@@ -1562,6 +1563,9 @@ test("opening dashboard is read-only; refresh stages only changed rows and avoid
   await service.pluggyDashboard({}, owner, true);
   assert.equal(calls.ledger, 4, "unchanged refresh loads ledger only once");
   assert.equal(calls.stage.length, 1);
+  changed = true;
+  persisted = false;
+  assert.equal((await service.pluggyDashboard({}, owner, true)).stagingPending, true, "RPC success alone cannot unlock a preview that still differs from storage");
 });
 
 test("recent bank-pending purchases are in the inbox without becoming settled expenses", async () => {
@@ -1698,6 +1702,28 @@ test("stream client handles fragmented UTF-8, JSON compatibility, interrupted re
   assert.equal((await readSyncResponse(response, value => events.push(value))).count, 2);
   assert.equal(events[0].message, "Conexão");
   assert.equal((await readSyncResponse(Response.json({ count: 3 }), () => {})).count, 3);
-  await assert.rejects(readSyncResponse(new Response('{"type":"progress","progress":{"percent":10}}\n', { headers: { "Content-Type": "application/x-ndjson" } }), () => {}), /interrompida/);
-  await assert.rejects(readSyncResponse(Response.json({ error: "Entre no Hub" }, { status: 401 }), () => {}), /Entre no Hub/);
+  await assert.rejects(readSyncResponse(new Response('{"type":"progress","progress":{"percent":10,"message":"Consultando"}}\n', { headers: { "Content-Type": "application/x-ndjson" } }), () => {}), /interrompida/);
+  await assert.rejects(readSyncResponse(Response.json({ error: "Entre no Hub" }, { status: 401 }), () => {}), /Entre novamente/);
+});
+
+test("import HTTP errors distinguish session, network/proxy pages and valid JSON without exposing parser errors", async () => {
+  const { readImportJson, ImportHttpError } = load("src/features/imports/http-response.ts");
+  assert.equal((await readImportJson(Response.json({ count: 2 }))).count, 2);
+  await assert.rejects(readImportJson(new Response("<html>Proxy failure</html>", { status: 502, headers: { "Content-Type": "text/html" } })), /Tente atualizar a tela/);
+  await assert.rejects(readImportJson(new Response("{broken", { headers: { "Content-Type": "application/json" } })), error => !error.message.includes("JSON") && error instanceof ImportHttpError);
+  await assert.rejects(readImportJson(Response.json(null)), /resposta do servidor/);
+  await assert.rejects(readImportJson(Response.json({ error: "ignored upstream message" }, { status: 401 })), error => error.status === 401 && /Entre novamente/.test(error.message));
+  await assert.rejects(readImportJson(new Response("Limit", { status: 429 })), /Aguarde/);
+  await assert.rejects(readImportJson(Response.json({ error: "Revisão desatualizada" }, { status: 409 })), /Revisão desatualizada/);
+});
+
+test("malformed sync streams fail clearly and release the reader without a fake success", async () => {
+  const { readSyncResponse } = load("src/features/pluggy/sync-progress.ts");
+  for (const raw of ['{broken\n', 'null\n', '{"type":"progress","progress":null}\n', '{"type":"progress","progress":{"percent":"60","message":"reading"}}\n', '{"type":"result","data":null}\n']) {
+    const response = new Response(raw, { headers: { "Content-Type": "application/x-ndjson" } });
+    const progress = [];
+    await assert.rejects(readSyncResponse(response, value => progress.push(value)), /inválid|incompleta/);
+    assert.equal(response.body.locked, false);
+    assert.equal(progress.length, 0);
+  }
 });

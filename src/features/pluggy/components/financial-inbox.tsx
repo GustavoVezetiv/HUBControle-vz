@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   RefreshCw,
@@ -16,6 +16,7 @@ import {
   ChevronDown,
   CheckCheck,
   AlertCircle,
+  RotateCw,
 } from "lucide-react";
 import { ActionButton, inputClassName } from "@/features/shared/crud-ui";
 import {
@@ -35,6 +36,12 @@ import { usePaginationScroll } from "@/features/shared/use-pagination-scroll";
 import { InboxCompositionChart } from "./inbox-composition-chart";
 import styles from "./inbox-visuals.module.css";
 import { RestoreSourceBackups } from "@/features/imports/components/restore-source-backups";
+import {
+  ImportHttpError,
+  importErrorMessage,
+  readImportJson,
+} from "@/features/imports/http-response";
+import { normalizeDescription } from "@/features/imports/reconciliation";
 
 const today = () =>
   new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Cuiaba" }).format(new Date());
@@ -52,7 +59,7 @@ type Tab = (typeof tabs)[number]["id"];
 const copy = {
   inbox: {
     title: "O que chegou",
-    empty: "Tudo conferido por aqui",
+    empty: "Nenhuma movimentação nesta fila",
     detail: "Nenhuma compra ou receita neste filtro.",
   },
   reconciliation: {
@@ -91,9 +98,7 @@ async function call(
       : {}),
   });
   if (onProgress) return readSyncResponse<Dashboard>(response, onProgress);
-  const result = await response.json();
-  if (!response.ok) throw new Error(result.error ?? "Consulta indisponível.");
-  return result;
+  return readImportJson<Dashboard>(response);
 }
 
 export function FinancialInbox({
@@ -101,7 +106,11 @@ export function FinancialInbox({
 }: { initialPeriod?: { start: string; end: string } } = {}) {
   const [data, setData] = useState<Dashboard | null>(null);
   const [busy, setBusy] = useState("");
-  const [feedback, setFeedback] = useState<{ error: boolean; text: string } | null>(null);
+  const [feedback, setFeedback] = useState<{
+    error: boolean;
+    text: string;
+    login?: boolean;
+  } | null>(null);
   const [bankErrors, setBankErrors] = useState<Record<string, string>>({});
   const [bank, setBank] = useState("");
   const [tab, setTab] = useState<Tab>("inbox");
@@ -116,6 +125,8 @@ export function FinancialInbox({
   const [flow, setFlow] = useState("");
   const [allQueues, setAllQueues] = useState(false);
   const inFlight = useRef(false);
+  const manualRequest = useRef<AbortController | null>(null);
+  const mounted = useRef(false);
   const openingPeriod = useRef(initialPeriod ?? { start: initialStart(), end: today() });
   const [progress, setProgress] = useState<{
     bank: string;
@@ -125,18 +136,36 @@ export function FinancialInbox({
     total: number;
   } | null>(null);
 
+  const reportFailure = useCallback((error: unknown) => {
+    const login = error instanceof ImportHttpError && error.status === 401;
+    if (login) setData(null);
+    setFeedback({ error: true, text: importErrorMessage(error), login });
+  }, []);
+
+  const loadSaved = useCallback(async (signal: AbortSignal) => {
+    let result = await call(undefined, signal);
+    signal.throwIfAborted();
+    setData(result);
+    if (result.stagingPending) {
+      setBusy("Atualizando revisões da caixa de entrada…");
+      result = await call({ action: "refresh" }, signal);
+      signal.throwIfAborted();
+      setData(result);
+      if (result.stagingPending)
+        throw new Error(
+          "As revisões ainda não estão atualizadas. Tente atualizar a tela novamente.",
+        );
+    }
+    return result;
+  }, []);
+
   useEffect(() => {
     const controller = new AbortController();
+    mounted.current = true;
     async function load() {
       setBusy("Carregando caixa de entrada…");
       try {
-        let result = await call(undefined, controller.signal);
-        setData(result);
-        if (result.stagingPending) {
-          setBusy("Atualizando revisões da caixa de entrada…");
-          result = await call({ action: "refresh" }, controller.signal);
-          setData(result);
-        }
+        let result = await loadSaved(controller.signal);
         const due = result.banks.filter(
           (item) =>
             item.configured &&
@@ -175,13 +204,15 @@ export function FinancialInbox({
                   total: due.length,
                 }),
             );
+            controller.signal.throwIfAborted();
             setData(result);
+            setBankErrors((previous) => ({ ...previous, [item.id]: "" }));
           } catch (error) {
+            if (error instanceof ImportHttpError && error.status === 401) throw error;
             if (!controller.signal.aborted)
               setBankErrors((previous) => ({
                 ...previous,
-                [item.id]:
-                  error instanceof Error ? error.message : "Consulta indisponível.",
+                [item.id]: importErrorMessage(error),
               }));
           }
           if (!controller.signal.aborted)
@@ -194,21 +225,51 @@ export function FinancialInbox({
             });
         }
       } catch (error) {
-        if (!controller.signal.aborted)
-          setFeedback({
-            error: true,
-            text: error instanceof Error ? error.message : "Falha ao carregar.",
-          });
+        if (!controller.signal.aborted) reportFailure(error);
       } finally {
-        if (!controller.signal.aborted) setBusy("");
+        if (!controller.signal.aborted) {
+          setBusy("");
+          setProgress(null);
+        }
       }
     }
     void load();
-    return () => controller.abort();
-  }, []);
+    return () => {
+      mounted.current = false;
+      controller.abort();
+      manualRequest.current?.abort();
+    };
+  }, [loadSaved, reportFailure]);
+
+  async function refresh() {
+    if (busy || inFlight.current || !mounted.current) return;
+    const controller = new AbortController();
+    manualRequest.current = controller;
+    inFlight.current = true;
+    setBusy("Atualizando tela…");
+    setProgress(null);
+    setFeedback(null);
+    try {
+      await loadSaved(controller.signal);
+    } catch (error) {
+      if (!controller.signal.aborted) reportFailure(error);
+    } finally {
+      inFlight.current = false;
+      if (!controller.signal.aborted) setBusy("");
+    }
+  }
 
   async function sync(institution?: string) {
-    if (!data || busy || inFlight.current || !start || !end || start > end) return;
+    if (
+      !data ||
+      busy ||
+      inFlight.current ||
+      !mounted.current ||
+      !start ||
+      !end ||
+      start > end
+    )
+      return;
     const banks = data.banks.filter(
       (item) => item.configured && (!institution || item.id === institution),
     );
@@ -220,12 +281,15 @@ export function FinancialInbox({
       return;
     }
     inFlight.current = true;
+    const controller = new AbortController();
+    manualRequest.current = controller;
     setFeedback(null);
     let failed = 0;
     let result = data;
     const before = new Map(data.movements.map((row) => [row.sourceKey, row]));
     try {
       for (const [index, item] of banks.entries()) {
+        if (controller.signal.aborted) return;
         setBusy(`Sincronizando ${item.name}…`);
         setProgress({
           bank: item.name,
@@ -237,7 +301,7 @@ export function FinancialInbox({
         try {
           result = await call(
             { action: "sync", institution: item.id, period: { start, end } },
-            undefined,
+            controller.signal,
             (value) =>
               setProgress({
                 bank: item.name,
@@ -247,13 +311,16 @@ export function FinancialInbox({
                 total: banks.length,
               }),
           );
+          controller.signal.throwIfAborted();
           setData(result);
           setBankErrors((previous) => ({ ...previous, [item.id]: "" }));
         } catch (error) {
+          if (controller.signal.aborted) return;
+          if (error instanceof ImportHttpError && error.status === 401) throw error;
           failed++;
           setBankErrors((previous) => ({
             ...previous,
-            [item.id]: error instanceof Error ? error.message : "Consulta indisponível.",
+            [item.id]: importErrorMessage(error),
           }));
         }
         setProgress({
@@ -284,31 +351,38 @@ export function FinancialInbox({
           ? `${failed} conexão(ões) falharam; os dados anteriores foram mantidos. ${added} novos movimentos recebidos nas demais.`
           : `Consulta concluída: ${added} novos movimentos e ${updated} atualizados.${partial ? ` ${partial} conexão(ões) têm produtos indisponíveis; confira Conexões e produtos bancários.` : ""} Os lançamentos já cadastrados foram preservados; consultar os bancos não importa novos lançamentos financeiros.`,
       });
+    } catch (error) {
+      if (!controller.signal.aborted) reportFailure(error);
     } finally {
-      setBusy("");
+      if (!controller.signal.aborted) {
+        setBusy("");
+        setProgress(null);
+      }
       inFlight.current = false;
     }
   }
   async function save(body: unknown) {
-    if (busy || inFlight.current) return false;
+    if (busy || inFlight.current || !mounted.current) return false;
     inFlight.current = true;
+    const controller = new AbortController();
+    manualRequest.current = controller;
     setBusy("Salvando revisão…");
+    setProgress(null);
     setFeedback(null);
     try {
-      setData(await call(body));
+      const result = await call(body, controller.signal);
+      controller.signal.throwIfAborted();
+      setData(result);
       setFeedback({
         error: false,
         text: "Revisão salva. Os lançamentos financeiros permanecem preservados.",
       });
       return true;
     } catch (error) {
-      setFeedback({
-        error: true,
-        text: error instanceof Error ? error.message : "Não foi possível salvar.",
-      });
+      if (!controller.signal.aborted) reportFailure(error);
       return false;
     } finally {
-      setBusy("");
+      if (!controller.signal.aborted) setBusy("");
       inFlight.current = false;
     }
   }
@@ -316,8 +390,47 @@ export function FinancialInbox({
     setTab(next);
     setPage(0);
     setFilter("");
+    setKind("");
+    setFlow("");
     setAllQueues(false);
   }
+  function clearFilters() {
+    setBank("");
+    setSearch("");
+    setKind("");
+    setFilter("");
+    setFlow("");
+    setAllQueues(false);
+    setStart(initialStart());
+    setEnd(today());
+    setPage(0);
+  }
+  function showConnections() {
+    const connections = document.getElementById("pluggy-connections");
+    if (connections instanceof HTMLDetailsElement) {
+      connections.open = true;
+      connections.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "auto"
+          : "smooth",
+        block: "start",
+      });
+      connections.querySelector("summary")?.focus({ preventScroll: true });
+    }
+  }
+  const categoryNames = new Map(data?.categories.map((item) => [item.id, item.name]));
+  const searchText = normalizeDescription(search);
+  const hasFilters = Boolean(
+    bank ||
+    searchText ||
+    kind ||
+    filter ||
+    flow ||
+    allQueues ||
+    start !== initialStart() ||
+    end !== today(),
+  );
+  const invalidPeriod = Boolean(start && end && start > end);
   const scoped = (data?.movements ?? []).filter(
     (row) =>
       (!bank || row.institutionId === bank) &&
@@ -362,15 +475,21 @@ export function FinancialInbox({
                     : filter === "manual_review"
                       ? disposition.section === "pending"
                       : !row.selectedCategoryId || !row.selectedOwnership)) &&
-      `${row.description} ${row.bank} ${row.account} ${row.category} ${row.historical.flatMap((reference) => [reference.category, ...reference.tags]).join(" ")}`
-        .toLocaleLowerCase()
-        .includes(search.toLocaleLowerCase())
+      normalizeDescription(
+        `${row.description} ${row.bank} ${row.account} ${row.category} ${categoryNames.get(row.selectedCategoryId ?? "") ?? ""} ${row.historical.flatMap((reference) => [reference.category, ...reference.tags]).join(" ")}`,
+      ).includes(searchText)
     );
   });
   const activePage = Math.min(page, Math.max(0, Math.ceil(rows.length / 20) - 1));
   const connected = data?.banks.filter((item) => item.fetchedAt).length ?? 0;
   const timestamps =
-    data?.banks.flatMap((item) => (item.fetchedAt ? [item.fetchedAt] : [])).sort() ?? [];
+    data?.banks
+      .flatMap((item) =>
+        item.fetchedAt && Number.isFinite(Date.parse(item.fetchedAt))
+          ? [item.fetchedAt]
+          : [],
+      )
+      .sort() ?? [];
   const latestSync = timestamps.at(-1);
   const failures =
     data?.banks.filter(
@@ -394,13 +513,7 @@ export function FinancialInbox({
               <button
                 type="button"
                 className="inline-flex items-center gap-1 font-semibold text-mint-600 underline-offset-4 hover:underline"
-                onClick={() => {
-                  const connections = document.getElementById("pluggy-connections");
-                  if (connections instanceof HTMLDetailsElement) {
-                    connections.open = true;
-                    connections.scrollIntoView({ behavior: "smooth", block: "start" });
-                  }
-                }}
+                onClick={showConnections}
                 disabled={!data}
               >
                 <Landmark className="h-4 w-4" aria-hidden />
@@ -426,16 +539,30 @@ export function FinancialInbox({
             Revise o que chegou dos seus bancos antes de levar para o Hub.
           </p>
         </div>
-        <ActionButton
-          disabled={!data || Boolean(busy) || !start || !end || start > end}
-          onClick={() => void sync(bank || undefined)}
-        >
-          <RefreshCw
-            aria-hidden
-            className={`mr-2 h-4 w-4 ${busy ? "animate-spin motion-reduce:animate-none" : ""}`}
-          />
-          Sincronizar novamente
-        </ActionButton>
+        <div className="flex items-center gap-2">
+          <ActionButton
+            variant="secondary"
+            aria-label="Atualizar tela"
+            title="Atualizar os dados já salvos, sem consultar os bancos"
+            disabled={Boolean(busy)}
+            onClick={() => void refresh()}
+          >
+            <RotateCw
+              aria-hidden
+              className={`h-4 w-4 ${busy && !progress ? "animate-spin motion-reduce:animate-none" : ""}`}
+            />
+          </ActionButton>
+          <ActionButton
+            disabled={!data || Boolean(busy) || !start || !end || start > end}
+            onClick={() => void sync(bank || undefined)}
+          >
+            <RefreshCw
+              aria-hidden
+              className={`mr-2 h-4 w-4 ${progress ? "animate-spin motion-reduce:animate-none" : ""}`}
+            />
+            Sincronizar novamente
+          </ActionButton>
+        </div>
       </header>
 
       <section
@@ -446,7 +573,7 @@ export function FinancialInbox({
           {
             label: "Na entrada",
             value: data ? counts.inbox : "—",
-            note: `${counts.new} ainda não revisados`,
+            note: data ? `${counts.new} ainda não revisados` : "Aguardando dados",
           },
           {
             label: "A classificar",
@@ -470,14 +597,16 @@ export function FinancialInbox({
       </section>
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-ink-600">
         <span>
-          {connected} bancos com dados · Última consulta no Hub:{" "}
+          {data ? connected : "—"} bancos com dados · Última consulta no Hub:{" "}
           {latestSync
             ? new Intl.DateTimeFormat("pt-BR", {
                 dateStyle: "short",
                 timeStyle: "short",
                 timeZone: "America/Cuiaba",
               }).format(new Date(latestSync))
-            : "ainda não consultado"}
+            : data
+              ? "ainda não consultado"
+              : "aguardando dados"}
         </span>
         <button
           type="button"
@@ -527,13 +656,14 @@ export function FinancialInbox({
           Pré-importação · sem novos lançamentos ou reembolsos automáticos
         </span>
         {failures ? (
-          <a
-            href="#pluggy-connections"
+          <button
+            type="button"
+            onClick={showConnections}
             className="inline-flex items-center gap-1 text-amber-700 underline dark:text-amber-300"
           >
             <AlertCircle className="h-4 w-4" />
             {failures} conexão(ões) precisam de atenção
-          </a>
+          </button>
         ) : null}
       </div>
       {feedback ? (
@@ -542,6 +672,24 @@ export function FinancialInbox({
           className={`rounded-md border px-4 py-3 text-sm ${feedback.error ? "border-amber-300 bg-amber-50 text-amber-900 dark:bg-amber-950/30 dark:text-amber-200" : "border-mint-500/30 bg-mint-100 text-mint-600"}`}
         >
           {feedback.text}
+          {feedback.error ? (
+            <div className="mt-3 flex flex-wrap gap-3">
+              {feedback.login ? (
+                <Link className="font-semibold underline" href="/login">
+                  Entrar novamente
+                </Link>
+              ) : (
+                <ActionButton
+                  variant="secondary"
+                  disabled={Boolean(busy)}
+                  onClick={() => void refresh()}
+                >
+                  <RotateCw aria-hidden className="mr-2 h-4 w-4" />
+                  Tentar novamente
+                </ActionButton>
+              )}
+            </div>
+          ) : null}
         </div>
       ) : null}
       {!data && busy ? (
@@ -723,6 +871,7 @@ export function FinancialInbox({
                     value={kind}
                     onChange={(event) => {
                       setKind(event.target.value);
+                      setFlow("");
                       setPage(0);
                     }}
                   >
@@ -833,28 +982,39 @@ export function FinancialInbox({
                 <button
                   type="button"
                   className="px-2 py-3 text-xs text-ink-600 underline"
-                  onClick={() => {
-                    setBank("");
-                    setSearch("");
-                    setKind("");
-                    setFilter("");
-                    setFlow("");
-                    setAllQueues(false);
-                    setStart(initialStart());
-                    setEnd(today());
-                    setPage(0);
-                  }}
+                  onClick={clearFilters}
                 >
                   Limpar filtros
                 </button>
               </div>
-              <p className="mb-3 text-xs text-ink-600">
-                {start ? start.split("-").reverse().join("/") : "Início do histórico"} a{" "}
-                {end ? end.split("-").reverse().join("/") : "hoje"}
-              </p>
-              <div className="mb-4">
-                <InboxCompositionChart rows={rows} />
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-ink-600">
+                <p>
+                  {start ? start.split("-").reverse().join("/") : "Início do histórico"} a{" "}
+                  {end ? end.split("-").reverse().join("/") : "hoje"}
+                </p>
+                {hasFilters && !mobileFilters ? (
+                  <button
+                    type="button"
+                    className="font-medium underline"
+                    onClick={clearFilters}
+                  >
+                    Limpar filtros ativos
+                  </button>
+                ) : null}
               </div>
+              {invalidPeriod ? (
+                <p
+                  role="alert"
+                  className="mb-4 text-sm text-amber-700 dark:text-amber-300"
+                >
+                  A data inicial deve ser anterior ou igual à data final.
+                </p>
+              ) : null}
+              {data && !invalidPeriod ? (
+                <div className="mb-4">
+                  <InboxCompositionChart rows={rows} />
+                </div>
+              ) : null}
               <div
                 className="rounded-md border border-ink-950/15 bg-[var(--hub-surface)]"
                 aria-busy={Boolean(busy)}
@@ -874,7 +1034,12 @@ export function FinancialInbox({
                         key={`${row.sourceKey}:${row.review.updatedAt ?? "preview"}`}
                         row={row}
                         categories={data.categories}
-                        disabled={Boolean(busy) || !data.ready || data.stagingPending || !row.review.updatedAt}
+                        disabled={
+                          Boolean(busy) ||
+                          !data.ready ||
+                          data.stagingPending ||
+                          !row.review.updatedAt
+                        }
                         onSave={(review: InboxReview) =>
                           save({
                             action: "review",
@@ -891,30 +1056,21 @@ export function FinancialInbox({
                   <div className="px-6 py-14 text-center">
                     <Inbox aria-hidden className="mx-auto mb-3 h-7 w-7 text-ink-600" />
                     <p className="text-sm font-medium">
-                      {data ? copy[current].empty : "Aguardando os dados"}
+                      {data
+                        ? hasFilters
+                          ? "Nenhum resultado para os filtros"
+                          : copy[current].empty
+                        : feedback?.error
+                          ? "Não foi possível carregar a caixa de entrada"
+                          : "Aguardando os dados"}
                     </p>
                     <p className="mx-auto mt-2 max-w-md text-sm text-ink-600">
-                      {data
+                      {data && !invalidPeriod
                         ? copy[current].detail
-                        : "Carregue a caixa de entrada para revisar as movimentações."}
+                        : !data && feedback?.error
+                          ? "Os dados salvos foram preservados."
+                          : ""}
                     </p>
-                    {feedback?.error && !data ? (
-                      <ActionButton
-                        className="mt-4"
-                        disabled={Boolean(busy)}
-                        onClick={() => {
-                          setBusy("Carregando…");
-                          void call()
-                            .then(setData)
-                            .catch((error) =>
-                              setFeedback({ error: true, text: error.message }),
-                            )
-                            .finally(() => setBusy(""));
-                        }}
-                      >
-                        Tentar novamente
-                      </ActionButton>
-                    ) : null}
                   </div>
                 ) : null}
               </div>
@@ -950,7 +1106,7 @@ export function FinancialInbox({
               ) : null}
             </>
           ) : null}
-          {tab === "history" ? <OrganizzeHistory embedded /> : null}
+          {tab === "history" && !feedback?.login ? <OrganizzeHistory embedded /> : null}
           {tab === "rules" && data ? (
             <RulesPanel
               data={data}
