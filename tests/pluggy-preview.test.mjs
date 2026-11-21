@@ -55,6 +55,47 @@ function harness(overrides = {}, env = {}, globals = {}) {
 const load = harness();
 const { createPluggyReader } = load("src/features/pluggy/client.ts");
 const { buildPluggyPreview } = load("src/features/pluggy/preview.ts");
+const { indexMerchantHistory, merchantEvidence, merchantMetadata, normalizeMerchant, recognizeMerchant, validCnpj } =
+  load("src/features/pluggy/merchants.ts");
+
+test("merchant learning matches a confirmed description ten months later, across banks and amounts", () => {
+  const first = merchantMetadata({ descriptionRaw: "LJ RÉNNER 0182", amount: -189.90, date: "2026-11-20" }, "nubank");
+  const second = merchantMetadata({ descriptionRaw: "COMPRA CARTÃO Renner 0193", amount: -249.90, date: "2027-09-20" }, "xp");
+  const association = { id: "renner", name: "Renner", active: true, categoryId: "clothes", ...merchantEvidence(first) };
+  const categories = [{ id: "clothes", name: "Vestuário", type: "expense" }];
+  const result = recognizeMerchant(second, "expense", [association], new Map(), categories, { categoryId: null });
+  assert.equal(result.status, "recognized");
+  assert.equal(result.confidence, "alta");
+  assert.equal(result.categoryId, "clothes");
+  assert.equal(Object.hasOwn(result, "ownership"), false);
+  assert.notEqual(normalizeMerchant("LJ RENNER MODAS 0128"), normalizeMerchant("LJ RENNER MOTORS 0128"));
+  assert.equal(normalizeMerchant("Studio 54"), "studio 54");
+  assert.equal(normalizeMerchant("Pedro Tião LTDA."), normalizeMerchant("Pedro Tiao"));
+});
+
+test("merchant recognition refuses generic processors, unsafe payment metadata and contradictory choices", () => {
+  assert.equal(validCnpj("11.222.333/0001-81"), "11222333000181");
+  assert.equal(validCnpj("11.222.333/0001-82"), null);
+  assert.equal(validCnpj("12.ABC.345/01DE-35"), "12ABC34501DE35");
+  const raw = merchantMetadata({ descriptionRaw: "MERCADO PAGO", paymentData: { receiver: { name: "Synthetic", documentNumber: { value: "11222333000181" } } } }, "xp");
+  assert.equal(raw.cnpj, null);
+  assert.throws(() => merchantEvidence(raw), /genérica/);
+  const match = { id: "renner", name: "Renner", active: true, categoryId: "clothes", pattern: "renner" };
+  const categories = [{ id: "clothes", name: "Vestuário", type: "expense" }, { id: "other", name: "Outras", type: "expense" }];
+  const renner = merchantMetadata({ descriptionRaw: "Renner" }, "caixa");
+  assert.equal(recognizeMerchant(renner, "expense", [match], new Map(), categories, { categoryId: "other" }).status, "conflict");
+  const history = indexMerchantHistory([
+    { pattern: "LJ RENNER 0182", kind: "expense", categoryId: "clothes" },
+    { pattern: "LOJA RENNER 0175", kind: "expense", categoryId: "other" },
+  ]);
+  assert.equal(recognizeMerchant(renner, "expense", [], history, categories, { categoryId: null }).status, "conflict");
+  const mccOnly = recognizeMerchant(merchantMetadata({ descriptionRaw: "Loja Exemplo", creditCardMetadata: { payeeMCC: 5651 } }, "xp"),
+    "expense", [], new Map(), categories, { categoryId: null });
+  assert.equal(mccOnly.confidence, "revisão");
+  assert.equal(mccOnly.categoryId, "clothes");
+  assert.equal(mccOnly.name, null);
+  assert.equal(recognizeMerchant(renner, "expense", [{ ...match, active: false }], new Map(), categories, { categoryId: null }).status, "unidentified");
+});
 const {
   movementDisposition,
   inboxSummary,
@@ -1381,8 +1422,16 @@ test("optional daily endpoint denies missing/invalid secrets and isolates failur
     PLUGGY_MERCADO_PAGO_ITEM_ID: tx2,
   };
   const calls = [];
+  let persisted;
   const route = harness(
     {
+      "@/features/pluggy/sync-report": {
+        preserveSyncReport: async (ownerId, report) => {
+          assert.equal(ownerId, owner);
+          persisted = report;
+          return true;
+        },
+      },
       "@/features/pluggy/service": {
         defaultPluggyPeriod: () => period,
         syncPluggyBank: async (id) => {
@@ -1410,6 +1459,7 @@ test("optional daily endpoint denies missing/invalid secrets and isolates failur
     401,
   );
   assert.equal(calls.length, 0);
+  assert.equal(persisted, undefined);
   const result = await route.GET(
     new Request("http://localhost/api/pluggy/sync", {
       headers: { authorization: "Bearer PRIVATE_CRON" },
@@ -1420,6 +1470,9 @@ test("optional daily endpoint denies missing/invalid secrets and isolates failur
   assert.equal(body.results[1].status, "error");
   assert.equal(body.results[4].status, "read");
   assert.equal(body.financialWrites, 0);
+  assert.equal(body.reportPersisted, true);
+  assert.equal(persisted.results.length, 5);
+  assert.ok(persisted.results.every((bank) => Date.parse(bank.finishedAt) >= Date.parse(bank.startedAt)));
   assert.equal(JSON.stringify(body).includes("PRIVATE"), false);
 });
 

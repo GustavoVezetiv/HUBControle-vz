@@ -735,10 +735,12 @@ export type Database = {
     };
     Views: Record<string, never>;
     Functions: {
+        mcp_confirm_import_reviews: { Args: { p_user_id: string; p_request_id: string; p_signature: string }; Returns: Json };
         pluggy_inbox_ready: { Args: Record<string, never>; Returns: boolean };
         stage_pluggy_rows: { Args: { p_rows: Json }; Returns: Json };
         review_pluggy_row: { Args: { p_source_key: string; p_review: Json; p_expected_updated_at: string }; Returns: Json };
         save_pluggy_rule: { Args: { p_rule: Json }; Returns: string };
+        save_pluggy_merchant: { Args: { p_change: Json }; Returns: string };
       organizze_reconciliation_ready: { Args: Record<string, never>; Returns: boolean };
       confirm_organizze_reconciliation: { Args: { p_rows: Json; p_period: Json }; Returns: Json };
       organizze_import_ready: { Args: Record<string, never>; Returns: boolean };

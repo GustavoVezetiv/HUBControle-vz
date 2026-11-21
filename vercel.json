@@ -3,6 +3,10 @@
     {
       "path": "/api/routine/sync/google-tasks",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/pluggy/sync",
+      "schedule": "0 13 * * *"
     }
   ]
 }

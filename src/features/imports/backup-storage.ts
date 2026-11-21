@@ -5,7 +5,7 @@ export const IMPORT_BACKUP_BUCKET = "hub-import-backups";
 const MAX_BYTES = 80 * 1024 * 1024;
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const BACKUP_ID = /^\d{4}-\d{2}-\d{2}T[\d-]+Z(?:-[a-f0-9-]{36})?$/;
-type Source = "pluggy" | "organizze";
+type Source = "pluggy" | "organizze" | "pluggy-sync";
 
 export class ImportBackupStorageError extends Error {}
 
@@ -20,7 +20,7 @@ export function createSnapshotStorage(
   source: Source,
   owner: string,
 ) {
-  if (!UUID.test(owner) || !["pluggy", "organizze"].includes(source))
+  if (!UUID.test(owner) || !["pluggy", "organizze", "pluggy-sync"].includes(source))
     throw new ImportBackupStorageError("Proprietário ou origem de backup inválido.");
   const prefix = `${owner}/${source}`;
   const bucket = client.storage.from(IMPORT_BACKUP_BUCKET);

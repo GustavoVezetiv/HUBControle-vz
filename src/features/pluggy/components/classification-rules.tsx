@@ -7,6 +7,7 @@ import type { PluggyDashboard as Dashboard } from "../service";
 import type { Ownership } from "../types";
 import { HistoryRuleBatch } from "./history-rule-batch";
 import { previewClassificationRule } from "../rule-preview";
+import type { MerchantAssociation } from "../merchants";
 const ownerships = {
   personal: "Pessoal",
   third_party: "Terceiro",
@@ -18,10 +19,12 @@ export function RulesPanel({
   data,
   disabled,
   onSave,
+  onMerchant,
 }: {
   data: Dashboard;
   disabled: boolean;
   onSave: (rule: unknown) => Promise<boolean>;
+  onMerchant: (change: unknown) => Promise<boolean>;
 }) {
   const [pattern, setPattern] = useState("");
   const [categoryId, setCategoryId] = useState("");
@@ -36,6 +39,7 @@ export function RulesPanel({
   });
   return (
     <div className="space-y-6">
+      <MerchantAssociations data={data} disabled={disabled} onSave={onMerchant} />
       <HistoryRuleBatch
         data={data}
         disabled={disabled}
@@ -202,5 +206,53 @@ export function RulesPanel({
         ))}
       </div>
     </div>
+  );
+}
+
+function MerchantAssociations({ data, disabled, onSave }: { data: Dashboard; disabled: boolean; onSave: (change: unknown) => Promise<boolean> }) {
+  const [edit, setEdit] = useState<MerchantAssociation | null>(null);
+  const [search, setSearch] = useState("");
+  const filter = search.trim().toLocaleLowerCase("pt-BR");
+  const rows = data.merchants.filter(row => `${row.name} ${row.pattern ?? ""}`.toLocaleLowerCase("pt-BR").includes(filter));
+  const save = (row: MerchantAssociation) => onSave({
+    id: row.id, expectedUpdatedAt: row.updatedAt, name: row.name, categoryId: row.categoryId, active: row.active,
+  });
+  return (
+    <section className="space-y-3" aria-label="Estabelecimentos confirmados">
+      <h2 className="text-base font-semibold">Estabelecimentos confirmados</h2>
+      {data.merchants.length ? (
+        <label className="block text-sm">Buscar estabelecimento
+          <input className={`${inputClassName} mt-1`} type="search" value={search} onChange={(event) => setSearch(event.target.value)} />
+        </label>
+      ) : <p className="text-sm text-ink-600">Confirme uma associação na Caixa de Entrada para começar.</p>}
+      {edit ? (
+        <div className="space-y-3 border-l-2 border-sky-500 p-3">
+          <label className="block text-sm">Nome comercial
+            <input className={`${inputClassName} mt-1`} value={edit.name} maxLength={140} onChange={(event) => setEdit({ ...edit, name: event.target.value })} />
+          </label>
+          <SearchableSelect label="Categoria do estabelecimento" value={edit.categoryId} onChange={(categoryId) => setEdit({ ...edit, categoryId })}
+            options={data.categories.filter(c => c.type === "expense" && c.is_active !== false).map(c => ({ value: c.id, label: c.name }))} />
+          <div className="flex flex-wrap gap-2">
+            <ActionButton disabled={disabled || !edit.categoryId || edit.name.trim().length < 2}
+              onClick={async () => { if (await save(edit)) setEdit(null); }}>Confirmar correção</ActionButton>
+            <ActionButton variant="secondary" onClick={() => setEdit(null)}>Cancelar</ActionButton>
+          </div>
+        </div>
+      ) : null}
+      {rows.map(row => (
+        <div key={row.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-950/10 py-2 text-sm">
+          <span>
+            {row.name} · {data.categories.find(c => c.id === row.categoryId)?.name ?? "Categoria a revisar"} · {row.active ? "Ativo" : "Desativado"}
+            <span className="block text-xs text-ink-600">{row.pattern ?? row.original} · {new Date(row.updatedAt).toLocaleDateString("pt-BR")} · {row.source === "mcp" ? "ChatGPT" : "HubVZ"}</span>
+          </span>
+          <div className="flex gap-2">
+            <ActionButton variant="secondary" disabled={disabled} onClick={() => setEdit(row)}>Editar</ActionButton>
+            <ActionButton variant="secondary" disabled={disabled} onClick={() => save({ ...row, active: !row.active })}>
+              {row.active ? "Desativar" : "Reativar"}
+            </ActionButton>
+          </div>
+        </div>
+      ))}
+    </section>
   );
 }

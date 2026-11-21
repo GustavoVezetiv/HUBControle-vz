@@ -11,6 +11,7 @@ import type {
 } from "./types";
 import type { PluggyPreview } from "./preview";
 import type { HubCategory } from "../organizze/types";
+import type { MerchantAssociation } from "./merchants";
 
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value)
@@ -32,10 +33,9 @@ export async function loadPluggyLedger(client: AppSupabaseClient, owner: string)
     allReferencePages((from, to) =>
       client
         .from("import_batches")
-        .select("id,mapping_config", { count: "exact" })
+        .select("id,mapping_config,updated_at", { count: "exact" })
         .eq("user_id", owner)
         .eq("mapping_config->>source", "pluggy")
-        .eq("mapping_config->>kind", "classification_rule")
         .order("id")
         .range(from, to),
     ),
@@ -70,7 +70,7 @@ export async function loadPluggyLedger(client: AppSupabaseClient, owner: string)
       },
     };
   });
-  const rules: ClassificationRule[] = batches.map((row) => {
+  const rules: ClassificationRule[] = batches.filter(row => record(row.mapping_config).kind === "classification_rule").map((row) => {
     const data = record(row.mapping_config);
     return {
       id: row.id,
@@ -80,7 +80,16 @@ export async function loadPluggyLedger(client: AppSupabaseClient, owner: string)
       active: data.active === true,
     };
   });
-  return { ledger, rules, ready: !readiness.error && readiness.data === true };
+  const merchants: MerchantAssociation[] = batches.flatMap(row => {
+    const data = record(row.mapping_config);
+    if (data.kind !== "merchant_association" || typeof data.name !== "string" || typeof data.categoryId !== "string") return [];
+    const optional = (v: unknown) => typeof v === "string" ? v : null;
+    return [{ id: row.id, updatedAt: row.updated_at, name: data.name, categoryId: data.categoryId,
+      active: data.active === true, original: String(data.original ?? ""), pattern: optional(data.pattern),
+      cnpj: optional(data.cnpj), merchantKey: optional(data.merchantKey), mcc: optional(data.mcc),
+      source: data.channel === "mcp" ? "mcp" : "web" }];
+  });
+  return { ledger, rules, merchants, ready: !readiness.error && readiness.data === true };
 }
 
 export function stageRows(
@@ -101,7 +110,7 @@ export function stageRows(
       fetchedAt: snapshot.fetchedAt,
       raw: rawByKey.get(`${row.accountId}:${row.id}`),
       categoryId: classification.categoryId,
-      ownership: classification.ownership,
+      ownership: null,
       ruleIds: classification.ruleIds,
       pending:
         row.candidates.length > 0 ||

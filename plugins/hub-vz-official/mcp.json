@@ -3,7 +3,18 @@
   "mcpServers": {
     "hub-vz-official": {
       "type": "streamable-http",
-      "url": "https://hub.vezetiv.dev/api/mcp"
+      "url": "https://hub.vezetiv.dev/api/mcp",
+      "extensions": {
+        "com.openai": {
+          "auth": {
+            "type": "oauth",
+            "client": {
+              "mode": "cimd"
+            },
+            "baseScopes": ["mcp:read", "offline_access", "mcp:write"]
+          }
+        }
+      }
     }
   }
 }

@@ -32,13 +32,14 @@ export function createHarness(options = {}) {
     MCP_DIRECT_WRITES_READY: options.directWritesReady === false ? "false" : "true",
     MCP_PUBLIC_URL: `${fixtureOrigin}/api/mcp`,
     NEXT_PUBLIC_SITE_URL: fixtureOrigin,
+    ...options.env,
   };
   const client = Object.freeze({ fixtureOnly: true });
   const user = Object.freeze({ id: "fixture-user-simulated" });
   const modules = new Map();
   const sandbox = vm.createContext({
     console,
-    process: { env },
+    process: { env, cwd: () => projectRoot },
     URL,
     URLSearchParams,
     Request,
@@ -50,11 +51,11 @@ export function createHarness(options = {}) {
       throw new Error("Network access is forbidden in the simulated route harness.");
     },
   });
-  const admin = new Proxy({}, {
-    get: (_target, name) => async (...args) => {
+  const admin = new Proxy(options.admin ?? {}, {
+    get: (target, name) => target[name] ?? (async (...args) => {
       calls.admin.push({ name, args });
       throw new Error("Database/admin access is forbidden in the simulated route harness.");
-    },
+    }),
   });
 
   function sourcePath(specifier, importer) {
@@ -78,9 +79,11 @@ export function createHarness(options = {}) {
       },
     }).outputText;
     const localRequire = (specifier) => {
-      if (specifier === "@/features/mcp/admin") return admin;
+      if (specifier === "server-only") return {};
+      if (specifier === "@/features/mcp/admin" || specifier === "./admin") return admin;
       if (specifier.startsWith("@/") || specifier.startsWith(".")) {
-        return load(sourcePath(specifier, filename));
+        const target = sourcePath(specifier, filename);
+        return options.modules?.[target] ?? load(target);
       }
       return require(specifier);
     };
@@ -105,7 +108,7 @@ export function createHarness(options = {}) {
           : { error: "Simulated missing, invalid or revoked OAuth token.", status: 401 };
       };
     }
-    if (filename === resolve(projectRoot, "src/features/mcp/tools.ts")) {
+    if (!options.realHandlers && filename === resolve(projectRoot, "src/features/mcp/tools.ts")) {
       loadedModule.exports.runReadTool = async (name, args, context) => {
         calls.read.push({ name, args, context });
         return { fixtureOnly: true, people: [{ id: "fixture-person", name: "Simulated person" }] };
@@ -168,6 +171,66 @@ function assertChallenge(body, error, requiredScopes) {
 }
 
 function registerTests() {
+  test("MCP import validates owner, write scope, selected keys and the signed approval", async () => {
+    const fixtureId = "a08b786b-894c-4e06-a657-203a9cbba401";
+    const sourceKey = `pluggy:${fixtureId}:${fixtureId}:${fixtureId}`;
+    const version = "2026-11-21T12:00:00Z";
+    const review = { state: "pending", categoryId: null, ownership: "personal", updatedAt: version, reviewed: false };
+    const movements = [{ sourceKey, date: "2026-11-21", amount: -12, description: "Débito sintético", kind: "expense", origin: "pluggy", bank: "Nubank", institutionId: "nubank", accountType: "BANK", bankStatus: "PENDING", currency: "BRL", review, classification: { categoryId: null }, candidates: [] }];
+    const lookup = new Map();
+    let reads = 0;
+    let writes = 0;
+    let replay = null;
+    let ownerId = "not-owner";
+    const harness = createHarness({
+      realHandlers: true,
+      env: { MCP_CONFIRMATION_SECRET: "fixture-only-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" },
+      modules: {
+        [resolve(projectRoot, "src/features/pluggy/config.ts")]: { pluggyConfig: () => ({ ownerId }) },
+        [resolve(projectRoot, "src/features/pluggy/service.ts")]: { pluggyDashboard: async () => { reads++; return { movements, categories: [], ready: true, stagingPending: false }; } },
+      },
+      admin: {
+        createMcpActionRequest: async proposal => lookup.set(proposal.id, JSON.parse(JSON.stringify({ ...proposal, status: "pending" }))),
+        getMcpActionRequest: async (owner, id) => ({ data: lookup.get(id)?.user_id === owner ? lookup.get(id) : null }),
+        confirmMcpImportReview: async (_owner, id) => {
+          if (replay) return { data: replay };
+          writes++;
+          lookup.get(id).status = "completed";
+          replay = { items: [{ sourceKey, ok: true }] };
+          return { data: replay };
+        },
+      },
+    });
+    const call = async (name, args, token = SIMULATED_TOKENS.full) => (await harness.request("tools/call", { name, arguments: args }, { token })).body;
+    const readable = "hub_list_import_movements";
+    const prepare = "hub_prepare_import_reviews";
+    const confirm = "hub_confirm_import_reviews";
+    assert.equal((await call(readable, { source: "pluggy" })).result.isError, true);
+    assert.equal(reads, 0);
+    ownerId = harness.user.id;
+    const status = body => JSON.parse(body.result.content[0].text);
+    const selected = { sourceKey, action: "classify", expectedUpdatedAt: version };
+    assert.equal(status(await call(readable,{ source: "pluggy", ownership: null })).items[0].ownership, null);
+    assert.equal((await call(prepare,{ items: [selected, selected] })).result.isError, true);
+    const denied = await call(confirm,{ confirmationId: fixtureId, confirmationText: "CONFIRMO CONCILIAR" },SIMULATED_TOKENS.read);
+    assertChallenge(denied,"insufficient_scope",["mcp:read","mcp:write"]);
+    const blocked = status(await call(prepare,{ items: [{ ...selected, action: "create", ownership: "family", confirmOrdinaryMovement: true }] }));
+    assert.equal(blocked.confirmationId, null);
+    const proposed = status(await call(prepare,{ items: [selected] }));
+    const approved = { confirmationId: proposed.confirmationId, confirmationText: "CONFIRMO CONCILIAR" };
+    assert.equal(lookup.get(proposed.confirmationId).arguments.items[0].classification.ownership, null);
+    assert.equal((await call(confirm,{ ...approved, confirmationText: "sim" })).result.isError, true);
+    assert.equal((await call(confirm,{ ...approved, items: [] })).result.isError, true);
+    assert.equal(writes,0);
+    const saved = lookup.get(proposed.confirmationId);
+    lookup.set(proposed.confirmationId, { ...saved, arguments: { ...saved.arguments, otherChange: true } });
+    assert.equal((await call(confirm,approved)).result.isError, true);
+    lookup.set(proposed.confirmationId,saved);
+    assert.deepEqual(status(await call(confirm,approved)), { items: [{ sourceKey, ok: true }] });
+    assert.deepEqual(status(await call(confirm,approved)), { items: [{ sourceKey, ok: true }] });
+    assert.equal(writes, 1);
+  });
+
   for (const method of ["initialize", "tools/list"]) {
     for (const [label, token] of [["missing", null], ["invalid", SIMULATED_TOKENS.invalid]]) {
       test(`${method} keeps HTTP 401 discovery protected with a ${label} simulated token`, async () => {
@@ -224,13 +287,13 @@ function registerTests() {
     assertNoExecution(harness);
   });
 
-  test("the authenticated real catalogue contains all 75 tools and OAuth security schemes", async () => {
+  test("the authenticated real catalogue contains 82 tools and OAuth security schemes", async () => {
     const harness = createHarness();
     const { response, body } = await harness.request("tools/list");
     assert.equal(response.status, 200);
     const listed = body.result.tools;
-    assert.equal(listed.length, 75);
-    assert.equal(new Set(listed.map((tool) => tool.name)).size, 75);
+    assert.equal(listed.length, 82);
+    assert.equal(new Set(listed.map((tool) => tool.name)).size, 82);
     for (const name of ["hub_list_people", "hub_list_categories", "hub_archive_record", "hub_import_subscriptions"]) {
       assert.ok(listed.some((tool) => tool.name === name), `Missing requested tool: ${name}`);
     }
@@ -245,11 +308,11 @@ function registerTests() {
     assertNoExecution(harness);
   });
 
-  test("disabling writes preserves the 25 real read tools", async () => {
+  test("disabling writes preserves the 29 real read tools", async () => {
     const harness = createHarness({ writesEnabled: false });
     const { response, body } = await harness.request("tools/list");
     assert.equal(response.status, 200);
-    assert.equal(body.result.tools.length, 25);
+    assert.equal(body.result.tools.length, 29);
     assert.ok(body.result.tools.every((tool) => tool.annotations.readOnlyHint));
     assertNoExecution(harness);
   });
