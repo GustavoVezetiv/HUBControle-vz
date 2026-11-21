@@ -66,6 +66,16 @@ assert.equal(initialized.result?.protocolVersion, "2025-06-18");
 const listed = await rpc(accessToken, "tools/list", {});
 const toolNames = listed.result?.tools?.map((tool) => tool.name) ?? [];
 assert.equal(toolNames.length, expectedToolCount);
+assert.equal(new Set(toolNames).size, expectedToolCount);
+const importsCatalogue = expectedToolCount >= 82 ? [
+  "hub_get_import_connections",
+  "hub_list_import_movements",
+  "hub_get_import_movement",
+  "hub_list_import_rules",
+  "hub_refresh_import_inbox",
+  "hub_prepare_import_reviews",
+  "hub_confirm_import_reviews",
+] : [];
 
 for (const name of [
   "hub_get_financial_summary",
@@ -80,6 +90,7 @@ for (const name of [
   "hub_create_transaction",
   "hub_create_subscription",
   "hub_update_goal",
+  ...importsCatalogue,
 ]) {
   assert.ok(toolNames.includes(name), `Ferramenta esperada ausente: ${name}`);
 }
@@ -93,6 +104,10 @@ for (const [name, args] of [
   ["hub_list_goals", { limit: 1 }],
   ["hub_list_cards", { limit: 1 }],
   ["hub_list_subscriptions", { limit: 1 }],
+  ...(importsCatalogue.length > 0 ? [
+    ["hub_get_import_connections", {}],
+    ["hub_list_import_movements", { source: "pluggy", limit: 1 }],
+  ] : []),
 ]) {
   const result = await rpc(accessToken, "tools/call", { name, arguments: args });
   assert.equal(result.result?.isError, undefined, `${name} retornou erro MCP.`);

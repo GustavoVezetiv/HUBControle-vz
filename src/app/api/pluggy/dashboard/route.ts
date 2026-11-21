@@ -11,6 +11,7 @@ import { validatePeriod } from "@/features/organizze/extraction";
 import { accumulatedPluggyBackup } from "@/features/pluggy/backup";
 import type { Json } from "@/lib/supabase/types";
 import type { SyncProgress } from "@/features/pluggy/sync-progress";
+import { prepareMerchantChange } from "@/features/pluggy/merchants";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const json = (body: unknown, status = 200) =>
@@ -131,7 +132,7 @@ export async function POST(request: Request) {
     }
     if (body.action === "refresh")
       return json(await pluggyDashboard(auth.client, auth.owner, true));
-    if (!["review", "rule"].includes(body.action) || body.confirm !== true)
+    if (!["review", "rule", "merchant"].includes(body.action) || body.confirm !== true)
       return json({ error: "Confirme explicitamente a revisão ou regra." }, 400);
     const dashboard = await pluggyDashboard(auth.client, auth.owner);
     if (!dashboard.ready)
@@ -142,6 +143,19 @@ export async function POST(request: Request) {
         },
         409,
       );
+    if (body.action === "merchant") {
+      let change;
+      try {
+        change = prepareMerchantChange(body.merchant ?? {}, dashboard, "web");
+      } catch (error) {
+        return json({ error: error instanceof Error ? error.message : "Associação inválida." }, 409);
+      }
+      const result = await auth.client.rpc("save_pluggy_merchant", { p_change: change as Json });
+      if (result.error) return json({ error: result.error.code === "PGRST202"
+        ? "A migration da memória de estabelecimentos ainda precisa ser aplicada."
+        : "Associação em conflito ou atualizada. Confira a aba Regras." }, 409);
+      return json(await pluggyDashboard(auth.client, auth.owner));
+    }
     if (body.action === "review") {
       if (dashboard.stagingPending)
         return json({ error: "A origem mudou. Atualize a caixa de entrada antes de salvar a revisão." }, 409);

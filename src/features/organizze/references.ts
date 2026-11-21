@@ -43,7 +43,7 @@ export async function loadOrganizzeReferences(
       allReferencePages((from, to) =>
         client
           .from("categories")
-          .select("id,name,type,parent_category_id", { count: "exact" })
+          .select("id,name,type,parent_category_id,is_active", { count: "exact" })
           .eq("user_id", ownerId)
           .order("id")
           .range(from, to),
@@ -93,7 +93,7 @@ export async function loadOrganizzeReferences(
           .range(from, to),
       ),
       allReferencePages((from, to) =>
-        client.from("import_rows").select("mapped_data,status,target_entity_type,target_entity_id", { count: "exact" })
+        client.from("import_rows").select("mapped_data,status,target_entity_type,target_entity_id,updated_at", { count: "exact" })
           .eq("user_id", ownerId).order("id").range(from, to),
       ),
       allReferencePages((from, to) => client.from("people").select("id,name", { count: "exact" }).eq("user_id", ownerId).order("id").range(from, to)),
@@ -122,8 +122,8 @@ export async function loadOrganizzeReferences(
     ownerId,
     people,
     imported: imported.flatMap(row => {
-      const mapped = row.mapped_data as { source_key?: string; source?: string; review?: { action?: string } } | null;
-      return mapped?.source === "organizze" && mapped.source_key && row.target_entity_type ? [{ sourceKey: mapped.source_key, target: row.target_entity_type, id: row.target_entity_id, reviewAction: mapped.review?.action ?? null }] : [];
+      const mapped = row.mapped_data as { source_key?: string; source?: string; review?: { action?: string; ownership?: string }; category_id?: string } | null;
+      return mapped?.source === "organizze" && mapped.source_key && row.target_entity_type ? [{ sourceKey: mapped.source_key, target: row.target_entity_type, id: row.target_entity_id, reviewAction: mapped.review?.action ?? null, updatedAt: row.updated_at, categoryId: mapped.category_id ?? null, ownership: mapped.review?.ownership ?? null }] : [];
     }),
     categories,
     cards,

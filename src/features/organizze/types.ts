@@ -32,6 +32,7 @@ export type Snapshot = {
   warnings?: string[];
 };
 export type HubCategory = {
+  is_active?: boolean;
   id: string;
   name: string;
   type: string;
@@ -61,7 +62,7 @@ export type HubMovement = {
 };
 export type References = {
   ownerId: string;
-  imported?: { sourceKey: string; target: string; id: string | null; reviewAction?: string | null }[];
+  imported?: { sourceKey: string; target: string; id: string | null; reviewAction?: string | null; updatedAt?: string; categoryId?: string | null; ownership?: string | null }[];
   people?: { id: string; name: string }[];
   categories: HubCategory[];
   cards: { id: string; name: string; issuer?: string | null }[];

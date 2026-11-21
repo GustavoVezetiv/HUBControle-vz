@@ -3,6 +3,7 @@ import { buildFinancialSummary } from "@/features/decision/financial-summary";
 import { executeMcpDirectWrite, getMcpActionRequestStatus } from "@/features/mcp/admin";
 import { getPeriodValue } from "@/features/shared/period";
 import type { Json } from "@/lib/supabase/types";
+import { importTools, isImportTool, validateImportTool, runImportRead, runImportWrite } from "./import-tools";
 import {
   extendedHubTools,
   isExtendedHubTool,
@@ -152,7 +153,7 @@ const baseHubTools: Tool[] = [
   }, ["idempotencyKey", "id", "expectedUpdatedAt", "amount", "receivedDate"])),
 ];
 
-export const hubTools: Tool[] = [...baseHubTools, ...extendedHubTools];
+export const hubTools: Tool[] = [...baseHubTools, ...extendedHubTools, ...importTools];
 
 const writeNames = new Set(hubTools.filter((tool) => !tool.annotations.readOnlyHint).map((tool) => tool.name));
 const idPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -184,6 +185,7 @@ const numeric = (value: unknown, name: string, positive: boolean) => {
 };
 
 export function validateToolArguments(name: string, value: unknown): Arguments {
+  if (isImportTool(name)) return validateImportTool(name, value);
   if (isExtendedHubTool(name)) return validateExtendedToolArguments(name, value);
   const tool = hubTools.find((item) => item.name === name);
   if (!tool) throw new Error("Ferramenta desconhecida.");
@@ -215,6 +217,7 @@ export function validateToolArguments(name: string, value: unknown): Arguments {
 }
 
 export async function runReadTool(name: string, args: Arguments, { client, userId }: Context) {
+  if (isImportTool(name)) return runImportRead(name, args, { client, userId });
   if (isExtendedHubTool(name)) return runExtendedReadTool(name, args, { client, userId });
   const limit = Number(args.limit ?? 50);
   const offset = Number(args.offset ?? 0);
@@ -284,8 +287,9 @@ export async function runReadTool(name: string, args: Arguments, { client, userI
   }
 }
 
-export async function runWriteTool(name: string, args: Arguments, { userId }: Context) {
+export async function runWriteTool(name: string, args: Arguments, { client, userId }: Context) {
   if (!writeNames.has(name)) throw new Error("Operação de escrita desconhecida.");
+  if (isImportTool(name)) return runImportWrite(name, args, { client, userId });
   const idempotency = String(args.idempotencyKey);
   const operationArguments = Object.fromEntries(
     Object.entries(args).filter(([key]) => key !== "idempotencyKey"),

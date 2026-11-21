@@ -92,6 +92,7 @@ export function matchRules(
     categoryId: ids.size === 1 ? matched[0].categoryId : null,
     ownership: matched.length && ownerships.size === 1 ? matched[0].ownership : null,
     ambiguous: ids.size > 1 || ownerships.size > 1,
+    categoryAmbiguous: ids.size > 1,
     ruleIds: matched.map((rule) => rule.id),
   };
 }

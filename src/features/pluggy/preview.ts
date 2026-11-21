@@ -4,6 +4,7 @@ import type { OrganizzeHistory } from "../organizze/history";
 import type { PluggySnapshot } from "./types";
 import { institutions } from "./types";
 import { identifyBank, matchConfidence } from "../imports/bank-identity";
+import { merchantMetadata } from "./merchants";
 
 const str = (value: unknown) => (typeof value === "string" ? value : "");
 const object = (value: unknown): Raw =>
@@ -239,6 +240,7 @@ export function buildPluggyPreview(
       accountType: account?.type,
       date,
       description: str(raw.description),
+      merchantMetadata: merchantMetadata(raw, snapshot.institution),
       amount: typeof raw.amount === "number" ? raw.amount : null,
       direction,
       operationType,

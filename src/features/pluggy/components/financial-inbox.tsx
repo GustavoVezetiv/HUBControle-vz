@@ -476,7 +476,7 @@ export function FinancialInbox({
                       ? disposition.section === "pending"
                       : !row.selectedCategoryId || !row.selectedOwnership)) &&
       normalizeDescription(
-        `${row.description} ${row.bank} ${row.account} ${row.category} ${categoryNames.get(row.selectedCategoryId ?? "") ?? ""} ${row.historical.flatMap((reference) => [reference.category, ...reference.tags]).join(" ")}`,
+        `${row.description} ${row.merchant?.name ?? ""} ${row.merchantMetadata?.original ?? ""} ${row.bank} ${row.account} ${row.category} ${categoryNames.get(row.selectedCategoryId ?? "") ?? ""} ${row.historical.flatMap((reference) => [reference.category, ...reference.tags]).join(" ")}`,
       ).includes(searchText)
     );
   });
@@ -1031,7 +1031,7 @@ export function FinancialInbox({
                 {data
                   ? rows.slice(activePage * 20, activePage * 20 + 20).map((row) => (
                       <InboxMovementRow
-                        key={`${row.sourceKey}:${row.review.updatedAt ?? "preview"}`}
+                        key={`${row.sourceKey}:${row.review.updatedAt ?? "preview"}:${row.selectedCategoryId ?? ""}`}
                         row={row}
                         categories={data.categories}
                         disabled={
@@ -1049,6 +1049,10 @@ export function FinancialInbox({
                             review,
                           })
                         }
+                          onRemember={(merchant) => save({
+                            action: "merchant", confirm: true,
+                            merchant: { ...merchant, sourceKey: row.sourceKey, expectedUpdatedAt: row.review.updatedAt },
+                          })}
                       />
                     ))
                   : null}
@@ -1112,6 +1116,7 @@ export function FinancialInbox({
               data={data}
               disabled={Boolean(busy) || !data.ready || data.stagingPending}
               onSave={(rule) => save({ action: "rule", confirm: true, rule })}
+                onMerchant={(merchant) => save({ action: "merchant", confirm: true, merchant })}
             />
           ) : null}
         </div>

@@ -189,3 +189,88 @@ test("Pluggy inbox reuses the ledger, converges with Organizze/manual canonical 
   sql(asUser(`select public.save_pluggy_rule(${quote({ ...rule, categoryId: foreignCard })});`), false);
   assert.equal(fingerprint(), original);
 });
+
+test("MCP approves only the selected versioned batch, reports partial conflicts, and replays without writes", { skip: !enabled }, () => {
+  sql(`do $$ begin if not exists(select 1 from pg_roles where rolname='service_role') then create role service_role nologin bypassrls; end if; end $$;`);
+  for (const migration of [
+    "202605290002_add_accounts_payable_recurrence_fields.sql",
+    "202606080002_soft_archive_core_modules.sql",
+    "202606170001_add_audit_logs.sql",
+    "202609100001_accounts_payable_late_interest.sql",
+    "202610110001_mcp_official_production.sql",
+    "202610120005_mcp_complete_modules_production.sql",
+    "20261121145945_mcp_confirm_import_reviews.sql",
+  ]) sql(readFileSync(new URL(`../supabase/migrations/${migration}`, import.meta.url), "utf8"));
+  const key = id => `pluggy:90000000-0000-4000-8000-000000000001:90000000-0000-4000-8000-000000000101:90000000-0000-4000-8000-${String(id).padStart(12,"0")}`;
+  const timestamp = key => sql(`select updated_at from public.import_rows where user_id='${u}' and mapped_data->>'source_key'='${key}'`);
+  const existing = sql(`select id from public.accounts_payable where user_id='${u}' and amount=12`);
+  const destination = { target: "accounts_payable", id: existing, version: sql(`select updated_at from public.accounts_payable where id='${existing}'`) };
+  const retention = { ...row("transaction:9910", "source_only", {}, {}, ["Histórico"]), review: { action: "pending", ownership: null } };
+  const createSource = (id, amount, status = "POSTED") => ({ sourceKey: key(id), institution: "nubank", itemId: key(id).split(":")[1], accountId: key(id).split(":")[2], accountType: "BANK", fetchedAt: "2026-10-23T12:00:00Z", raw: { id: key(id).split(":")[3], accountId: key(id).split(":")[2], description: "Teste MCP", amount, date: "2026-09-03T00:00:00Z", status, type: "DEBIT", currencyCode: "BRL" }, categoryId: null, ownership: null, ruleIds: [] });
+  sql(asUser(`select public.stage_pluggy_rows(${quote([createSource(301,-12), createSource(302,-65,"PENDING"), createSource(303,-55), createSource(304,-12), createSource(305,-12)])});`));
+  const link = { state: "reconciled", ownership: null, categoryId: null, target: "accounts_payable", targetId: existing };
+  const operation = (id, fields) => ({ source: "pluggy", sourceKey: key(id), expectedUpdatedAt: timestamp(key(id)), ...fields });
+  const create = amount => ({ classification: { ownership: "family" }, create: { tool: "hub_create_account_detailed", target: "accounts_payable", args: { title: "Débito confirmado", amount } } });
+  const signature = "a".repeat(64);
+  const prepare = (items, age = "10 minutes") => sql(`insert into public.mcp_action_requests(user_id,tool_name,arguments,intent_signature,created_at,expires_at) values('${u}','hub_prepare_import_reviews',${quote({items})},'${signature}',case when '${age}'='-1 minute' then now()-interval '5 minutes' else now() end,now()+interval '${age}') returning id`);
+  const confirm = (id, user = u, sign = signature) => `select public.mcp_confirm_import_reviews('${user}','${id}','${sign}');`;
+  const asService = text => `set role service_role; ${text}`;
+  const proposal = prepare([
+    operation(301,{ classification: link, link: destination }),
+    operation(302,create(65)),
+    operation(303,create(55)),
+    operation(304,create(12)),
+    operation(305,{ classification: link, link: { ...destination, version: "2023-01-01Z" } }),
+    { source: "organizze", sourceKey: retention.sourceKey, expectedUpdatedAt: null, rows: [retention], period: { start: "2023-01-01", end: "2026-10-22" }, classificationOnly: true, ownership: "family", categoryId: null },
+  ]);
+  const reimbursement = sql(`select row_to_json(r) from public.reimbursements r limit 1`);
+  const accountBefore = sql(`select row_to_json(a) from public.accounts_payable a where id='${existing}'`);
+  assert.equal(sql(`select count(*) from public.accounts_payable where title='Débito confirmado'`), "0");
+  sql(asUser(confirm(proposal)), false);
+  sql(asService(confirm(proposal,other)), false);
+  sql(asService(confirm(proposal,u,"b".repeat(64))), false);
+  const expired = prepare([operation(301,{ classification: link, link: destination })], "-1 minute");
+  sql(asService(confirm(expired)), false);
+  const result = sql(asService(confirm(proposal)));
+  const items = JSON.parse(result).items;
+  assert.deepEqual(items.map(item => item.ok), [true,false,true,false,false,true], result);
+  assert.equal(items[3].code,"23505");
+  assert.equal(items[4].code,"40001");
+  assert.equal(sql(asService(confirm(proposal))), result);
+  assert.equal(sql(`select count(*) from public.accounts_payable where title='Débito confirmado'`), "1");
+  assert.equal(sql(`select row_to_json(a) from public.accounts_payable a where id='${existing}'`), accountBefore);
+  assert.equal(sql(`select row_to_json(r) from public.reimbursements r limit 1`), reimbursement);
+  assert.equal(sql(`select mapped_data->'review'->>'ownership' from public.import_rows where mapped_data->>'source_key'='${retention.sourceKey}'`), "family");
+  assert.equal(sql(`select count(*) from public.audit_logs where record_id='${proposal}' and action='confirm_import_item'`), "3");
+});
+
+test("merchant memory replays, rejects stale/foreign edits, and leaves reconciled movements untouched", { skip: !enabled }, () => {
+  sql(readFileSync(new URL("../supabase/migrations/20261121160728_pluggy_merchant_memory.sql", import.meta.url), "utf8"));
+  // The compact fixture installs audit_logs after the app's normal grants.
+  sql("grant insert on public.audit_logs to authenticated;");
+  const sourceKey = sql(`select mapped_data->>'source_key' from public.import_rows where user_id='${u}' and mapped_data->>'source'='pluggy' and target_entity_id is not null order by id limit 1`);
+  const version = sql(`select updated_at from public.import_rows where user_id='${u}' and mapped_data->>'source_key'='${sourceKey}'`);
+  const categoryId = sql(`select id from public.categories where user_id='${u}' and type='expense' and is_active order by id limit 1`);
+  const memory = { sourceKey, expectedUpdatedAt: version, name: "Loja Sintética", categoryId, active: true, channel: "web", evidence: { original: "LJ SINTETICA 0182", pattern: "sintetica" } };
+  const call = input => `select public.save_pluggy_merchant(${quote(input)});`;
+  const fingerprint = () => sql(`select md5(jsonb_build_array((select jsonb_agg(to_jsonb(r) order by id) from public.reimbursements r),(select jsonb_agg(to_jsonb(a) order by id) from public.accounts_payable a),(select jsonb_agg(to_jsonb(r) order by id) from public.import_rows r))::text)`);
+  const before = fingerprint();
+  sql(asUser(call({ ...memory, evidence: { ...memory.evidence, cnpj: "11222333000181" } })), false);
+  const id = sql(asUser(call(memory))).split("\n").at(-1);
+  assert.equal(sql(asUser(call(memory))).split("\n").at(-1), id);
+  sql(asUser(call({ ...memory, name: "Outra loja" })), false);
+  const expectedUpdatedAt = sql(`select updated_at from public.import_batches where id='${id}'`);
+  const edit = { id, name: "Loja corrigida", categoryId, active: false, channel: "mcp", expectedUpdatedAt };
+  sql(`set role anon; ${call(memory)}`, false);
+  sql(`set role authenticated; select set_config('request.jwt.claim.sub','${other}',false); ${call(edit)}`, false);
+  sql(asUser(call({ ...edit, expectedUpdatedAt: "2026-01-01T00:00:00Z" })), false);
+  const signature = "e".repeat(64), payload = { items: [{ source: "merchant", sourceKey: `merchant:${id}`, merchant: edit }] };
+  const proposal = sql(`insert into public.mcp_action_requests(user_id,tool_name,arguments,intent_signature) values('${u}','hub_prepare_import_reviews',${quote(payload)},'${signature}') returning id`);
+  const confirm = `set role service_role; select public.mcp_confirm_import_reviews('${u}','${proposal}','${signature}');`;
+  const result = sql(confirm);
+  assert.equal(JSON.parse(result).items[0].result.associationId, id);
+  assert.equal(sql(confirm), result);
+  assert.equal(sql(`select mapping_config->>'active' from public.import_batches where id='${id}'`), "false");
+  assert.equal(sql(`select count(*) from public.audit_logs where record_id='${id}'`), "2");
+  assert.equal(fingerprint(), before);
+});

@@ -96,3 +96,9 @@ export async function executeMcpDirectWrite(input: {
 
   return { data: result.data, error: result.error };
 }
+
+export async function confirmMcpImportReview(userId: string, id: string, signature: string) {
+  return createMcpAdminClient().rpc("mcp_confirm_import_reviews", {
+    p_user_id: userId, p_request_id: id, p_signature: signature,
+  });
+}

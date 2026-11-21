@@ -12,6 +12,7 @@ import type { AppSupabaseClient } from "../shared/types";
 import type { Institution } from "./types";
 import type { Period } from "../organizze/types";
 import type { SyncProgress } from "./sync-progress";
+import { indexMerchantHistory, recognizeMerchant } from "./merchants";
 
 export const pluggyToday = () =>
   new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Cuiaba" }).format(new Date());
@@ -144,6 +145,9 @@ export async function pluggyDashboard(
     };
   });
   const ledgerByKey = new Map(data.ledger.map((entry) => [entry.sourceKey, entry]));
+  const proposals = suggestRules(history, references.categories);
+  const merchantHistory = indexMerchantHistory(proposals);
+  const merchants = data.merchants ?? [];
   const movements = views
     .flatMap((view, index) =>
       (view?.movements ?? []).map((row) => {
@@ -154,6 +158,11 @@ export async function pluggyDashboard(
           data.rules,
           references.categories,
         );
+        const merchant = row.kind === "expense"
+          ? recognizeMerchant(row.merchantMetadata, row.kind, merchants, merchantHistory, references.categories, {
+            categoryId: classification.categoryId, ambiguous: classification.categoryAmbiguous,
+          })
+          : null;
         const review = entry?.review ?? {
           state:
             row.candidates.length ||
@@ -162,7 +171,7 @@ export async function pluggyDashboard(
               ? ("pending" as const)
               : ("new" as const),
           categoryId: classification.categoryId,
-          ownership: classification.ownership,
+          ownership: null,
           target: null,
           targetId: null,
           reviewed: false,
@@ -178,12 +187,11 @@ export async function pluggyDashboard(
           institutionId: config.items[index].id,
           review,
           classification,
+          merchant,
           selectedCategoryId: review.reviewed
             ? review.categoryId
-            : (classification.categoryId ?? review.categoryId),
-          selectedOwnership: review.reviewed
-            ? review.ownership
-            : (classification.ownership ?? review.ownership),
+            : merchant ? (merchant.confidence === "alta" ? merchant.categoryId : null) : classification.categoryId,
+          selectedOwnership: review.reviewed ? review.ownership : null,
           changedAfterLink: Boolean(changedAfterLink),
         };
       }),
@@ -215,7 +223,8 @@ export async function pluggyDashboard(
     ),
     categories: references.categories,
     rules: data.rules,
-    proposals: suggestRules(history, references.categories),
+    proposals,
+    merchants,
     ready: data.ready,
     stagingPending: stage && needsStaging
       ? pendingBatches.some((rows) => unstagedRows(rows, ledgerByKey).length > 0)

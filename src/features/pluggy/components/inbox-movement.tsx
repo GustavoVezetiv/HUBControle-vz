@@ -40,11 +40,13 @@ export function InboxMovementRow({
   categories,
   disabled,
   onSave,
+  onRemember,
 }: {
   row: InboxMovement;
   categories: PluggyDashboard["categories"];
   disabled: boolean;
   onSave: (review: InboxReview) => Promise<boolean>;
+  onRemember?: (change: { name: string; categoryId: string; active: boolean }) => Promise<boolean>;
 }) {
   const id = useId();
   const [expanded, setExpanded] = useState(false);
@@ -57,6 +59,10 @@ export function InboxMovementRow({
   );
   const [selected, setSelected] = useState("");
   const [createNew, setCreateNew] = useState(false);
+  const [remember, setRemember] = useState(false);
+  const [merchantName, setMerchantName] = useState(row.merchant?.name ?? "");
+  const [merchantCategory, setMerchantCategory] = useState("");
+  const suggestedCategory = categories.find((item) => item.id === row.merchant?.categoryId);
   const disposition = movementDisposition(row);
   const fixed = row.review.state === "reconciled";
   const eligible =
@@ -90,12 +96,16 @@ export function InboxMovementRow({
         <span className="col-start-1 row-start-1 text-xs text-ink-600 xl:col-auto xl:row-auto xl:text-sm">
           {dateLabel(row.date)}
         </span>
-        <p
-          className="col-span-2 line-clamp-2 min-w-0 break-words text-sm font-medium xl:col-span-1"
-          title={row.description}
-        >
-          {row.description || "Sem descrição"}
-        </p>
+        <div className="col-span-2 min-w-0 xl:col-span-1">
+          <p className="line-clamp-2 break-words text-sm font-medium" title={row.merchantMetadata?.original || row.description}>
+            {row.merchantMetadata?.original || row.description || "Sem descrição"}
+          </p>
+          {row.merchant ? (
+            <p className="text-xs text-ink-600" title={row.merchant.reason}>
+              {[row.merchant.name, suggestedCategory?.name, row.merchant.confidence === "alta" ? "Confiança alta" : "Revisar estabelecimento"].filter(Boolean).join(" · ")}
+            </p>
+          ) : null}
+        </div>
         <BankBadge bank={row.bank} account={row.account} accountType={row.accountType} />
         <span
           className={`col-start-2 row-start-1 text-right text-sm font-semibold tabular-nums xl:col-auto xl:row-auto ${row.kind === "income" ? "text-emerald-700 dark:text-emerald-300" : row.kind === "expense" ? "text-rose-600 dark:text-rose-400" : ""}`}
@@ -182,6 +192,60 @@ export function InboxMovementRow({
               </div>
             </div>
           </details>
+          {row.merchant ? (
+            <section className="space-y-3 border-l-2 border-sky-500 pl-3" aria-label="Identificação do estabelecimento">
+              <h3 className="font-medium">{row.merchant.name ?? "Estabelecimento a identificar"}</h3>
+              <p className="text-xs text-ink-600">{row.merchant.reason}</p>
+              {suggestedCategory && !fixed && row.merchant.status !== "conflict" ? (
+                <ActionButton variant="secondary" disabled={disabled} onClick={() => setCategory(suggestedCategory.id)}>
+                  Usar {suggestedCategory.name} na revisão
+                </ActionButton>
+              ) : null}
+              <details className="text-xs text-ink-600">
+                <summary className="cursor-pointer">Metadados comerciais e de cartão</summary>
+                <dl className="mt-2 grid grid-cols-2 gap-2">
+                  {[
+                    ["Razão social", row.merchantMetadata.legalName],
+                    ["CNPJ", row.merchantMetadata.cnpj],
+                    ["MCC", row.merchantMetadata.mcc],
+                    ["CNAE", row.merchantMetadata.cnae],
+                    ["Ramo informado", row.merchantMetadata.sector],
+                    ["Cidade informada", row.merchantMetadata.city],
+                      ["Endereço informado", row.merchantMetadata.address],
+                      ["Coordenadas informadas", row.merchantMetadata.coordinates ? `${row.merchantMetadata.coordinates.latitude}, ${row.merchantMetadata.coordinates.longitude}` : null],
+                      ["Adquirente", row.merchantMetadata.hasAcquirerId ? "Identificador disponível" : null],
+                    ["Dados de cartão", row.merchantMetadata.hasCardMetadata ? "Disponíveis" : null],
+                  ].filter(([, value]) => value).map(([label, value]) => <div key={label}><dt className="font-medium">{label}</dt><dd>{value}</dd></div>)}
+                </dl>
+              </details>
+              {onRemember && !row.merchant.associationId && !remember ? (
+                <ActionButton variant="secondary" disabled={disabled} onClick={() => {
+                  setMerchantName(row.merchant?.name ?? "");
+                  setMerchantCategory(category || suggestedCategory?.id || "");
+                  setRemember(true);
+                }}>Identificar e salvar associação</ActionButton>
+              ) : null}
+              {row.merchant.associationId ? (
+                <p className="text-xs text-ink-600">Você pode corrigir esta associação na aba Regras.</p>
+              ) : null}
+              {onRemember && remember ? (
+                <div className="space-y-3">
+                  <label className="block text-xs font-medium">
+                    Nome comercial confirmado
+                    <input className={`${inputClassName} mt-1`} value={merchantName} maxLength={140} onChange={(event) => setMerchantName(event.target.value)} />
+                  </label>
+                  <SearchableSelect label="Categoria da associação" value={merchantCategory} onChange={setMerchantCategory}
+                    options={categories.filter(c => c.type === "expense" && c.is_active !== false).map(c => ({ value: c.id, label: c.name }))} />
+                  <div className="flex flex-wrap gap-2">
+                    <ActionButton disabled={disabled || !merchantCategory || merchantName.trim().length < 2} onClick={async () => {
+                      if (await onRemember({ name: merchantName, categoryId: merchantCategory, active: true })) setRemember(false);
+                    }}>Confirmar associação</ActionButton>
+                    <ActionButton variant="secondary" onClick={() => setRemember(false)}>Cancelar</ActionButton>
+                  </div>
+                </div>
+              ) : null}
+            </section>
+          ) : null}
           {fixed ? (
             <Link
               href={linked}
